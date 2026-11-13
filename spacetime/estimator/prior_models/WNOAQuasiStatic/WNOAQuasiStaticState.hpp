@@ -1,0 +1,152 @@
+#ifndef WNOAQUASISTATICSTATE_HPP
+#define WNOAQUASISTATICSTATE_HPP
+
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
+#include <Eigen/Core>
+#include <gtsam/nonlinear/Values.h>
+
+#include <spacetime/estimator/utilities/KeyManager.hpp>
+#include <spacetime/Types.hpp>
+
+namespace Spacetime::Priors::WNOAQuasiStatic
+{
+    // Forward declaration: the concrete key layout lives in WNOAQuasiStatic/InterpolatedKeys.hpp;
+    // Values<Pose> only needs to name it here, not use it, so this avoids a cycle.
+    template <typename Pose>
+    struct InterpolatedKeys;
+
+    /**
+     * @brief Values of a quasi-static node: pose T_ib and generalized strain epsilon (GTSAM
+     *        [rotational, translational] order). The quasi-static prior has no time
+     *        dimension, so no velocity is part of the state.
+     */
+    template <typename Pose>
+    struct Values : public Types::NodeValues
+    {
+        using Base = Types::NodeValues;
+        using TangentVector = typename gtsam::traits<Pose>::TangentVector;
+        using PoseType = Pose;
+        using InterpolatedKeys = WNOAQuasiStatic::InterpolatedKeys<Pose>;
+        static constexpr unsigned int dim = 2 * gtsam::traits<Pose>::dimension;
+
+        /// Identity pose, zero strain.
+        Values() : Values(Pose(), TangentVector::Zero()) {}
+
+        /// Values holding pose `pose_value` (T_ib) and strain `epsilon_value`.
+        Values(const Pose &pose_value, const TangentVector &epsilon_value)
+        {
+            values.resize(2);
+            pose(pose_value);
+            epsilon(epsilon_value);
+        }
+
+        /// Copy constructor.
+        Values(const Values &other) = default;
+
+        /// Pose T_ib.
+        Pose pose() const
+        {
+            return Pose(values.at(0));
+        }
+
+        /// Set the pose T_ib.
+        void pose(const Pose &value)
+        {
+            values[0] = value.matrix();
+        }
+
+        /// Generalized strain, [rotational, translational].
+        TangentVector epsilon() const
+        {
+            return values.at(1);
+        }
+
+        /// Set the generalized strain.
+        void epsilon(const TangentVector &value)
+        {
+            values[1] = value;
+        }
+
+        /// Random pose (Exp of a random tangent) and strain.
+        void setRandom() override
+        {
+            pose(gtsam::traits<Pose>::Expmap(TangentVector::Random()));
+            epsilon(TangentVector::Random());
+        }
+
+        /// Copy from another WNOAQuasiStatic::Values; throws std::runtime_error for any other NodeValues type.
+        Values &operator=(const Base &other) override
+        {
+            const auto *typed_other = dynamic_cast<const Values *>(&other);
+            if (!typed_other)
+                throw std::runtime_error("WNOAQuasiStatic::Values::operator= received incompatible node values type.");
+
+            Base::operator=(other);
+            return *this;
+        }
+        /// Copy assignment.
+        Values &operator=(const Values &other)
+        {
+            return static_cast<Values &>(Base::operator=(other));
+        }
+    };
+
+    /// A quasi-static node at (arclength, time): pose and strain variables, with tangent order [pose, strain].
+    template <typename Pose>
+    struct Node : public Types::NodeBase
+    {
+        static constexpr unsigned int dim = 2 * gtsam::traits<Pose>::dimension;
+        using ValuesType = Values<Pose>;
+        using TangentVector = typename gtsam::traits<Pose>::TangentVector;
+
+        /// Register this node's pose ('p') and strain ('s') variables with `km`.
+        Node(KeyManager &km, double arclength, double time) : Types::NodeBase(km, arclength, time)
+        {
+            poseKey_ = this->registerVariable<Pose>(km, "pose", 'p');
+            strainKey_ = this->registerVariable<TangentVector>(km, "strain", 's');
+        }
+        /// Key of the pose variable.
+        gtsam::Key poseKey() const { return poseKey_; }
+        /// Key of the strain variable.
+        gtsam::Key strainKey() const { return strainKey_; }
+
+        /// (interpolated key, this node's key) pairs for pose and strain (see WNOAQuasiStatic::InterpolatedKeys).
+        std::vector<std::pair<gtsam::Key, gtsam::Key>> interpolatedKeys() const override
+        {
+            // InterpolatedKeys is included at the end of this file (see there).
+            using Keys = InterpolatedKeys<Pose>;
+            return {{Keys::Pose(), poseKey_}, {Keys::Strain(), strainKey_}};
+        }
+
+        /// This node's values read from `values` (throws if a variable is absent).
+        std::shared_ptr<Types::NodeValues> getValuesBase(const gtsam::Values &values) const override
+        {
+            return std::make_shared<ValuesType>(getValues(values));
+        }
+
+        /// Typed counterpart of getValuesBase.
+        ValuesType getValues(const gtsam::Values &values) const
+        {
+            return ValuesType(values.at<Pose>(poseKey_), values.at<TangentVector>(strainKey_));
+        }
+        /// Insert `node_values` into `values` at this node's keys.
+        void setValues(gtsam::Values &values, const ValuesType &node_values) const
+        {
+            this->insert("pose", node_values.pose(), values);
+            this->insert("strain", node_values.epsilon(), values);
+        }
+
+    private:
+        gtsam::Key poseKey_, strainKey_;
+    };
+} // namespace Spacetime::Priors::WNOAQuasiStatic
+
+// Node::interpolatedKeys needs InterpolatedKeys complete. It includes this file, so it can
+// only come after Node is defined; its include guard breaks the cycle.
+#include <spacetime/estimator/prior_models/WNOAQuasiStatic/InterpolatedKeys.hpp>
+
+#endif // WNOAQUASISTATICSTATE_HPP

@@ -1,0 +1,17 @@
+{
+    "demo_data": {
+        "robot_length": 0.466,
+        "robot_N": 5,
+        "folder_path": "data/video6/",
+        "start_time": 19,
+        "end_time": 29,
+        "include_aurora": true,
+        "include_gyro": false,
+        "include_strain": false,
+        "weights": {
+            "R_pose": [0.0025, 0.0025, 0.0025, 3e-05, 3e-05, 3e-05],
+            "R_gyro": [0.0001, 0.0001, 0.0001],
+            "measurement_factor": 1
+        }
+    }
+}

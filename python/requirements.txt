@@ -1,0 +1,6 @@
+# Build and test requirements of the Python bindings. GTSAM's Python module (gtsam) must be
+# installed separately, built from the same GTSAM as the C++ library (GTSAM_BUILD_PYTHON=ON).
+# pybind11 must match the version GTSAM's wrapper was built with, so types are shared.
+pybind11==3.0.4
+numpy
+pytest

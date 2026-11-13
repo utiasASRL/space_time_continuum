@@ -4,198 +4,198 @@ project(spacetime VERSION 1.0.0 LANGUAGES CXX)
 
 #Important CMAKE stuff
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 # Add GNUInstallDirs for standard installation directories
 include(GNUInstallDirs)
 
 ### Build Options
+option(BuildTests "BuildTests" ON)
 option(Profile "Profile" OFF)
 option(Debug "Debug" OFF)
-option(Estimator "Estimator" ON)
-# option(BUILD_TESTS "BUILD_TESTS" ON)
+option(Visualizer "Visualizer" ON)
+# Which visualizer backend (spacetime/visualizer/<backend>/) to build when Visualizer is ON.
+set(VisualizerBackend "default" CACHE STRING "Visualizer backend to build (default)")
+set_property(CACHE VisualizerBackend PROPERTY STRINGS default)
+# -march=native changes Eigen's alignment, so it must match how GTSAM was built.
+option(MarchNative "Compile Release builds with -march=native" ON)
+# Interfaces built on the interface layer (spacetime/interface/), one subfolder each
+# (e.g. spacetime/interface/standalone/). Standalone replays recorded data; ROS2 runs live
+# (or rosbag) estimation on ROS2 nodes (source a ROS2 distribution first); Mujoco is not
+# implemented yet.
+option(InterfaceStandalone "Build the standalone interface (file playback)" ON)
+option(InterfaceMujoco "Build the Mujoco interface" OFF)
+option(InterfaceROS2 "Build the ROS2 interface" OFF)
+# Python bindings (python/): the `spacetime` package, built against GTSAM's Python module.
+option(Python "Build the Python bindings" OFF)
 
-message(STATUS "USE_AUTODIFF = ${USE_AUTODIFF}")
+message("BuildTests: ${BuildTests}")
+message("Profile: ${Profile}")
+message("Debug: ${Debug}")
+message("Visualizer: ${Visualizer}")
+message("VisualizerBackend: ${VisualizerBackend}")
+message("MarchNative: ${MarchNative}")
+message("InterfaceStandalone: ${InterfaceStandalone}")
+message("InterfaceMujoco: ${InterfaceMujoco}")
+message("InterfaceROS2: ${InterfaceROS2}")
+message("Python: ${Python}")
+if(InterfaceMujoco)
+    message(FATAL_ERROR "The Mujoco interface (InterfaceMujoco) is not implemented yet.")
+endif()
+if(InterfaceROS2 AND NOT InterfaceStandalone)
+    message(FATAL_ERROR "The ROS2 interface lowers its non-estimator threads' priority as the standalone interface does: InterfaceROS2=ON requires InterfaceStandalone=ON.")
+endif()
+if(Visualizer AND NOT InterfaceStandalone)
+    message(FATAL_ERROR "The visualizer runs on the standalone interface's threads: Visualizer=ON requires InterfaceStandalone=ON.")
+endif()
+if(Python AND NOT InterfaceStandalone)
+    message(FATAL_ERROR "The Python bindings run problems through the standalone interface: Python=ON requires InterfaceStandalone=ON.")
+endif()
+if(Python)
+    # The static libraries are linked into the Python extension, a shared object.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 if(Debug)
     set(CMAKE_BUILD_TYPE Debug)
     set(CMAKE_CXX_FLAGS "-Wall -Wextra -Og -g3")
+    set(SPACETIME_DEBUG_LOG 1) # see spacetime/estimator/utilities/logger.hpp; exported with the estimator target
 else()
     set(CMAKE_BUILD_TYPE Release)
-    set(CMAKE_CXX_FLAGS "-march=native -O3 -g0")
+    if(MarchNative)
+        set(CMAKE_CXX_FLAGS "-march=native -O3 -g0")
+    else()
+        set(CMAKE_CXX_FLAGS "-O3 -g0")
+    endif()
+    set(SPACETIME_DEBUG_LOG 0)
 endif()
 
 if(Profile)
     string(APPEND CMAKE_CXX_FLAGS " -pg")
 endif()
 
+# Core project setup 
+find_package(Eigen3 3.4 REQUIRED NO_MODULE) # Eigen
+find_package(jsoncpp REQUIRED) # Json
+if(Python AND TARGET jsoncpp_lib)
+    # JsonCpp::JsonCpp prefers jsoncpp's static library, which is often built without -fPIC and
+    # then cannot be linked into the Python extension: use its shared library instead.
+    set_target_properties(JsonCpp::JsonCpp PROPERTIES INTERFACE_LINK_LIBRARIES jsoncpp_lib)
+endif()
+find_package(GTSAM REQUIRED) # GTSAM
+if(InterfaceStandalone)
+    find_package(Threads REQUIRED) # the standalone interface's estimator/dataloader threads
+endif()
+if(InterfaceROS2)
+    # The ROS2 interface's nodes (spacetime/interface/ros2/): needs a sourced ROS2 distribution.
+    find_package(rclcpp REQUIRED)
+    find_package(tf2_ros REQUIRED)
+    find_package(tf2_msgs REQUIRED)
+    find_package(geometry_msgs REQUIRED)
+    find_package(visualization_msgs REQUIRED)
+endif()
+if(Visualizer AND NOT VisualizerBackend STREQUAL "default")
+    message(FATAL_ERROR "Unknown VisualizerBackend '${VisualizerBackend}'. Available backends: default")
+endif()
+if(Visualizer)
+    set(Qt6_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6")
+    set(Qt6CoreTools_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6CoreTools")
+    set(Qt6GuiTools_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6GuiTools")
+    set(Qt6QmlTools_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6QmlTools")
+    set(VTK_DIR "/usr/local/include/vtk-9.3")
 
-### Dependency Finds
+    find_package(VTK 9.3 REQUIRED) # VTK
+    find_package(Qt6 REQUIRED COMPONENTS Core Gui Xml Network Widgets OpenGLWidgets) # Qt
 
-#Qt
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Xml Network Widgets OpenGLWidgets)
-qt_standard_project_setup()
-
-#Eigen
-find_package(Eigen3 3.4 REQUIRED NO_MODULE)
-
-# Lgmath 
-find_package(lgmath REQUIRED)
-
-# VTK 
-find_package(VTK 9.3 REQUIRED)
-
-# Json
-find_package(jsoncpp REQUIRED)
-
-# tsl-robin-map
-find_package(tsl-robin-map REQUIRED)
-
-
-### Project Library build and export 
-file(GLOB_RECURSE CPP_FILES
-    ${PROJECT_SOURCE_DIR}/src/*.cpp
-)
-
-# Include header files so MOC can process Q_OBJECT macros
-file(GLOB_RECURSE H_FILES
-    ${PROJECT_SOURCE_DIR}/include/*.hpp
-)
-
-# Add Qt MOC processing for headers with Q_OBJECT
-set(CMAKE_AUTOMOC ON)
-qt_add_library(${PROJECT_NAME} STATIC ${CPP_FILES} ${H_FILES})
-
-
-target_include_directories(${PROJECT_NAME} PUBLIC
-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-    PRIVATE
-    ${lgmath_INCLUDE_DIRS}/include
-    ${VTK_INCLUDE_DIRS}
-)
-
-if(USE_AUTODIFF)
-    message(STATUS "Using autodiff")
-    find_package(autodiff)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC USE_AUTODIFF=1)
-    target_link_libraries(${PROJECT_NAME} PUBLIC autodiff::autodiff)
+    qt_standard_project_setup()
+    # QT_NO_KEYWORDS is set on the visualizer target (see spacetime/CMakeLists.txt), so
+    # that it reaches everything built against it, here or through the installed package.
 endif()
 
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
-    message(STATUS "OpenMP found, linking OpenMP")
+add_subdirectory(spacetime)
+if(InterfaceStandalone)
+    add_subdirectory(examples) # the demo plays recorded data through the standalone interface
 endif()
 
-target_link_libraries(${PROJECT_NAME} PUBLIC
-    Qt6::Core
-    Qt6::Gui
-    Qt6::Xml
-    Qt6::Network
-    Qt6::Widgets
-    Qt6::OpenGLWidgets
-    Eigen3::Eigen
-    JsonCpp::JsonCpp
-    lgmath
-    tsl::robin_map
-    ${VTK_LIBRARIES}
-)
+# Build tests if enabled
+if(BuildTests)
+    add_subdirectory(tests)
+endif()
 
-# Add an alias target for better namespacing
-add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
+if(Python)
+    add_subdirectory(python)
+endif()
 
-# Add an alias target for better namespacing
-message(STATUS "CMAKE_INSTALL_LIBDIR: " ${CMAKE_INSTALL_LIBDIR})
-message(STATUS "CMAKE_INSTALL_BINDIR: " ${CMAKE_INSTALL_BINDIR})
-message(STATUS "CMAKE_INSTALL_INCLUDEDIR: " ${CMAKE_INSTALL_INCLUDEDIR})
-message(STATUS "Installation Configuration for ${PROJECT_NAME}:")
-message(STATUS "  Prefix: ${CMAKE_INSTALL_PREFIX}")
-message(STATUS "  Header destination: ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}")
-message(STATUS "  Library destination: ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
-message(STATUS "  Binary destination: ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
-message(STATUS "  CMake config destination: ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 
-# Install header files
-install(DIRECTORY include/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-
-# Installation rules
-install(TARGETS ${PROJECT_NAME}
+### Install / export: find_package(spacetime) with the targets spacetime::estimator,
+### spacetime::interface, spacetime::interfaces (every built interface) and (if built)
+### spacetime::standalone, spacetime::ros2 (with spacetime::rviz) and spacetime::visualizer.
+set(SPACETIME_EXPORTED_TARGETS estimator interface interfaces)
+if(InterfaceStandalone)
+    list(APPEND SPACETIME_EXPORTED_TARGETS standalone)
+endif()
+if(InterfaceROS2)
+    list(APPEND SPACETIME_EXPORTED_TARGETS ros2 rviz)
+endif()
+if(Visualizer)
+    list(APPEND SPACETIME_EXPORTED_TARGETS visualizer)
+endif()
+install(TARGETS ${SPACETIME_EXPORTED_TARGETS}
     EXPORT ${PROJECT_NAME}Targets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
-
-# Install the targets file with proper namespace
+# Headers live next to their sources, under spacetime/, and are included as <spacetime/...>.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/spacetime/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/spacetime
+    FILES_MATCHING PATTERN "*.hpp"
+)
 install(EXPORT ${PROJECT_NAME}Targets
     FILE ${PROJECT_NAME}Targets.cmake
     NAMESPACE ${PROJECT_NAME}::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
 )
 
-set(PROJECT_LIBRARY ${PROJECT_NAME})
 include(CMakePackageConfigHelpers)
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
-    NO_SET_AND_CHECK_MACRO
-    NO_CHECK_REQUIRED_COMPONENTS_MACRO
 )
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY AnyNewerVersion
+    COMPATIBILITY SameMajorVersion
 )
-
-install(
-    FILES
+install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
 )
 
-# if(BUILD_TESTS)
-#     message(STATUS "Building tests")
-#     include(FetchContent)
-#     FetchContent_Declare(
-#         googletest
-#         URL https://github.com/google/googletest/archive/e88cb95b92acbdce9b058dd894a68e1281b38495.zip
-#     )
-#     # For Windows: Prevent overriding the parent project's compiler/linker settings
-#     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-#     FetchContent_MakeAvailable(googletest)
 
-#     enable_testing()
-#     include(GoogleTest)
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+    set(DOXYGEN_HTML_EXTRA_STYLESHEET ${CMAKE_CURRENT_SOURCE_DIR}/docs/doxygen-awesome.css)
+    # doxygen-awesome recommends these alongside the stylesheet
+    set(DOXYGEN_GENERATE_TREEVIEW YES)
+    set(DOXYGEN_DISABLE_INDEX NO)
+    set(DOXYGEN_FULL_SIDEBAR NO)
+    set(DOXYGEN_HTML_COLORSTYLE LIGHT)
+    set(DOXYGEN_USE_MDFILE_AS_MAINPAGE ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
+    set(DOXYGEN_IMAGE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/docs/images)
 
-#     add_executable(test_factors tests/FactorTests.cpp)
-#     target_link_libraries(test_factors ${PROJECT_NAME} GTest::gtest_main)
-#     gtest_discover_tests(test_factors)
-
-#     add_executable(test_functions tests/FunctionTests.cpp)
-#     target_link_libraries(test_functions ${PROJECT_NAME} GTest::gtest_main)
-#     gtest_discover_tests(test_functions)
-
-#     add_executable(test_jacobians tests/AutodiffJacTests.cpp)
-#     target_link_libraries(test_jacobians ${PROJECT_NAME} GTest::gtest_main)
-#     gtest_discover_tests(test_jacobians)
-# endif()
-
-
-if(Estimator)
-    file(GLOB_RECURSE H_FILES_TOOLS
-        ${PROJECT_SOURCE_DIR}/scripts/*.hpp
+    doxygen_add_docs(docs
+        ${CMAKE_CURRENT_SOURCE_DIR}/spacetime
+        ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+        COMMENT "Generating API documentation with Doxygen"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
-    file(GLOB_RECURSE CPP_FILES_TOOLS
-        ${PROJECT_SOURCE_DIR}/scripts/*.cpp
+    # README uses raw <img> tags, which doxygen does not relocate; mirror the assets
+    add_custom_command(TARGET docs POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/images
+            ${CMAKE_CURRENT_BINARY_DIR}/html/docs/images
     )
-
-    qt_add_executable(estimator scripts/main.cpp)
-    target_link_libraries(estimator PRIVATE ${PROJECT_NAME})
-    target_sources(estimator PRIVATE ${H_FILES_TOOLS} ${CPP_FILES_TOOLS})
 endif()

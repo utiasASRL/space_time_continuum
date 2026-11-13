@@ -1,0 +1,24 @@
+"""Installs the spacetime package assembled by the CMake build (python/CMakeLists.txt); not for use directly."""
+
+from setuptools import setup
+from setuptools.dist import Distribution
+
+
+class BinaryDistribution(Distribution):
+    """The package holds a prebuilt extension, so its wheel is platform specific."""
+
+    def has_ext_modules(self):
+        return True
+
+
+setup(
+    name="spacetime",
+    version="${PROJECT_VERSION}",
+    description="Continuum robot state estimation in space and time, on GTSAM",
+    packages=["spacetime"],
+    package_data={"spacetime": ["_spacetime*.so"]},
+    python_requires=">=3.10",
+    install_requires=["gtsam", "numpy"],
+    distclass=BinaryDistribution,
+    zip_safe=False,
+)

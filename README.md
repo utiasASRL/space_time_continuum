@@ -1,7 +1,7 @@
 
 <div align="center">
 
-<img src="assets/images/title_figure.png" alt="logo" width="800" height="auto" />
+<img src="docs/images/title_figure.png" alt="logo" width="800" height="auto" />
 <h1>Space-Time Continuum</h1>
 
 <p>
@@ -11,33 +11,31 @@ A continuous-time-and-space state estimation framework for real-time dynamic sta
 <h4>
     <a href="https://arxiv.org/src/2510.26623v1/anc/results_video.mp4">View Demo</a>
     <span> · </span>
-    <a href="https://github.com/utiasASRL/space_time_continuum/blob/main/CHANGELOG.md">See Changes</a>
-    <span> · </span>
     <a href="https://github.com/utiasASRL/space_time_continuum/issues">Report Bug</a>
     <span> · </span>
     <a href="https://github.com/utiasASRL/space_time_continuum/issues">Request Feature</a>
 </h4>
-
+<h4>
+    <a href="https://arxiv.org/abs/2510.01381">Paper 1</a>
+    <span> · </span>
+    <a href="https://arxiv.org/pdf/2510.26623">Paper 2</a>
+    <span> · </span>
+    <a href="https://www.roboticsproceedings.org/rss22/p050.pdf">Paper 3</a>
+</h4>
 </div>
 
 <br />
-
-📕 <a href="https://arxiv.org/abs/2510.01381">A Stochastic Framework for Continuous-Time State Estimation of Continuum Robots</a>
-
-📕 <a href="https://arxiv.org/abs/2510.26623">A Sliding-Window Filter for Online Continuous-Time Continuum Robot State Estimation</a>
-
-📕 <a href="https://arxiv.org/abs/2602.07209">Continuum Robot Localization using Distributed Time-of-Flight Sensors</a>
-
-<br>
 
 <!-- Table of Contents -->
 # Table of Contents
 
 - [About](#about)
-- [Getting Started](#getting-started)
+- [Getting Started](#toolbox-getting-started)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
-  - [Running Demos](#running-demos)
+    - [Using spacetime from another CMake project](#using-spacetime-from-another-cmake-project)
+  - [Running Tests](#running-tests)
+  - [Run Demos](#run-demos)
 - [Contributing](#contributing)
 - [FAQ](#faq)
 - [Publications](#publications)
@@ -55,7 +53,7 @@ Space-Time Continuum is a continuous-time-and-space estimator for real-time esti
 
 The estimation framework proposed uses a maximum a posteriori (MAP) framework solved via factor-graph optimization. A series of prior factors are proposed which approximate the spatial and temporal dynamics of a Cosserat rod. Three individual solver types are implemented: batch, filter, and sliding-window filter estimators. The two filter-based solvers use an expanding / marginalizing approach to factor-graph construction highlighted in the figure below.
 
-<img src="assets/images/factor_graph_sliding_window.png" alt="logo" width="1067" height="auto" />
+<img src="docs/images/factor_graph_sliding_window.png" alt="logo" width="1067" height="auto" />
 
 The batch solver cannot grow in size nor does it support marginalization, but rather, performs estimation over a fixed time period. As the estimator is formulated through a factor-graph, it is easy for users to add their own custom factors to integrate sensors and measurement models that are not initially included in this package. If you write a measurement factor for your own work that you feel would be valuable for other researchers, feel free to open a pull request and we can see about adding it to the repository! For more information, see the [contributing](#contributing) sections. For a complete description of the implementation, please see our [publications](#publications).
 
@@ -81,8 +79,7 @@ This repository relies on several third party packages listed below that each ne
 - [Eigen 3.4](https://libeigen.gitlab.io/)
 - [VTK 9.3](https://vtk.org/)
 - [Qt 6.8.0](https://contribute.qt-project.org/)
-- [lgmath](https://github.com/utiasASRL/lgmath) *Note: This dependency will switch to GTSAM in the next version*
-- [robin-map](https://github.com/Tessil/robin-map)
+- [GTSAM](https://gtsam.org/)
 
 ### Installation 
 
@@ -91,6 +88,80 @@ git clone https://github.com/utiasASRL/space_time_continuum
 cd space_time_continuum
 ./build_release.sh 
 ```
+
+#### Using spacetime from another CMake project
+
+spacetime can be installed as a CMake package so other projects (e.g. `papers/rss2026_tof`) can build against it without depending on this repository's layout:
+
+```bash
+cmake -B build -DMarchNative=OFF -DVisualizer=ON
+cmake --build build -j$(nproc)
+cmake --install build --prefix <install-prefix>
+```
+
+This installs the headers to `<install-prefix>/include/spacetime`, the libraries to `<install-prefix>/lib`, and the package files to `<install-prefix>/lib/cmake/spacetime`. A downstream project then uses:
+
+```cmake
+find_package(spacetime 1.0 REQUIRED)
+target_link_libraries(my_target PRIVATE spacetime::estimator)
+# Every built interface (see "Selecting an interface" below)
+target_link_libraries(my_target PRIVATE spacetime::interfaces)
+if(spacetime_VISUALIZER)
+    target_link_libraries(my_target PRIVATE spacetime::visualizer)
+endif()
+```
+
+and is configured with spacetime on the search path (not needed if it was installed to a default prefix, e.g. `/usr/local`):
+
+```bash
+cmake -B build -DCMAKE_PREFIX_PATH=<install-prefix>
+```
+
+Notes:
+
+- `spacetime::visualizer` only exists if spacetime was built with `-DVisualizer=ON`; the package sets `spacetime_VISUALIZER` accordingly.
+- `spacetime::standalone` only exists if spacetime was built with `-DInterfaceStandalone=ON` (the default); the package sets `spacetime_INTERFACE_STANDALONE` accordingly.
+- `-march=native` changes Eigen's memory alignment, so GTSAM, spacetime and the downstream project must all agree on it. The package sets `spacetime_MARCH_NATIVE` to how spacetime was built; downstream projects should add `-march=native` exactly when it is true.
+- Headers are included as `#include <spacetime/...>`, e.g. `<spacetime/estimator/Estimator.hpp>`.
+#### Threading and interfaces
+
+The interface layer (`spacetime/interface/`) defines what every interface builds on, without handling any threads itself: an `Interface::Clock`, `Interface::Dataloader`s with a delivery watermark, an `Interface::EstimationSchedule` (when to estimate) and an `Interface::EstimatorDriver` (one `step(time)` per estimate). Each interface decides how threads are handled; e.g. a ROS2 node would call `EstimatorDriver::step` from its own timer. The standalone interface runs these threads:
+
+| Thread | Priority | Role |
+|---|---|---|
+| Control (`main()`) | default | Owns the lifecycle: builds the models, starts, stops and joins the other threads. |
+| Estimator | default (highest) | `Standalone::EstimatorRunner`: steps the estimator once per period, paced by a `Standalone::PacingClock`. |
+| Dataloader(s) | default | One `Standalone::ThreadedDataloader` each (e.g. `Standalone::FileDataloader`), filling the models' measurement queues. |
+| Visualizer (optional, not with `--headless`) | lowered | `Visualization::Default::VisualizerThread`: owns every Qt/VTK object and reads the estimator's published snapshots. |
+| Queries (optional) | lowered | Read results through `Estimator::getSnapshot()` / `waitForSnapshotNewerThan()`, or an `Interface::SnapshotHistory`. |
+
+Offline (`Standalone::SteppedClock`), the estimator steps as fast as possible and waits for every dataloader to deliver its data up to each step, so results are deterministic. In real time (`Standalone::WallClock`), it never waits on data.
+
+Interfaces are build-time options, each implementing the layer under `spacetime/interface/<name>/`:
+
+| Option | Default | Interface |
+|---|---|---|
+| `InterfaceStandalone` | `ON` | Replays recorded files (`Standalone::FileDataloader`), as fast as possible or in real time (`--online`). Used by the demos. |
+| `InterfaceMujoco` | `OFF` | Live, through Mujoco. Not implemented yet. |
+| `InterfaceROS2` | `OFF` | Live, through ROS2. Not implemented yet. |
+
+The Qt visualizer runs on a worker thread, which Qt supports on Linux but not on macOS. `-DVisualizer=ON` requires `-DInterfaceStandalone=ON`.
+
+**Selecting an interface.** Interfaces are swappable by changing one line. Each interface declares a bundle `Spacetime::Interfaces::<Name>` satisfying the `Spacetime::Interface::InterfaceType` concept (`spacetime/interface/InterfaceConcept.hpp`, which documents every hook): a `name` and a `Session` that is constructed from the estimator and `Interface::SessionOptions`, and that is given the models' measurement queues and run with `start()` / `requestStop()` / `join()`. Downstream code links `spacetime::interfaces`, includes every built interface at once and selects one:
+
+```cpp
+#include <spacetime/interface/Interfaces.hpp>
+using SelectedInterface = Spacetime::Interfaces::Standalone; // the only interface-specific line
+
+Spacetime::Interface::SessionOptions options; // start_time, end_time, period, real_time
+SelectedInterface::Session session(estimator, options);
+session.addMeasurementQueues(estimator.getMeasurementQueues());
+session.start();
+session.join();
+```
+
+The demos (`examples/*.cpp`, `papers/*/main.cpp`) are written this way.
+
 <!-- 
 To run the unit tests, 
 
@@ -98,9 +169,7 @@ To run the unit tests,
 ./run_tests
 ``` -->
 
-### Running Demos
-
-To run paper demos, use the following
+Lastly, to run paper demos, use the following 
 
 ```bash
 ./run_demo <estimator> <robot_number> <trial>
@@ -135,19 +204,69 @@ Four robots are used in the following trials. Their descriptions are as follows:
 **Notes:**
 
 - Demos for [3] to be added at a later time.
-- Small changes have been made to the code base and configurations that have resulted in small deviations in the results from the original published works. The conclusions of each work remain unchanged. Older versions of the project that have been used in each of the works can be made available upon request, though as with many early research projects, user-friendliness was not a priority at the time and I strongly recommend using the current version.
+- Small changes have been made to the code base and configurations that have resulted in small deviations in the results from the original published works. The conclusions of each work remain unchanged. Older versions of the project that have been used in each of the works can be made available upon request, though as with many early research projects, user-friendliness was not a priority at the time.
 
 </details>
 
 <br>
+
+#### Joining robots
+
+A `Spacetime::Joints::Joint` (`spacetime/estimator/joint_models/Joint.hpp`) is a model that joins two robots. It holds the point at arclength `s_a` on robot A to the point at `s_b` on robot B, optionally through an offset `T_AB` (`T_B = T_A T_AB`). It softly locks either the full pose (`JointType::Rigid`) or only the position (`JointType::Spherical`), and the velocities of the two points whenever both robots have them. The joint points may lie between nodes, and the offset covariance must be positive-definite, so hard constraints are not supported. Each robot's prior is found through its state, so construct the priors first:
+
+```cpp
+auto joint = std::make_shared<Spacetime::Joints::Joint<WNOAPrior, WNOAPrior>>(
+    robot_a, s_a, robot_b, s_b, offset_covariance, options); // options: type, offset, velocity_sigma_floor
+estimator.addModel(joint);
+```
+
+Several robots can also attach to one `Spacetime::Joints::EndEffector` (`spacetime/estimator/joint_models/EndEffector.hpp`). This is a rigid body with no length, holding only a pose and a velocity, and it is linked over time by GTSAM's WNOA motion factors. It has no anchor of its own: the robots attached to it position it, and estimating it with none attached throws. It owns its prior and its joints, so a single `addModel` registers all of them:
+
+```cpp
+auto platform = std::make_shared<Spacetime::Joints::EndEffector<gtsam::Pose3>>(initial_pose);
+platform->attach(robot_prior, s, offset_covariance, options); // options.offset = T_point_ee; returns the Joint
+estimator.addModel(platform);
+```
+
+Three hard-coded demos use it. Each runs a batch estimate, prints how well every joint holds, and replays the result in the visualizer. `--headless` skips the visualizer, and `--output <dir>` writes the estimate to `<dir>` (used by the Python regression test).
+
+```bash
+./build/examples/robot_joining [--headless] # robot A's tip joined to robot B's mid-point through a short link; B is driven into an S shape
+./build/examples/stewart_gough [--headless] # six legs of a Stewart-Gough platform, their tips attached to an end effector, actuated by elongation
+./build/examples/robot_joining_parallel [--headless] # two fixed-base, unshearable legs whose tips share an end effector, swung 27 cm sideways; only the end effector's pose is measured
+```
+
+In the visualizer, a joint is drawn as a black cylinder between the joined points, or as a black sphere when it has no offset, and an end effector as a coordinate frame. `N` toggles the joints and `E` the end-effector frames.
+
+#### Python
+
+The `spacetime` Python package exposes the library: priors (`priors.wnoa`, `priors.wnov`, `priors.wnoa_quasi_static`) and their grid states, sensors, joints and end effectors, the estimator, the standalone session and the visualizer, with all of their options. GTSAM objects (`gtsam.Pose3`, `gtsam.Values`, factors, noise models) are GTSAM's own Python types, so GTSAM's Python module must be installed, built from the same GTSAM as the C++ library (`GTSAM_BUILD_PYTHON=ON`). The bindings must be built with the pybind11 version GTSAM's wrapper uses; it is pinned in `python/requirements.txt`.
+
+```bash
+pip install -r python/requirements.txt
+./build.sh --python                 # builds the bindings and pip-installs `spacetime` (into .venv if present)
+python -m pytest python/tests       # also run by ./test.sh once the bindings are built
+```
+
+Every C++ base class can be subclassed in Python: `types.Model`, `types.SensorBase` (override `getFactor`), `types.ActuatorBase`, `types.StatefulModel` (e.g. a prior: override `extendState`), `types.State`, `types.NodeBase` and `types.NodeValues`, as well as the built-in priors and sensors. `types.Robot` is a plain list of models, for `Estimator.addRobot`. Python models build their factors from existing C++ factors, GTSAM's (e.g. `gtsam.PriorFactorPose3`) or the library's (`sensors.PoseFactor`, `sensors.StrainFactor`, `sensors.GyroFactor`), so factor evaluation stays in C++:
+
+```python
+import gtsam
+from spacetime import sensors, types
+
+class MyPoseSensor(types.SensorBase):
+    def getFactor(self, measurement):
+        noise = gtsam.noiseModel.Gaussian.Covariance(measurement.covariance)
+        return sensors.PoseFactor(noise, gtsam.Pose3(measurement.value), measurement.mask)
+```
+
+As in C++, a robot is its grid state (e.g. `wnoa.ContinuumRobotState(length, nodes)`, which holds its locks) plus the prior that extends it; sensors and joints are built on the prior. A state does not own its prior: keep a reference to each prior while it is in use. The joining demos are ported to `python/examples/` (`robot_joining.py`, `robot_joining_parallel.py`, `stewart_gough.py`, with the same options), along with `custom_sensor.py`; `python/tests/test_demo_regression.py` checks that they reproduce the C++ demos' estimates.
 
 ## Contributing
 
 We are open to contribution from third parties! Please use the following
 
 ### Adding a new measurement factor type
-
-*Note: This will be deprecated in the next version as we switch to a GTSAM backend*
 
 If you have developed a new measurement factor that you think others would find useful, feel free to open a pull request including the new factor! To make a new factor, it must inherit the ``Spacetime::Factors::MeasurementFactor`` class. The mandatory functions ``getError`` and ``getJacobian`` must be implemented. Please see existing measurement factors and [this example](examples/custom_factor) for reference. In your pull request please include:
 
@@ -166,21 +285,21 @@ Please [open an issue](https://github.com/utiasASRL/space_time_continuum/issues)
 <details>
 <summary><strong>Who is this project for?</strong></summary>
 
-The project in its current state remains research focused. It is meant for individuals who are working in state estimation or otherwise need a stochastic state estimator in their work. I am working to make it more usable beyond the provided demos, and hope to some day have it be a tool that can be easily deployed on other research setups.
+The project in its current state remains research focused. It is meant for individuals who are working in state estimation or otherwise need a stochastic state estimator in their work.
 
 </details>
 
 <details>
 <summary><strong>Is this code production-ready?</strong></summary>
 
-This code has been used and tested in a research environment. While the system is fast enough to run in real-time, an online API is not currently provided and is left to future work. Caution is advised for researchers wishing to use this repository in any closed-loop control applications, as no formal safety guarantees are currently implemented. If you are a researcher and looking to use it in such an application, feel free to reach out to see if a collaboration is possible.
+This code has been used and tested in a research environment. While the system is fast enough to run in real-time, and an interface layer for live use is provided (see [Threading and interfaces](#threading-and-interfaces)), only file playback is implemented on it so far. Caution is advised for researchers wishing to use this repository in any closed-loop control applications, as no formal safety guarantees are currently implemented. If you are a researcher and looking to use it in such an application, feel free to reach out to see if a collaboration is possible.
 
 </details>
 
 <details>
 <summary><strong>How do I cite this work?</strong></summary>
 
-See the [Publications](#publications) section of this README.
+See the [Citing](#publications) section of this README.
 
 </details>
 
@@ -218,7 +337,7 @@ State estimation techniques for continuum robots (CRs) typically involve using c
 <summary>BibTeX</summary>
 
 ```bibtex
-@article{Teetaert2025,
+@article{Teetaert2025b,
   title={A Stochastic Framework for Continuous-Time State Estimation of Continuum Robots}, 
   author={Spencer Teetaert and Sven Lilge and Jessica Burgner-Kahrs and Timothy D. Barfoot},
   year={2025},
@@ -276,14 +395,12 @@ Localization and mapping of an environment are crucial tasks for any robot opera
 <summary>BibTeX</summary>
 
 ```bibtex
-@inproceedings{Teetaert2026b,
+@article{Teetaert2026b,
   title={Continuum Robot Localization using Distributed Time-of-Flight Sensors},
   author={Spencer Teetaert and Giammarco Caroleo and Marco Pontin and Sven Lilge and Jessica Burgner-Kahrs and Timothy D. Barfoot and Perla Maiolino},
-  booktitle={Proceedings of Robotics: Science and Systems},
-  pubstate={forthcoming},
-  address={Sydney, Australia},
-  month={7},
-  year={2026}
+  year={2026},
+  eprint={2602.07209},
+  archivePrefix={arXiv}
 }
 ```
 
@@ -309,10 +426,10 @@ This project would not be possible without the support of many collaborators, op
 * The Natural Sciences and Engineering Research Council of Candada (NSERC)
 * My co-authors and collaborators, especially Sven Lilge, whose [project](https://github.com/SvenLilge/Continuum-MultiRobot-Estimation) provides the foundation for this work. 
 * My colleagues from both CRL and ASRL who have provided feedback and support
-* All the projects used in this work that are supported by the open-source community ([Eigen](https://libeigen.gitlab.io/), [VTK](https://vtk.org/), [lgmath](https://github.com/utiasASRL/lgmath), [Qt](https://contribute.qt-project.org/))
+* All the projects used in this work that are supported by the open-source community ([Eigen](https://libeigen.gitlab.io/), [VTK](https://vtk.org/), [GTSAM](https://gtsam.org/), [Qt](https://contribute.qt-project.org/))
 
 <br>
 
 ## License 
 
-This project is freely distributed under the MIT license. Please refer to [LICENSE](LICENSE) for more information.
+This project is freely distributed under the MIT license. Please refer to [LICENSE.txt](LICENSE.txt) for more information.

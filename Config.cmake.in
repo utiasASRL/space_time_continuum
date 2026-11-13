@@ -1,50 +1,43 @@
 @PACKAGE_INIT@
 
-# Include required CMake modules
+# spacetime package configuration: find_package(spacetime) provides the targets
+# spacetime::estimator, spacetime::interface (the thread-free interface layer),
+# spacetime::interfaces (every built interface, see <spacetime/interface/Interfaces.hpp>)
+# and, if built, spacetime::standalone (spacetime_INTERFACE_STANDALONE), spacetime::ros2 and
+# spacetime::rviz (spacetime_INTERFACE_ROS2, need a sourced ROS2 distribution) and
+# spacetime::visualizer (spacetime_VISUALIZER).
+
 include(CMakeFindDependencyMacro)
 
-# spacetime CMake configuration file
+set(spacetime_VISUALIZER @Visualizer@)
+set(spacetime_VISUALIZER_BACKEND "@VisualizerBackend@")
+set(spacetime_INTERFACE_STANDALONE @InterfaceStandalone@)
+set(spacetime_INTERFACE_MUJOCO @InterfaceMujoco@)
+set(spacetime_INTERFACE_ROS2 @InterfaceROS2@)
+# Compile flags spacetime was built with. -march=native changes Eigen's alignment, so
+# projects linking spacetime (and GTSAM) must match it.
+set(spacetime_MARCH_NATIVE @MarchNative@)
 
-# Provide path information
-set(spacetime_VERSION @PROJECT_VERSION@)
-
-# Check if we're being called from the build tree or install tree
-get_filename_component(spacetime_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
-
-# Include directory information
-if(EXISTS "${spacetime_CMAKE_DIR}/CMakeCache.txt")
-    # We're in the build tree
-    set(spacetime_INCLUDE_DIRS "@PROJECT_SOURCE_DIR@/include")
-else()
-    # We're in the install tree - use standard relative path
-    set(spacetime_INCLUDE_DIRS "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@")
+find_dependency(Eigen3 3.4 NO_MODULE)
+find_dependency(jsoncpp)
+find_dependency(GTSAM)
+if(spacetime_INTERFACE_STANDALONE)
+    find_dependency(Threads)
+endif()
+if(spacetime_INTERFACE_ROS2)
+    find_dependency(rclcpp)
+    find_dependency(tf2_ros)
+    find_dependency(tf2_msgs)
+    find_dependency(geometry_msgs)
+    find_dependency(visualization_msgs)
+endif()
+if(spacetime_VISUALIZER)
+    find_dependency(VTK 9.3)
+    find_dependency(Qt6 COMPONENTS Core Gui Xml Network Widgets OpenGLWidgets)
 endif()
 
-# Find required dependencies
-find_dependency(Qt6 REQUIRED COMPONENTS Core Gui Xml Network Widgets OpenGLWidgets)
-find_dependency(Eigen3 3.4 REQUIRED)
-find_dependency(lgmath REQUIRED)
-find_dependency(VTK 9.3 REQUIRED)
-find_dependency(jsoncpp REQUIRED)
-find_dependency(tsl-robin-map REQUIRED)
-
-# Find optional dependencies
-find_dependency(OpenMP)
-
-# Import the targets
-if(NOT TARGET spacetime::spacetime)
-    include("${spacetime_CMAKE_DIR}/spacetimeTargets.cmake")
+if(NOT TARGET spacetime::estimator)
+    include("${CMAKE_CURRENT_LIST_DIR}/spacetimeTargets.cmake")
 endif()
 
-# Set library variable for compatibility
-set(spacetime_LIBRARIES spacetime::spacetime)
-
-# Verify that all required components are found
 check_required_components(spacetime)
-
-# Print status message
-if(spacetime_FIND_QUIETLY)
-    # Don't print anything
-else()
-    message(STATUS "Found spacetime: ${spacetime_VERSION}")
-endif()

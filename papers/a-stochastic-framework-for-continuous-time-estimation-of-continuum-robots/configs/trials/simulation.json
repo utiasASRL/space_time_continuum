@@ -1,0 +1,28 @@
+{
+    "demo_data": {
+        "robot_length": 0.3,
+        "robot_N": 7,
+        "folder_path": "data/simulation/",
+        "start_time": 0,
+        "end_time": 20,
+        "include_aurora": true,
+        "include_gyro": false,
+        "include_strain": false,
+        "weights": {
+            "R_pose": [0.00025, 0.00025, 0.00025, 1e-05, 1e-05, 1e-05],
+            "measurement_factor": 1
+        },
+        "locks": [
+            {
+                "type": "pose",
+                "s": 0.0,
+                "value": [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+            },
+            {
+                "type": "velocity",
+                "s": 0.0,
+                "value": [0, 0, 0, 0, 0, 0]
+            }
+        ]
+    }
+}

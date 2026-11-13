@@ -1,0 +1,64 @@
+{
+    "estimator": {
+        "smootherLag": -1,
+        "compute_covariance": true,
+        "lm_params": {
+            "lambdaInitial": 1e-5,
+            "lambdaFactor": 10,
+            "lambdaUpperBound": 1e5,
+            "lambdaLowerBound": 0.0,
+            "minModelFidelity": 1e-3,
+            "useFixedLambdaFactor": true,
+            "dampingParams.diagonalDamping": false,
+            "dampingParams.exactHessianDiagonal": false,
+            "dampingParams.minDiagonal": 1e-6,
+            "dampingParams.maxDiagonal": 1e32,
+            "maxIterations": 50,
+            "relativeErrorTol": 1e-5,
+            "absoluteErrorTol": 1,
+            "errorTol": 0.0
+        }
+    },
+    "prior": {
+        "type": "wnoa",
+        "time_period": 0.033333333333333333,
+        "wnoa": {
+            "factor_type": "paper",
+            "fixed_noise_model": false,
+            "cache_noise_model": true,
+            "remove_unary": false,
+            "weights": {
+                "prior_factor": 0.4,
+                "Q0": [
+                    1e-2, 1e-2, 1e-2, 8e-5, 8e-5, 8e-5,
+                    1e-2, 1e4, 1e4, 1e4, 1e-2, 1e-2,
+                    1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2
+                ],
+                "Q1": [2e-1, 2e-1, 2e-1, 7e-2, 7e-2, 7e-2],
+                "Q2": [1e3, 1e3, 1e3, 1e0, 1e0, 1e0],
+                "Q3": [1e1, 4e3, 4e3, 1e3, 1e1, 1e1],
+                "Q4": [1e2, 1e2, 1e2, 1e1, 1e1, 1e1]
+            },
+            "initial_condition": {
+                "T0": [
+                    0, 0, -1, 0,
+                    0, 1, 0, 0,
+                    1, 0, 0, 0,
+                    0, 0, 0, 1
+                ],
+                "epsilon0": [0, 0, 0, 1, 0, 0], //Tangent along x-axis is legacy. Choice is arbitrary. Values changed for z-axis in paper for consistnecy
+                "varpi0": [0, 0, 0, 0, 0, 0]
+            }
+        }
+    },
+    "visualizer": {
+        "robot": {
+            "radius": 0.002
+        },
+        "cameras": [{
+            "position": [1.4, 0, 0.3],
+            "look_at": [0, 0, 0.3],
+            "up": [0, 0, -1]
+        }]
+    }
+}
