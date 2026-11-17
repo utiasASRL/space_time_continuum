@@ -83,8 +83,8 @@ namespace Spacetime
     class Estimator
     {
     public:
-        using pSensorType = std::shared_ptr<Types::SensorBase>;
-        using pModelType = Types::pModelType;
+        using pSensorType = std::shared_ptr<Types::SensorBase>; ///< Shared pointer to a sensor model.
+        using pModelType = Types::pModelType;                   ///< Shared pointer to any model.
 
         /// smootherLag value selecting batch mode (see EstimatorOptions::smootherLag).
         static constexpr double BATCH_LAG = -1.0;
@@ -148,6 +148,7 @@ namespace Spacetime
          *        problem after finalize(), and never optimizes on its own.
          */
         gtsam::FixedLagSmoother &smoother() { return *m_smoother; }
+        /// @copydoc smoother()
         const gtsam::FixedLagSmoother &smoother() const { return *m_smoother; }
 
         /// The smoother's nonlinear factors (in batch mode, empty until finalize()).
@@ -200,7 +201,10 @@ namespace Spacetime
         /// Same as addModel.
         void addSensor(pSensorType sensor) { addModel(sensor); }
 
-        /// Same as addModel.
+        /**
+         * @brief Same as addModel.
+         * @tparam T A Types::StatefulModel type (e.g. a WNOA prior).
+         */
         template <Types::StatefulType T>
         void addPrior(std::shared_ptr<T> prior_model) { addModel(prior_model); }
 
@@ -295,10 +299,12 @@ namespace Spacetime
         const BatchResult &getBatchResult() const { return m_batch_result; }
 
         /// Wall-clock time (seconds) of the last estimate() call, including its solve and
-        /// covariance extraction (0 before the first call).
+        /// covariance extraction (0 before the first call). In batch mode, graph construction only.
+        /// With quasi_static, the time of the last per-measurement-time update of that call.
         double getLastEstimateTime() const { return m_last_estimate_seconds; }
 
-        /// The latest estimate, including the locked constants (a copy).
+        /// The latest estimate, including the locked constants (a copy). In batch mode before
+        /// finalize(), the accumulated initial guesses.
         gtsam::Values getCurrentValues() const { return m_current_values; }
 
         /// Covariance blocks extracted by the latest solve (estimate(), or finalize() in batch mode); nullptr unless compute_covariance is set (or if extraction failed).
@@ -329,7 +335,8 @@ namespace Spacetime
         /// Posterior marginal covariance (variance) of a single variable. See covariance(a, b).
         gtsam::Matrix covariance(gtsam::Key a) const { return covariance(a, a); }
 
-        /// The most recently published snapshot, or nullptr before the first estimate() call. Safe to call from any thread.
+        /// The most recently published snapshot, or nullptr before the first estimate() call
+        /// (in batch mode, before finalize(): estimate() publishes none). Safe to call from any thread.
         std::shared_ptr<const EstimatorSnapshot> getSnapshot() const
         {
             std::lock_guard<std::mutex> lock(m_snapshot_mutex);
@@ -350,7 +357,7 @@ namespace Spacetime
             return newer ? m_snapshot : nullptr;
         }
 
-        /// Prints the number of models and the current values to stdout.
+        /// Prints `s`, the number of models and the current values to stdout.
         void print(const std::string &s = std::string("Estimator State: "))
         {
             std::cout << s << std::endl;

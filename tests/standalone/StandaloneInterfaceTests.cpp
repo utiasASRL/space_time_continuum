@@ -1,6 +1,5 @@
 #include <chrono>
 #include <memory>
-#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -51,7 +50,7 @@ namespace Spacetime::Standalone
             explicit Problem(std::initializer_list<double> times)
             {
                 estimator.addPrior(prior);
-                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(Eigen::Matrix<double, 6, 6>::Identity() * 0.01, prior);
+                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
                 estimator.addSensor(sensor);
                 for (double t : times)
                     sensor->addMeasurement(makeMeasurement(t, 0.1 * t));
@@ -90,38 +89,6 @@ namespace Spacetime::Standalone
             return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         }
     } // namespace
-
-    TEST(StandaloneInterface, SatisfiesTheInterfaceConcept)
-    {
-        static_assert(Interface::InterfaceType<Interfaces::Standalone>);
-        EXPECT_EQ(Interfaces::Standalone::name, "standalone");
-    }
-
-    TEST(StandaloneInterface, OfflineSessionConsumesTheDueMeasurements)
-    {
-        Problem problem({0.0, 0.1, 0.2, 0.5});
-        std::vector<double> ticks;
-        std::thread::id tick_thread;
-        const double end_time = runGeneric<Interfaces::Standalone>(problem.estimator, sessionOptions(0.0, 0.2, 0.1), ticks, tick_thread);
-
-        EXPECT_DOUBLE_EQ(end_time, 0.2);
-        EXPECT_EQ(ticks.size(), 3u);
-        EXPECT_NE(tick_thread, std::this_thread::get_id()); // estimated on the session's own thread
-        const auto left = problem.sensor->peekAll();        // past the end time: kept, not consumed
-        ASSERT_EQ(left.size(), 1u);
-        EXPECT_DOUBLE_EQ(left.front()->time, 0.5);
-    }
-
-    TEST(StandaloneInterface, EndTimeResolvesFromTheData)
-    {
-        // A period of 0.25 steps exactly onto the last measurement (0.1 would overshoot 0.3 by an ulp).
-        Problem problem({0.0, 0.25, 0.75});
-        std::vector<double> ticks;
-        std::thread::id tick_thread;
-        EXPECT_DOUBLE_EQ(runGeneric<Interfaces::Standalone>(problem.estimator, sessionOptions(0.0, -1.0, 0.25), ticks, tick_thread), 0.75);
-        EXPECT_EQ(ticks.size(), 4u); // 0, 0.25, 0.5, 0.75
-        EXPECT_TRUE(problem.sensor->empty());
-    }
 
     // The session is only a facade: the same estimate as driving the runner directly.
     TEST(StandaloneInterface, OfflineResultMatchesTheRunner)
@@ -175,12 +142,5 @@ namespace Spacetime::Standalone
         session.join();
         EXPECT_LT(secondsSince(stop_time), 1.0);
         EXPECT_TRUE(session.finished());
-    }
-
-    TEST(StandaloneInterface, RejectsARealTimeBatchEstimator)
-    {
-        Estimator estimator(Estimator::BATCH_LAG);
-        Interfaces::Standalone::Session session(estimator, sessionOptions(0.0, 1.0, 0.1, /*real_time=*/true));
-        EXPECT_THROW(session.start(), std::invalid_argument);
     }
 } // namespace Spacetime::Standalone

@@ -70,6 +70,35 @@ namespace Spacetime
         std::filesystem::remove_all(dir);
     }
 
+    // Rows with too few values, and files without a "<label>,<type>" first line, are skipped
+    // rather than read out of bounds.
+    TEST(ConfigLoaderDemoData, MalformedRowsAndFilesAreSkipped)
+    {
+        const std::filesystem::path dir = std::filesystem::path(testing::TempDir()) / "config_loader_malformed_rows";
+        std::filesystem::create_directories(dir);
+        writeFile(dir / "aurora1.csv",
+                  "sensor type:,aurora\ntimestamp (s),arclength (m),data\n"
+                  "0.0,1.0,0,0,1,0,0,0\n0.1,1.0,0,0\n0.2,1.0\n");
+        writeFile(dir / "gyro1.csv",
+                  "sensor type:,gyro\ntimestamp (s),arclength (m),data\n"
+                  "0.0,1.0,0.1,0.2,0.3\n0.1,1.0,0.1\n");
+        writeFile(dir / "no_type.csv", "just one cell\n");
+        const std::string config = writeFile(dir / "config.json", std::string(R"({
+            "demo_data": { "folder_path": ")") + dir.string() + R"(", "start_time": 0, "end_time": 1, "include_aurora": true, "include_gyro": true }
+        })");
+
+        Utilities::ConfigLoader loader;
+        ASSERT_TRUE(loader.loadConfig(config));
+        std::shared_ptr<StateType> state;
+        std::vector<std::shared_ptr<Types::SensorBase>> sensors, gt_sensors;
+        EXPECT_NO_THROW(loader.loadDemoData(sensors, gt_sensors, makePrior(state)));
+
+        ASSERT_EQ(sensors.size(), 2u);
+        for (const auto &sensor : sensors)
+            EXPECT_EQ(sensor->size(), 1u); // only each file's complete row
+        std::filesystem::remove_all(dir);
+    }
+
     // A config built in memory (e.g. a file's sections with command-line overrides applied)
     // is added like a file: its sections are read, and top-level keys must not collide.
     TEST(ConfigLoaderDemoData, AddConfigReadsInMemorySections)

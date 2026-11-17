@@ -92,19 +92,6 @@ def receive(listener, publisher, options, robot="a"):
     return received["markers"], received["poses"]
 
 
-def test_options_defaults_match_cpp():
-    options = rviz.SnapshotPublisherOptions()
-    assert options.rate == pytest.approx(30.0)
-    assert options.topic_prefix == "spacetime"
-    assert options.tf_topic == "/tf"
-    display = rviz.RobotDisplayOptions()
-    assert display.frame_id == "world"
-    assert display.radius == pytest.approx(0.01)
-    assert display.extra_points == 3
-    assert display.node_frames is False
-    assert display.covariance is False
-
-
 def test_nothing_is_published_twice():
     estimator, session, (prior,) = solved_session()
     publisher = rviz.SnapshotPublisher(estimator, session.clock(), publisher_options())
@@ -130,22 +117,6 @@ def test_publishes_the_robot(listener):
     tube = [m for m in markers.markers if m.ns == "a"]
     assert len(tube) == points - 1
     assert sum(m.scale.z for m in tube) == pytest.approx(1.0, abs=1e-3)
-
-
-def test_draws_covariance_ellipsoids(listener):
-    estimator, session, (prior,) = solved_session(compute_covariance=True)
-    options = publisher_options()
-    publisher = rviz.SnapshotPublisher(estimator, session.clock(), options)
-    display = rviz.RobotDisplayOptions()
-    display.covariance = True
-    display.extra_points = 1
-    publisher.addRobot("a", prior, display)
-
-    markers, _ = receive(listener, publisher, options)
-
-    ellipsoids = [m for m in markers.markers if m.ns == "a/covariance"]
-    assert len(ellipsoids) == NODES + (NODES - 1) * display.extra_points
-    assert all(0.0 < m.color.a < 1.0 for m in ellipsoids)
 
 
 def test_draws_joints(listener):

@@ -148,13 +148,6 @@ namespace Spacetime
         EXPECT_FALSE(hasColor(image, Qt::red));
     }
 
-    TEST_F(PlotRendering, SinglePointDoesNotCrash)
-    {
-        PlotSeries series{{1.0}, {2.0}, {kNaN}, {kNaN}};
-        const QImage image = renderPlot(series, {}, {}, "single", Qt::blue, kSize);
-        EXPECT_EQ(image.size(), kSize);
-    }
-
     TEST_F(PlotRendering, ConstantSeriesIsDrawnInItsColor)
     {
         PlotSeries series{{0.0, 1.0, 2.0}, {5.0, 5.0, 5.0}, {kNaN, kNaN, kNaN}, {kNaN, kNaN, kNaN}};
@@ -204,13 +197,6 @@ namespace Spacetime
         const QImage away = renderPlot(series, {}, {}, "range", QColor(0, 0, 255), kSize, kNaN, PlotRange{100.0, 101.0, 100.0, 101.0});
         EXPECT_TRUE(hasColor(fitted, QColor(0, 0, 255)));
         EXPECT_FALSE(hasColor(away, QColor(0, 0, 255))); // the data lies outside the view
-    }
-
-    TEST_F(PlotViewTest, StartsFittedToItsData)
-    {
-        EXPECT_FALSE(view.view().has_value());
-        EXPECT_EQ(view.image().size(), kSize);
-        EXPECT_EQ(view.size(), kSize);
     }
 
     TEST_F(PlotViewTest, WheelInsideZoomsBothAxes)

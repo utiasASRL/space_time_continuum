@@ -37,7 +37,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
                 "type": "wnoa_quasi_static",
                 "time_period": 0.05,
                 "wnoa": {
-                    "factor_type": "paper",
+                    "factor_type": "wnoa",
                     "fixed_noise_model": true,
                     "cache_noise_model": false,
                     "weights": {

@@ -23,9 +23,9 @@ namespace Spacetime::Priors::WNOA
      * "strain", or "velocity" themselves; they only require whatever type is named
      * by `InterpolatorT::InterpolatedKeys` / `ValuesT::InterpolatedKeys` to satisfy
      * Types::InterpolatedKeyMap (see spacetime/estimator/types/InterpolatedKeys.hpp
-     * for that interface's full documentation). A future, non-WNOA prior with a
-     * differently-shaped node would define its own analogous type here in its own
-     * folder, with its own keys/insert/rowRange.
+     * for that interface's full documentation). Each other prior defines its own
+     * analogous type in its own folder (e.g. WNOV::InterpolatedKeys,
+     * WNOAQuasiStatic::InterpolatedKeys), with its own keys/insert/rowRange.
      *
      * Named accessors (Pose()/Strain()/Velocity()) are provided in addition to the
      * generic interface for callers -- e.g. Sensors::PoseSensor -- that want a
@@ -42,7 +42,8 @@ namespace Spacetime::Priors::WNOA
     template <typename PoseT>
     struct InterpolatedKeys
     {
-        using ValuesType = Values<PoseT>;
+        using ValuesType = Values<PoseT>; ///< The node values these keys index.
+        /// Dimension of each component (pose, strain and velocity all have the pose's tangent dimension).
         static constexpr int dim = gtsam::traits<PoseT>::dimension;
 
         /// Interpolated pose key.
@@ -55,7 +56,7 @@ namespace Spacetime::Priors::WNOA
         /// The full set of interpolated keys this node type defines.
         static gtsam::KeyVector keys() { return {Pose(), Strain(), Velocity()}; }
 
-        /// Insert the piece of `node` that `key` stands in for into `values`, at `key`.
+        /// Insert the piece of `node` that `key` stands in for into `values`, at `key`; throws std::runtime_error for any other key.
         static void insert(gtsam::Key key, const ValuesType &node, gtsam::Values &values)
         {
             if (key == Pose())
@@ -68,7 +69,7 @@ namespace Spacetime::Priors::WNOA
                 throw std::runtime_error("WNOA::InterpolatedKeys::insert: key is not one of this node type's interpolated keys.");
         }
 
-        /// The (offset, dim) row range `key`'s component occupies within the node's node_dim tangent vector.
+        /// The (offset, dim) row range `key`'s component occupies within the node's node_dim tangent vector; throws std::runtime_error for any other key.
         static std::pair<int, int> rowRange(gtsam::Key key)
         {
             if (key == Pose())

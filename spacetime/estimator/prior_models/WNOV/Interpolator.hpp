@@ -42,15 +42,16 @@ namespace Spacetime::Priors::WNOV
      *        WNOV axis (see Priors::GridInterpolator's AxisPlanT): the geodesic fraction
      *        alpha, the extrapolation's chart offset gamma, and the chart-frame
      *        conditional covariance.
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
     struct AxisPlan
     {
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
         using MatrixN = Eigen::Matrix<double, gtsam::traits<Pose>::dimension, gtsam::traits<Pose>::dimension>;
-        double alpha = 0.0;
-        TangentVector gamma = TangentVector::Zero();
-        MatrixN chart_cov = MatrixN::Zero();
+        double alpha = 0.0;                          ///< Interpolation fraction delta_i / delta (unused when extrapolating).
+        TangentVector gamma = TangentVector::Zero(); ///< Extrapolation chart offset, T = T0 * Exp(gamma) (unused when interpolating).
+        MatrixN chart_cov = MatrixN::Zero();         ///< Conditional covariance in the anchor's local chart.
     };
 
     template <typename Pose>
@@ -62,13 +63,14 @@ namespace Spacetime::Priors::WNOV
         GTSAM_CONCEPT_ASSERT(gtsam::IsLieGroup<Pose>);
 
     public:
-        using NodeType = Node<Pose>;
-        using ValuesType = typename NodeType::ValuesType;
+        using NodeType = Node<Pose>;                      ///< WNOV grid node.
+        using ValuesType = typename NodeType::ValuesType; ///< WNOV node values (the pose).
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
+        /// Interpolated-key layout, exposed for Priors::InterpolationFactor (see Types::InterpolatedKeyMap).
         using InterpolatedKeys = WNOV::InterpolatedKeys<Pose>;
 
-        static constexpr int dim = gtsam::traits<Pose>::dimension;
-        static constexpr int node_dim = NodeType::dim;
+        static constexpr int dim = gtsam::traits<Pose>::dimension; ///< Pose tangent dimension.
+        static constexpr int node_dim = NodeType::dim;              ///< Node tangent dimension (== dim).
 
         using MatrixN = Eigen::Matrix<double, dim, dim>;
         using MatrixNode = typename Base::MatrixNode;

@@ -51,7 +51,9 @@ namespace Spacetime::Utilities
             std::shared_ptr<Priors::WNOA::Prior<Pose>> prior;
             std::shared_ptr<Sensors::PoseSensor<ValueType>> ground_truth;
             Estimator estimator;
-            std::filesystem::path logs_dir = std::filesystem::path(testing::TempDir()) / "ground_truth_export_logs";
+            // One folder per test: ctest -j runs each test in its own process, concurrently.
+            std::filesystem::path logs_dir = std::filesystem::path(testing::TempDir()) /
+                                             (std::string("ground_truth_export_logs_") + testing::UnitTest::GetInstance()->current_test_info()->name());
 
             static EstimatorOptions options()
             {
@@ -68,7 +70,7 @@ namespace Spacetime::Utilities
                 prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, reference);
                 estimator.addPrior(prior);
                 const Eigen::Matrix<double, 6, 6> R = Eigen::Matrix<double, 6, 6>::Identity() * 1e-4;
-                ground_truth = std::make_shared<Sensors::PoseSensor<ValueType>>(R, prior);
+                ground_truth = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
                 for (const auto &[s, t] : samples)
                     ground_truth->addMeasurement(std::make_shared<Types::MeasurementBase>(s, t, Eigen::Matrix4d::Identity(), R, Eigen::MatrixXi::Ones(6, 1)));
                 for (double t : {0.0, 0.1, 0.2})
@@ -183,7 +185,7 @@ namespace Spacetime::Utilities
         Estimator estimator(ExportFixture::options());
         estimator.addPrior(prior);
         const Eigen::Matrix<double, 6, 6> R = Eigen::Matrix<double, 6, 6>::Identity() * 1e-4;
-        auto ground_truth = std::make_shared<Sensors::PoseSensor<WNOVValues>>(R, prior);
+        auto ground_truth = std::make_shared<Sensors::PoseSensor<WNOVValues>>(prior);
         ground_truth->addMeasurement(std::make_shared<Types::MeasurementBase>(0.5, 0.15, Eigen::Matrix4d::Identity(), R, Eigen::MatrixXi::Ones(6, 1)));
         for (double t : {0.0, 0.1, 0.2})
             estimator.estimate(t);
@@ -231,7 +233,7 @@ namespace Spacetime::Utilities
         Estimator estimator(ExportFixture::options());
         estimator.addPrior(prior);
         const Eigen::Matrix<double, 6, 6> R = Eigen::Matrix<double, 6, 6>::Identity() * 1e-4;
-        auto ground_truth = std::make_shared<Sensors::PoseSensor<QSValues>>(R, prior);
+        auto ground_truth = std::make_shared<Sensors::PoseSensor<QSValues>>(prior);
         ground_truth->addMeasurement(std::make_shared<Types::MeasurementBase>(0.5, 0.12, Eigen::Matrix4d::Identity(), R, Eigen::MatrixXi::Ones(6, 1)));
         for (double t : {0.0, 0.1, 0.2})
             estimator.estimate(t);

@@ -42,6 +42,11 @@ namespace Spacetime::Visualization::Default
 
         m_timelineWidget = new TimelineWidget(this);
         m_timelineWidget->setVisible(m_options.show_timeline_widget);
+        if (!m_options.online) // a live stream has nothing to seek through
+            m_timelineWidget->setSeekCallback([this](double time)
+                                              {
+                                                  if (!exportingVideo())
+                                                      m_playback.seek(time); });
 
         m_diagnosticsLabel = new InfoWidget(this);
         m_diagnosticsLabel->addHeader("Information");
@@ -104,9 +109,9 @@ namespace Spacetime::Visualization::Default
             else m_playback.play(); });
 
         QObject::connect(new QShortcut(QKeySequence(Qt::Key_Up), this), &QShortcut::activated, [this]()
-                         { m_playback.setSpeed(m_playback.speed() / 1.5); });
-        QObject::connect(new QShortcut(QKeySequence(Qt::Key_Down), this), &QShortcut::activated, [this]()
                          { m_playback.setSpeed(m_playback.speed() * 1.5); });
+        QObject::connect(new QShortcut(QKeySequence(Qt::Key_Down), this), &QShortcut::activated, [this]()
+                         { m_playback.setSpeed(m_playback.speed() / 1.5); });
 
         // Stepping through a replay (a live stream has nothing to step through).
         if (!m_options.online)
@@ -182,7 +187,7 @@ namespace Spacetime::Visualization::Default
     {
         m_time_range_start = start_time;
         m_time_range_end = end_time;
-        m_timelineWidget->setRange(0, 1000, start_time, end_time);
+        m_timelineWidget->setRange(0, 1000, start_time, end_time, m_options.estimator_window > 0 ? m_options.estimator_window : -1.0);
         m_playback.setTimeBounds(start_time, end_time); // offline only; harmless no-op influence in online mode since tick()'s online branch never checks these bounds
         m_playback.seek(start_time); // offline only; no-op (ignored) in online mode
     }
@@ -244,7 +249,7 @@ namespace Spacetime::Visualization::Default
         if (m_diagnosticsLabel)
             m_diagnosticsLabel->refresh();
 
-        if (m_timelineWidget && m_time_range_end > m_time_range_start)
+        if (m_timelineWidget && m_time_range_end > m_time_range_start && !m_timelineWidget->isDragging())
         {
             double fraction = std::clamp((time - m_time_range_start) / (m_time_range_end - m_time_range_start), 0.0, 1.0);
             m_timelineWidget->setValue(static_cast<int>(fraction * 1000));

@@ -84,12 +84,13 @@ namespace Spacetime::Sensors
             double tau;              ///< Fraction of the interval at the held span's midpoint.
             double dt;               ///< Held duration [s].
             gtsam::Vector3 measured; ///< Reading, sensor frame [m/s^2].
-            BiasWeights bias_weights;
+            BiasWeights bias_weights; ///< Bias node weights at the held span's midpoint (empty without a bias).
         };
 
         /**
+         * @param t_start,t_end The interval's bounds [s] (the two node rows' times).
          * @param bias_weights Optional bias weights; without them the readings are taken as unbiased.
-         * @throws std::invalid_argument unless t_end > t_start.
+         * @throws std::invalid_argument unless t_end > t_start (by more than TOLERANCE).
          */
         AccelerometerPreintegration(double t_start, double t_end, BiasWeightsFn bias_weights = nullptr)
             : m_t_start(t_start), m_t_end(t_end), m_bias_weights_fn(std::move(bias_weights))
@@ -99,7 +100,8 @@ namespace Spacetime::Sensors
         }
 
         /**
-         * @brief Adds a sample read at `time`, held until the next one (or t_end). Samples
+         * @brief Adds a sample read at `time` [s] (reading [m/s^2] and its 3x3 covariance,
+         *        both in the sensor frame), held until the next one (or t_end). Samples
          *        must come in time order; one before t_start only covers the interval's start.
          * @throws std::invalid_argument for a sample older than the previous one, at or after
          *         t_end, or added after close().
@@ -134,22 +136,29 @@ namespace Spacetime::Sensors
             return m_closed && m_covered_from && *m_covered_from <= m_t_start + TOLERANCE && std::abs(m_covered - deltaT()) < TOLERANCE;
         }
 
+        /// Start of the interval [s].
         double startTime() const { return m_t_start; }
+        /// End of the interval [s].
         double endTime() const { return m_t_end; }
+        /// Length of the interval, t_end - t_start [s].
         double deltaT() const { return m_t_end - m_t_start; }
         /// Total held time.
         double coveredTime() const { return m_covered; }
 
+        /// The held samples, in time order (excludes a sample still pending until close()).
         const std::vector<Sample> &samples() const { return m_samples; }
         /// Sum of dt_j * reading_j.
         const gtsam::Vector3 &sumMeasured() const { return m_sum_measured; }
-        /// Sums of dt_j (1 - tau_j)^2, dt_j tau_j (1 - tau_j) and dt_j tau_j^2: the weights of
-        /// the centripetal lever-arm term with the angular velocity linear in tau.
+        /// Sum of dt_j (1 - tau_j)^2: weight of the omega_k x (omega_k x r) centripetal
+        /// lever-arm term, with the angular velocity linear in tau.
         double w0() const { return m_w0; }
+        /// Sum of dt_j tau_j (1 - tau_j): weight of the mixed omega_k / omega_{k+1} lever-arm terms.
         double w01() const { return m_w01; }
+        /// Sum of dt_j tau_j^2: weight of the omega_{k+1} x (omega_{k+1} x r) lever-arm term.
         double w1() const { return m_w1; }
         /// Sum of dt_j * weight, per bias key, in order of first appearance.
         const BiasWeights &biasWeights() const { return m_bias_weights; }
+        /// The bias node keys of biasWeights(), in the same order.
         gtsam::KeyVector biasKeys() const
         {
             gtsam::KeyVector keys;
@@ -239,9 +248,9 @@ namespace Spacetime::Sensors
     class AccelerometerFactor : public gtsam::NoiseModelFactor
     {
     public:
-        using Base = gtsam::NoiseModelFactor;
-        using This = AccelerometerFactor;
-        using Vector6 = Eigen::Matrix<double, 6, 1>;
+        using Base = gtsam::NoiseModelFactor;        ///< gtsam base class.
+        using This = AccelerometerFactor;            ///< This factor's type.
+        using Vector6 = Eigen::Matrix<double, 6, 1>; ///< A body twist [omega, nu].
 
         using Base::error;
         using Base::unwhitenedError;
@@ -250,6 +259,7 @@ namespace Spacetime::Sensors
          * @param pose_k,velocity_k Node k's pose (gtsam::Pose3) and twist (Vector6) keys.
          * @param pose_k1,velocity_k1 Node k+1's.
          * @param preintegration The interval's samples; its bias keys are appended to this factor's keys.
+         * @param options The sensor's offset T_bs, gravity and SLERP setting (its bias settings are unused here).
          * @throws std::invalid_argument if `preintegration` is not complete().
          */
         AccelerometerFactor(gtsam::Key pose_k, gtsam::Key velocity_k, gtsam::Key pose_k1, gtsam::Key velocity_k1,
@@ -264,6 +274,7 @@ namespace Spacetime::Sensors
             m_rotated_sum = m_R_bs * preintegration.sumMeasured();
         }
 
+        /// Prints the interval, sample count, mode and keys.
         void print(const std::string &s = "", const gtsam::KeyFormatter &keyFormatter = gtsam::DefaultKeyFormatter) const override
         {
             std::cout << s << "AccelerometerFactor over [" << m_preintegration.startTime() << ", " << m_preintegration.endTime() << "] ("
@@ -281,6 +292,7 @@ namespace Spacetime::Sensors
                    m_rotated_sum.isApprox(e->m_rotated_sum, tol) && std::abs(m_preintegration.deltaT() - e->m_preintegration.deltaT()) < tol;
         }
 
+        /// The preintegrated samples this factor was built from.
         const AccelerometerPreintegration &preintegration() const { return m_preintegration; }
 
         /// The residual e (see the class description), with Jacobians w.r.t. every key.
@@ -395,7 +407,12 @@ namespace Spacetime::Sensors
         gtsam::Vector3 m_rotated_sum; ///< R_bs * sum_j dt_j a_j
     };
 
-    /// Priors an AccelerometerSensor can measure: grid priors whose node has a gtsam::Pose3 pose and a velocity.
+    /**
+     * @brief Priors an AccelerometerSensor can measure: grid priors whose node has a
+     *        gtsam::Pose3 pose and a velocity, that build interpolated nodes
+     *        (interpolatedNode) and report their window start (windowStart).
+     * @tparam PriorT The candidate prior type.
+     */
     template <typename PriorT>
     concept AccelerometerPriorType = requires(const PriorT &prior, double time, double arclength) {
         typename PriorT::InterpolatorType;
@@ -434,15 +451,16 @@ namespace Spacetime::Sensors
     class AccelerometerSensor : public Types::SensorBase
     {
     public:
-        using InterpolatorType = typename PriorT::InterpolatorType;
-        using Keys = typename InterpolatorType::InterpolatedKeys;
-        using NodeType = Priors::InterpolatedNode<InterpolatorType>;
-        using FactorType = Priors::TwoSidedInterpolationFactor<InterpolatorType, InterpolatorType>;
-        using BiasModelType = Biases::BiasModel<gtsam::Vector3>;
+        using InterpolatorType = typename PriorT::InterpolatorType;                                ///< The prior's interpolator.
+        using Keys = typename InterpolatorType::InterpolatedKeys;                                 ///< The prior's interpolated keys.
+        using NodeType = Priors::InterpolatedNode<InterpolatorType>;                              ///< An interpolated node of the prior.
+        using FactorType = Priors::TwoSidedInterpolationFactor<InterpolatorType, InterpolatorType>; ///< The outer factor of each interval.
+        using BiasModelType = Biases::BiasModel<gtsam::Vector3>;                                  ///< The accelerometer bias model.
 
         /**
          * @param prior The prior extending the measured state.
-         * @param arclength The sensor's arclength, within the prior's nodes.
+         * @param arclength The sensor's arclength [m], within the prior's nodes.
+         * @param options See AccelerometerOptions.
          * @throws std::invalid_argument for a null prior or an arclength outside its nodes.
          */
         AccelerometerSensor(std::shared_ptr<PriorT> prior, double arclength, const AccelerometerOptions &options = AccelerometerOptions())
@@ -455,7 +473,9 @@ namespace Spacetime::Sensors
                 m_bias = std::make_shared<BiasModelType>(m_options.bias, arclength);
         }
 
+        /// The sensor's arclength [m].
         double arclength() const { return m_arclength; }
+        /// The options the sensor was built with.
         const AccelerometerOptions &options() const { return m_options; }
         /// The estimated accelerometer bias (e.g. to query it), or nullptr without AccelerometerOptions::estimate_bias.
         const std::shared_ptr<BiasModelType> &biasModel() const { return m_bias; }
@@ -473,14 +493,17 @@ namespace Spacetime::Sensors
             return m_bias ? m_bias->extendState(km, time, current_values, new_values) : Factors();
         }
 
+        /// Forwards to the bias model, if the bias is estimated.
         void onMarginalization(double cutoff, const gtsam::Values &values) override
         {
             if (m_bias)
                 m_bias->onMarginalization(cutoff, values);
         }
 
+        /// The bias model's locked values, or none without a bias.
         const gtsam::Values &lockedValues() const override { return m_bias ? m_bias->lockedValues() : Types::SensorBase::lockedValues(); }
 
+        /// The bias model's covariance key groups (each bias node alone), or none without a bias.
         std::vector<gtsam::KeyVector> covarianceKeyGroups(const gtsam::Values &values) const override
         {
             return m_bias ? m_bias->covarianceKeyGroups(values) : std::vector<gtsam::KeyVector>();

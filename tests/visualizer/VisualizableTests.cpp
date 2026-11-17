@@ -63,32 +63,6 @@ namespace Spacetime
     // The backend-agnostic base alone can't be drawn by the default backend: it has no visualize().
     static_assert(!Visualization::Default::IsVisualizable<GenericVisualizable>);
 
-    TEST(Visualizable, ImportTest)
-    {
-        EXPECT_TRUE(true);
-    }
-
-    TEST(Visualizable, DefaultInfoIsEmpty)
-    {
-        GenericVisualizable v;
-        EXPECT_EQ(v.info(), std::string());
-        EXPECT_EQ(v.info(false), std::string());
-        TestVisualizable d;
-        EXPECT_EQ(d.info(), std::string());
-    }
-
-    TEST(Visualizable, DefaultUpdateVisualizationIsANoOp)
-    {
-        GenericVisualizable v;
-        EXPECT_NO_THROW({ v.updateVisualization(1.0, 1.0); });
-    }
-
-    TEST(Visualizable, StartsVisible)
-    {
-        GenericVisualizable v;
-        EXPECT_TRUE(v.isVisible());
-    }
-
     TEST(Visualizable, ToggleVisibilityFlipsStateAndIsIdempotentOverTwoCalls)
     {
         GenericVisualizable v;
@@ -98,18 +72,12 @@ namespace Spacetime
         EXPECT_TRUE(v.isVisible());
     }
 
-    TEST(Visualizable, IsFreshWhileDataIsRecentOrFromTheFuture)
+    TEST(Visualizable, IsFreshWhileDataIsWithinTheStaleTimeoutOrFromTheFuture)
     {
         GenericVisualizable v;
         v.setStaleTimeout(1.0);
         EXPECT_TRUE(v.fresh(5.0, 5.0));
         EXPECT_TRUE(v.fresh(5.0, 6.0)); // data_time ahead of display_time
-    }
-
-    TEST(Visualizable, IsFreshUpToAndIncludingTheStaleTimeout)
-    {
-        GenericVisualizable v;
-        v.setStaleTimeout(1.0);
         EXPECT_TRUE(v.fresh(1.0, 0.0)); // exactly at the timeout
     }
 

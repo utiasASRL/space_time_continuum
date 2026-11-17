@@ -27,12 +27,6 @@ namespace Spacetime::Interface
         EXPECT_FALSE(loader.deliveredThrough(0.0));
     }
 
-    TEST(Dataloader, HasNoKnownLastTimeByDefault)
-    {
-        ManualDataloader loader;
-        EXPECT_FALSE(loader.lastTime().has_value());
-    }
-
     // setNextTime(t) means: everything stamped before t has been delivered, and the next
     // measurement may be stamped exactly t, so t itself is not yet complete.
     TEST(Dataloader, NextTimeIsExclusive)

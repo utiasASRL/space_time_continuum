@@ -37,23 +37,7 @@ def test_wnov_values():
     assert wnov.Values.dim == 6
 
 
-def test_wnoa_options_defaults_match_cpp():
-    options = wnoa.PriorOptions()
-    assert options.factor_type == wnoa.FactorType.WNOA
-    assert options.fixed_noise_model is False
-    assert options.cache_noise_model is True
-    assert options.remove_unary is False
-    for factor_type in (wnoa.FactorType.Legacy, wnoa.FactorType.Paper):
-        options.factor_type = factor_type
-        assert options.factor_type == factor_type
-
-
-def test_wnoa_factor_types():
-    assert set(wnoa.FactorType.__members__) == {"WNOA", "Legacy", "Paper"}
-    assert len({int(t) for t in wnoa.FactorType.__members__.values()}) == 3
-
-
-@pytest.mark.parametrize("factor_type", [wnoa.FactorType.WNOA, wnoa.FactorType.Legacy, wnoa.FactorType.Paper])
+@pytest.mark.parametrize("factor_type", [wnoa.FactorType.WNOA, wnoa.FactorType.Legacy, wnoa.FactorType.Experimental])
 def test_each_factor_type_recovers_measured_tip(factor_type):
     length, curvature = 0.2, 2.0
     state = wnoa.ContinuumRobotState(length, 3)
@@ -66,28 +50,13 @@ def test_each_factor_type_recovers_measured_tip(factor_type):
     assert prior.options().factor_type == factor_type
     estimator = batch_estimator()
     estimator.addModel(prior)
-    sensor = sensors.PoseSensor(POSE_COVARIANCE, prior)
+    sensor = sensors.PoseSensor(prior)
     tip = bent_tip(length, curvature)
     for k in range(6):
         sensor.addMeasurement(pose_measurement(length, 0.1 * k, tip, POSE_COVARIANCE))
     estimator.addSensor(sensor)
     run_session(estimator, end_time=0.5)
     assert prior.query(0.5, length, estimator.getCurrentValues()).pose().equals(tip, 1e-2)
-
-
-def test_wnov_options_defaults_match_cpp():
-    options = wnov.PriorOptions()
-    assert options.fixed_noise_model is False
-    assert options.cache_noise_model is True
-    assert options.remove_unary is False
-
-
-def test_interpolated_keys():
-    assert wnoa.InterpolatedKeys.Pose() == gtsam.Symbol("q", 0).key()
-    assert wnoa.InterpolatedKeys.Strain() == gtsam.Symbol("q", 1).key()
-    assert wnoa.InterpolatedKeys.Velocity() == gtsam.Symbol("q", 2).key()
-    assert list(wnoa.InterpolatedKeys.keys()) == [gtsam.Symbol("q", i).key() for i in range(3)]
-    assert list(wnov.InterpolatedKeys.keys()) == [gtsam.Symbol("q", 0).key()]
 
 
 def test_wnoa_prior_with_all_arguments():
@@ -127,7 +96,7 @@ def test_query_on_solved_problem_recovers_measured_tip():
     state, prior = make_wnoa_robot(length=length)
     estimator = batch_estimator(compute_covariance=True)
     estimator.addModel(prior)
-    sensor = sensors.PoseSensor(POSE_COVARIANCE, prior)
+    sensor = sensors.PoseSensor(prior)
     tip = bent_tip(length, curvature)
     for k in range(6):
         sensor.addMeasurement(pose_measurement(length, 0.1 * k, tip, POSE_COVARIANCE))
@@ -188,7 +157,7 @@ def test_quasi_static_estimation_fits_each_measurement_time():
     options.quasi_static = True
     estimator = st.Estimator(options)
     estimator.addModel(prior)
-    sensor = sensors.PoseSensor(POSE_COVARIANCE, prior)
+    sensor = sensors.PoseSensor(prior)
     assert isinstance(sensor, sensors.PoseSensorQuasiStatic)
     tips = {0.013: bent_tip(length, curvature), 0.07: bent_tip(length, -curvature)}
     for time, tip in tips.items():

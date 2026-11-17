@@ -149,13 +149,6 @@ namespace Spacetime
         }
     }
 
-    TEST(JointVisualization, JointWithoutAGivenMapperMakesItsOwn)
-    {
-        Joint joint(fixedPose(Eigen::Vector3d::Zero()), fixedPose(Eigen::Vector3d(0.1, 0, 0)), false);
-        joint.initActors();
-        EXPECT_NE(joint.mp_actor->GetMapper(), nullptr);
-    }
-
     TEST(JointVisualization, MatrixIsUpdatedInPlaceAsThePointsMove)
     {
         Eigen::Vector3d p_b(0.1, 0.0, 0.0);

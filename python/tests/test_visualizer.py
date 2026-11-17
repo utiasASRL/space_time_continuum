@@ -8,25 +8,6 @@ visualizer = pytest.importorskip("spacetime.visualizer", reason="built without t
 from conftest import make_wnoa_robot  # noqa: E402
 
 
-def test_visualizer_options_defaults_match_cpp():
-    options = visualizer.VisualizerOptions()
-    assert options.cameras == []
-    camera = visualizer.CameraOptions()
-    np.testing.assert_array_equal(camera.position, [0, -1, 0.5])
-    np.testing.assert_array_equal(camera.focal_point, [0, 0, 0])
-    np.testing.assert_array_equal(camera.view_up, [0, 0, 1])
-    assert options.show_floor is True
-    assert options.show_world_frame is True
-    assert options.show_info_label is False
-    assert options.show_diagnostics_label is False
-    assert options.show_timeline_widget is False
-    assert options.stale_timeout == pytest.approx(0.2)
-    assert options.online is False
-    assert options.estimator_window == -1.0
-    assert options.estimation_period == -1.0
-    assert options.robot.radius == pytest.approx(0.01)
-
-
 def test_cameras_are_editable():
     options = visualizer.VisualizerOptions()
     camera = visualizer.CameraOptions()

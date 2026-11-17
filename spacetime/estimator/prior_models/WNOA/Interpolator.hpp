@@ -74,7 +74,7 @@ namespace Spacetime::Priors::WNOA
      *
      * Accuracy caveat specific to extrapolation: the prior factors this graph actually
      * contains (gtsam::WnoaMotionFactor plus a zero-mean BetweenFactor, matching
-     * Legacy::BinaryTimeFactor::Factor::getZeroErrorNode) define the zero-process-noise manifold as
+     * BinaryTimeFactor::Factor::getZeroErrorNode) define the zero-process-noise manifold as
      * eps_1 = eps_0, whereas this class's chart gives eps_1 = J(xi) eps_0. The two agree
      * to O(|xi| |eps_0|). For interpolation |xi| is bounded by the node spacing, but for
      * extrapolation xi = delta * varpi_0 grows linearly in delta -- one reason
@@ -145,14 +145,15 @@ namespace Spacetime::Priors::WNOA
      *        WNOA axis (see Priors::GridInterpolator's AxisPlanT): the (Lambda, Psi)
      *        interpolation matrices and the chart-frame conditional covariance Pcheck.
      *        Extrapolation has Psi = 0.
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
     struct AxisPlan
     {
         using MatrixNode = Eigen::Matrix<double, Node<Pose>::dim, Node<Pose>::dim>;
-        MatrixNode lambda = MatrixNode::Identity();
-        MatrixNode psi = MatrixNode::Zero();
-        MatrixNode chart_cov = MatrixNode::Zero();
+        MatrixNode lambda = MatrixNode::Identity(); ///< Weight on the near (anchor) node's chart coordinate.
+        MatrixNode psi = MatrixNode::Zero();        ///< Weight on the far node's chart coordinate (zero when extrapolating).
+        MatrixNode chart_cov = MatrixNode::Zero();  ///< Conditional covariance Pcheck, in the anchor node's local chart.
     };
 
     template <typename Pose>
@@ -169,8 +170,8 @@ namespace Spacetime::Priors::WNOA
         GTSAM_CONCEPT_ASSERT(gtsam::IsLieGroup<Pose>);
 
     public:
-        using NodeType = Node<Pose>;
-        using ValuesType = typename NodeType::ValuesType;
+        using NodeType = Node<Pose>;                      ///< WNOA grid node.
+        using ValuesType = typename NodeType::ValuesType; ///< WNOA node values (pose, strain, velocity).
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
         /// The WNOA-specific interpolated-key layout (see WNOA::InterpolatedKeys's
         /// own documentation), exposed generically for Priors::InterpolationFactor
@@ -179,13 +180,13 @@ namespace Spacetime::Priors::WNOA
         /// made of (pose, strain, velocity); InterpolationFactor itself never does.
         using InterpolatedKeys = WNOA::InterpolatedKeys<Pose>;
 
-        static constexpr int dim = gtsam::traits<Pose>::dimension;
-        static constexpr int node_dim = NodeType::dim;
+        static constexpr int dim = gtsam::traits<Pose>::dimension; ///< Pose tangent dimension.
+        static constexpr int node_dim = NodeType::dim;              ///< Node tangent dimension (3 * dim).
 
         using MatrixN = Eigen::Matrix<double, dim, dim>;
         using VectorNode = Eigen::Matrix<double, node_dim, 1>;
         using MatrixNode = Eigen::Matrix<double, node_dim, node_dim>;
-        using AxisJacobian = typename Base::AxisJacobian;
+        using AxisJacobian = typename Base::AxisJacobian; ///< node_dim x 2*node_dim, [d/d(n0) | d/d(n1)].
         /// d(local chart coordinate)/d(one dim-sized component of a node), see globalToLocal.
         using ChartComponentJacobian = Eigen::Matrix<double, node_dim, dim>;
         /// Pair of (Lambda, Psi) interpolation matrices, mirroring gtsam::Interpolator::LambdaPsiMats.
@@ -206,6 +207,10 @@ namespace Spacetime::Priors::WNOA
          * @brief Compute the (Lambda, Psi) interpolation matrices for the time axis.
          *        Mirrors gtsam::Interpolator::getLambdaPsi, but for the full
          *        node_dim (pose, strain, velocity) WNOA-in-time transition.
+         * @param t_k Left border time.
+         * @param t_kp1 Right border time.
+         * @param t_tau Query time, t_k <= t_tau <= t_kp1.
+         * @return (Lambda, Psi), weighting the left and right nodes' local chart coordinates.
          */
         LambdaPsi getLambdaPsiTime(double t_k, double t_kp1, double t_tau) const
         {
@@ -216,6 +221,9 @@ namespace Spacetime::Priors::WNOA
          * @brief Compute the (Lambda, Psi) interpolation matrices for the arclength
          *        axis. Mirrors gtsam::Interpolator::getLambdaPsi, but for the full
          *        node_dim (pose, strain, velocity) WNOA-in-arclength transition.
+         * @param s_n Left border arclength.
+         * @param s_np1 Right border arclength.
+         * @param s_tau Query arclength, s_n <= s_tau <= s_np1.
          */
         LambdaPsi getLambdaPsiSpace(double s_n, double s_np1, double s_tau) const
         {
@@ -255,6 +263,7 @@ namespace Spacetime::Priors::WNOA
          *        conditional degenerates to Lambda = Phi_t(delta), Psi = 0. See the
          *        class-level documentation's extrapolation section.
          * @param delta Forward time offset past the anchor; must be non-negative.
+         * @throws std::runtime_error for delta < -TOLERANCE.
          */
         MatrixNode getLambdaExtrapTime(double delta) const
         {
@@ -264,7 +273,7 @@ namespace Spacetime::Priors::WNOA
             return Functions<Pose>::getPhiT(delta);
         }
 
-        /// Arclength counterpart of getLambdaExtrapTime (Lambda = Phi_s(delta), Psi = 0); delta must be non-negative.
+        /// Arclength counterpart of getLambdaExtrapTime (Lambda = Phi_s(delta), Psi = 0); throws std::runtime_error for a negative delta.
         MatrixNode getLambdaExtrapSpace(double delta) const
         {
             Base::throwIfBackwards(delta);
@@ -281,6 +290,7 @@ namespace Spacetime::Priors::WNOA
          *
          * CHART-frame (the anchor's local coordinates); the state-frame value of an
          * actual query comes from extrapolateTime's conditionalCov.
+         * @throws std::runtime_error for delta < -TOLERANCE.
          */
         MatrixNode computeConditionalCovExtrapTime(double delta) const
         {
@@ -543,7 +553,7 @@ namespace Spacetime::Priors::WNOA
          *        node_nk^-1 * node = Exp(xi), so node.pose() == node_nk.pose() *
          *        Exp(xi) exactly (see localToGlobal, its exact inverse).
          *
-         * Re-derived from scratch in T_ib convention (see PR discussion): the
+         * Derived in the T_ib convention: the
          * eps/varpi rows' dependence on a pose perturbation of `node`/`node_nk`
          * uses the standard right-Jacobian identity
          *   d/dxi [Jr(xi)^-1 v] * dxi = -1/2 Jr(xi)^-1 ad(v) Jr(xi)^-1 dxi

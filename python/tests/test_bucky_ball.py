@@ -93,16 +93,6 @@ def test_push_ramps_down_holds_then_releases():
     np.testing.assert_allclose(dz[~pressing], -depth, atol=1e-12)
 
 
-def test_demo_matches_the_cpp_sizes_and_tolerance():
-    # examples/bucky_ball.cpp: 2 nodes per edge, a 0.1 s period, and LM stopping at a relative decrease of 1e-3.
-    assert bucky_ball.NODES == 2
-    assert bucky_ball.PERIOD == pytest.approx(0.1)
-    demo = bucky_ball.build(EDGE, bucky_ball.NODES, bucky_ball.PERIOD, 0.1, 1.0, 1.0)
-    params = demo.estimator.options().lm_params
-    assert params.getRelativeErrorTol() == pytest.approx(1e-3)
-    assert params.getOrderingType() == "METIS"
-
-
 def test_build_joins_every_vertex_to_its_three_edges(ball):
     demo = bucky_ball.build(EDGE, bucky_ball.NODES, 0.1, 0.1, 1.0, 1.0)
     assert len(demo.robots) == 90

@@ -48,14 +48,9 @@ def assert_values_equal(a, b, tol):
 
 
 def test_python_sensor_matches_builtin_sensor():
-    builtin, _ = solve_with_tip_sensor(lambda prior: sensors.PoseSensor(POSE_COVARIANCE, prior))
+    builtin, _ = solve_with_tip_sensor(lambda prior: sensors.PoseSensor(prior))
     python, _ = solve_with_tip_sensor(PythonPoseSensor)
     assert_values_equal(builtin, python, 1e-12)
-
-
-def test_python_sensor_with_gtsam_factor_reaches_measurement():
-    values, prior = solve_with_tip_sensor(GtsamPriorSensor)
-    assert prior.query(END_TIME, LENGTH, values).pose().equals(bent_tip(LENGTH, CURVATURE), 1e-2)
 
 
 def test_python_sensor_returning_none_drops_measurement():

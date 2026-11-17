@@ -43,10 +43,10 @@ namespace Spacetime::Priors
     class GridPrior : public Types::StatefulModel<Types::ContinuumRobotState<NodeT>>
     {
     public:
-        using NodeType = NodeT;
-        using ValuesType = typename NodeT::ValuesType;
-        using StateType = Types::ContinuumRobotState<NodeT>;
-        using InterpolatorType = InterpolatorT;
+        using NodeType = NodeT;                              ///< The grid's node type.
+        using ValuesType = typename NodeT::ValuesType;       ///< One node's values.
+        using StateType = Types::ContinuumRobotState<NodeT>; ///< The grid state this prior extends.
+        using InterpolatorType = InterpolatorT;              ///< The prior's interpolator.
 
         static_assert(std::is_same_v<typename InterpolatorT::NodeType, NodeT>,
                       "GridPrior's interpolator must operate on the prior's own node type.");
@@ -79,6 +79,7 @@ namespace Spacetime::Priors
          *        `key_map` (see InterpolatedNode), for factors that interpolate more than one
          *        node (e.g. TwoSidedInterpolationFactor).
          * @return nullopt if the query precedes the earliest node.
+         * @throws std::invalid_argument for an invalid `key_map` (see InterpolatedNode).
          */
         std::optional<InterpolatedNode<InterpolatorT>> interpolatedNode(
             double time, double arclength, const typename InterpolatedNode<InterpolatorT>::KeyMap &key_map = {}) const

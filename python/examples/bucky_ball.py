@@ -151,7 +151,7 @@ def build(edge_length, nodes, period, depth, ramp, hold):
 
     # The pushed vertex's position (e.g. a tracked probe pressing on it).
     pushed = demo.end_effectors[demo.pushed]
-    sensor = sensors.PoseSensor(POSITION_COVARIANCE, pushed.endEffectorPrior())
+    sensor = sensors.PoseSensor(pushed.endEffectorPrior())
     for t, drop in push_profile(depth, ramp, hold, period):
         measured = vertex_pose(vertices[demo.pushed] + np.array([0.0, 0.0, drop]))
         sensor.addMeasurement(types.MeasurementBase(0.0, t, measured.matrix(), POSITION_COVARIANCE, POSITION_MASK))

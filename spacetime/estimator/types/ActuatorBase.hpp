@@ -51,7 +51,7 @@ namespace Spacetime::Types
     class ActuatorBase : public StatefulModel<ActuatorState>, public MeasurementQueue
     {
     public:
-        using pStatefulType = Types::pStatefulType;
+        using pStatefulType = Types::pStatefulType; ///< Shared pointer to the stateful model acted on.
 
         /**
          * @param stateful The stateful model (e.g. a prior) whose state the input acts on.
@@ -164,7 +164,7 @@ namespace Spacetime::Types
         std::vector<std::pair<pMeasurementType, gtsam::Key>> m_pending; // added by extendState, awaiting getNewFactors
     };
 
-    /// Types derived from ActuatorBase.
+    /// Types derived from ActuatorBase. @tparam T The candidate actuator type.
     template <typename T>
     concept ActuatorType = std::derived_from<T, ActuatorBase>;
 } // namespace Spacetime::Types

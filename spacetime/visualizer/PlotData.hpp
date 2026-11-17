@@ -32,6 +32,7 @@
 namespace Spacetime::Visualization
 {
     /**
+     * @file PlotData.hpp
      * @brief Backend-agnostic data behind a state plot panel (see e.g.
      *        Default::PlotWidget): per-type plotters turning a node variable into
      *        scalar components with 1-sigma bounds, a history of every node's plotted
@@ -211,6 +212,7 @@ namespace Spacetime::Visualization
         }
 
     private:
+        /// `size` NaNs.
         static std::vector<double> nanVector(std::size_t size) { return std::vector<double>(size, std::numeric_limits<double>::quiet_NaN()); }
 
         /// sqrt of the first `size` diagonal entries of `marginal`, or NaN if it is too small.
@@ -242,19 +244,25 @@ namespace Spacetime::Visualization
                 { return diagonalSigmas(marginal, static_cast<std::size_t>(value.size())); });
         }
 
-        std::map<std::type_index, VariablePlotter> m_plotters;
+        std::map<std::type_index, VariablePlotter> m_plotters; ///< By variable type.
     };
 
     /// A plotted line: the mean at each x, with mean -/+ 3 sigma bounds (NaN where no covariance is available).
     struct PlotSeries
     {
-        std::vector<double> x, mean, lower, upper;
+        std::vector<double> x;     ///< Time [s] or arclength [m], depending on the slice.
+        std::vector<double> mean;  ///< Component value at each x.
+        std::vector<double> lower; ///< mean - 3 sigma (NaN without covariance).
+        std::vector<double> upper; ///< mean + 3 sigma (NaN without covariance).
     };
 
     /// The data window a plot shows.
     struct PlotRange
     {
-        double x_min, x_max, y_min, y_max;
+        double x_min; ///< Left edge, in x data units.
+        double x_max; ///< Right edge, in x data units.
+        double y_min; ///< Bottom edge, in y data units.
+        double y_max; ///< Top edge, in y data units.
     };
 
     /**
@@ -333,23 +341,25 @@ namespace Spacetime::Visualization
     /// The plots of one node variable: one series per component. `supported` is false (and `series` empty) for a type with no registered plotter.
     struct PlotGroup
     {
-        std::string name;
-        std::vector<std::string> labels;
-        bool supported = true;
-        std::vector<PlotSeries> series;
-        std::type_index type = typeid(void);
+        std::string name;                    ///< The node variable's name (Types::NodeBase::names).
+        std::vector<std::string> labels;     ///< One label per component (see VariablePlotter::labels).
+        bool supported = true;               ///< Whether a plotter is registered for `type`.
+        std::vector<PlotSeries> series;      ///< One series per label; empty if unsupported.
+        std::type_index type = typeid(void); ///< The variable's C++ type.
     };
 
     /// How one node's variable is plotted: its name, type, component labels and whether a plotter exists for it.
     struct VariableLayout
     {
-        std::string name;
-        std::type_index type = typeid(void);
-        std::vector<std::string> labels;
-        bool supported = true;
+        std::string name;                    ///< Variable name.
+        std::type_index type = typeid(void); ///< Variable C++ type.
+        std::vector<std::string> labels;     ///< Component labels (empty if unsupported).
+        bool supported = true;               ///< Whether a plotter exists for `type`.
 
+        /// Memberwise equality.
         bool operator==(const VariableLayout &other) const = default;
     };
+    /// The layouts of every variable of one node, in Types::NodeBase::names order.
     using NodeLayout = std::vector<VariableLayout>;
 
     /**
@@ -368,9 +378,10 @@ namespace Spacetime::Visualization
         /// One node's cached values.
         struct Entry
         {
-            bool valid = false;
-            double time = 0.0, arclength = 0.0;
-            std::shared_ptr<const NodeLayout> layout;
+            bool valid = false;                       ///< False for a slot never ingested.
+            double time = 0.0;                        ///< Node time [s].
+            double arclength = 0.0;                   ///< Node arclength [m].
+            std::shared_ptr<const NodeLayout> layout; ///< Shared between nodes with equal layouts.
             /// Per variable (in layout order): components and their 1-sigma.
             std::vector<std::vector<double>> mean, sigma;
         };
@@ -568,8 +579,8 @@ namespace Spacetime::Visualization
     /// Ground-truth points: x (time or arclength) and, per poseComponents() entry, the value at each x.
     struct GroundTruthPoints
     {
-        std::vector<double> x;
-        std::vector<std::vector<double>> components = std::vector<std::vector<double>>(6);
+        std::vector<double> x;                                                             ///< Time [s] or arclength [m].
+        std::vector<std::vector<double>> components = std::vector<std::vector<double>>(6); ///< [x, y, z, roll, pitch, yaw], each parallel to `x`.
     };
 
     namespace detail
@@ -670,10 +681,13 @@ namespace Spacetime::Visualization
     class PlotSelection
     {
     public:
+        /// @param spatial_dim Nodes per row of the plotted robot; 0 leaves the selection fixed at 0.
         explicit PlotSelection(unsigned int spatial_dim)
             : m_spatial_dim(spatial_dim), m_spatial_index(spatial_dim ? spatial_dim - 1 : 0) {}
 
+        /// The selected spatial node (0 = base).
         unsigned int spatialIndex() const { return m_spatial_index; }
+        /// The selected slicing mode.
         PlotMode mode() const { return m_mode; }
         /// Incremented by every change of selection or mode.
         unsigned long revision() const { return m_revision; }

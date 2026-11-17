@@ -64,12 +64,14 @@ namespace Spacetime::Visualization::Default
      *        ContinuumRobot::bindSnapshotSource), keeping every node's last plotted
      *        value, so the plots cover the whole run rather than only the estimator's
      *        window. Plots are only re-rendered while shown, and only when what they
-     *        show changed.
+     *        show changed. GUI thread only.
+     * @tparam NodeT Node type of the plotted ContinuumRobotState(s).
      */
     template <Types::NodeType NodeT>
     class PlotWidget : public Visualizable
     {
     public:
+        /// The plotted state type.
         using StateType = Types::ContinuumRobotState<NodeT>;
         /// The snapshot to plot for an estimate time (see ContinuumRobot::bindSnapshotSource).
         using SnapshotSource = std::function<std::shared_ptr<const EstimatorSnapshot>(double)>;
@@ -77,11 +79,12 @@ namespace Spacetime::Visualization::Default
         /// A state plotted under a name (see the named-states constructor).
         struct NamedState
         {
-            std::string name;
-            std::shared_ptr<const StateType> state;
+            std::string name;                       ///< Prefix of its plot groups' headers.
+            std::shared_ptr<const StateType> state; ///< The state; its last spatial node is plotted.
         };
 
         /**
+         * @brief Plots the state drawn by `robot_view`, with mode, node selection and highlight.
          * @param robot_view           The robot view whose state, snapshots and node frames are used. Add it to the visualizer too.
          * @param ground_truth_sensors Ground-truth sensors; pose sensors among them are overlaid on the pose plots.
          *                             Subscribed to here (see MeasurementHistory), so construct this before their data is consumed.
@@ -105,6 +108,7 @@ namespace Spacetime::Visualization::Default
         }
 
         /**
+         * @brief Plots the last spatial node of each named state against time (no robot view).
          * @param states          The states to plot, in panel order; each one's last spatial node is plotted against time.
          * @param snapshot_source The snapshots holding their values.
          * @throws std::invalid_argument if `states` is empty, holds a null state, or `snapshot_source` is empty.
@@ -282,18 +286,19 @@ namespace Spacetime::Visualization::Default
         /// One plotted state and the history of its nodes.
         struct Source
         {
-            std::string name;
-            std::shared_ptr<const StateType> state;
-            NodeHistory history;
+            std::string name;                       ///< Header prefix; empty for the robot view's state.
+            std::shared_ptr<const StateType> state; ///< The plotted state.
+            NodeHistory history;                    ///< Every node's last plotted value, across the run.
         };
 
         /// What the plots were last rendered for.
         struct RenderKey
         {
-            std::vector<unsigned long> history_revisions;
-            unsigned long selection_revision;
-            std::vector<std::optional<std::size_t>> rows;
-            QSize size;
+            std::vector<unsigned long> history_revisions;  ///< Per source, NodeHistory::revision().
+            unsigned long selection_revision;              ///< PlotSelection::revision().
+            std::vector<std::optional<std::size_t>> rows;  ///< Per source, the displayed row.
+            QSize size;                                    ///< Plot size.
+            /// Whether nothing shown changed.
             bool operator==(const RenderKey &other) const
             {
                 return std::tie(history_revisions, selection_revision, rows) == std::tie(other.history_revisions, other.selection_revision, other.rows) &&
@@ -301,6 +306,7 @@ namespace Spacetime::Visualization::Default
             }
         };
 
+        /// `view`, or throws std::invalid_argument if it is null (for the constructor's initializers).
         static std::shared_ptr<const ContinuumRobot<NodeT>> requireView(std::shared_ptr<const ContinuumRobot<NodeT>> view)
         {
             if (!view)
@@ -308,6 +314,7 @@ namespace Spacetime::Visualization::Default
             return view;
         }
 
+        /// Whether built from a robot view (rather than named states).
         bool hasRobotView() const { return mp_robot_view != nullptr; }
 
         /// min(time, the last recorded snapshot's time), as the robot view displays.
@@ -321,6 +328,7 @@ namespace Spacetime::Visualization::Default
             return source.state->spatial_dim ? source.state->spatial_dim - 1 : 0;
         }
 
+        /// The first source's history (the robot view's state, with a robot view).
         const NodeHistory &robotHistory() const { return m_sources.front().history; }
 
         /// Half the arclength gap from the selected node to its nearest neighbour (infinite for a single node).
@@ -464,21 +472,30 @@ namespace Spacetime::Visualization::Default
         inline static const std::vector<QColor> kColors = {QColor(255, 0, 0), QColor(0, 160, 0), QColor(0, 0, 255),
                                                            QColor(255, 140, 0), QColor(128, 0, 128), QColor(255, 105, 180)};
 
+        /// The plotted states, in panel order (just the robot view's state with a robot view).
         mutable std::vector<Source> m_sources;
+        /// Where the snapshots to record come from.
         SnapshotSource m_snapshot_source;
         /// The robot view, kept alive for its node frames (null for named states).
         std::shared_ptr<const Visualizable> mp_robot_view;
         /// The robot view's node frames (see ContinuumRobot::mp_axes), which the highlight and click selection use; null without a robot view.
         const std::vector<vtkSmartPointer<vtkActor>> *mp_node_frames = nullptr;
+        /// Radius of the selection highlight sphere [m].
         double m_highlight_scale = 0.015;
+        /// One per ground-truth pose sensor.
         std::vector<MeasurementHistory> m_ground_truth;
+        /// The selected spatial node and plot mode.
         mutable PlotSelection m_selection;
+        /// The snapshot recorded last (see ingest).
         mutable std::shared_ptr<const EstimatorSnapshot> mp_last_snapshot;
+        /// What the plots were last rendered for, to skip unchanged re-renders.
         mutable std::optional<RenderKey> m_last_render;
 
         /// Owned by the visualizer (its Qt child); created by visualize().
         mutable PlotPanel *mp_panel = nullptr;
+        /// Translucent orange sphere at the selected node (robot view only).
         mutable vtkSmartPointer<vtkActor> mp_highlight;
+        /// Renderer, picker and interactor observer behind click selection (robot view only).
         mutable vtkSmartPointer<vtkRenderer> mp_renderer;
         mutable vtkSmartPointer<vtkPropPicker> mp_picker;
         mutable vtkSmartPointer<vtkCallbackCommand> mp_click_callback;

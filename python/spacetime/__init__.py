@@ -13,7 +13,8 @@ Submodules:
                 The quasi-static prior (WNOA in arclength only, for EstimatorOptions.quasi_static).
     joints      Joints between robots, and end effectors.
     sensors     Built-in sensors and their factors.
-    interface   The standalone session that runs an estimator.
+    interface   The standalone Session that runs an estimator, its SessionOptions, and the
+                SnapshotHistory of its estimates.
     interface.ros2
                 Live (or rosbag) estimation on ROS2 nodes (if built with InterfaceROS2): init/shutdown
                 rclcpp, the ROS2 Session, pose sensor nodes fed by TF, waitForTransform.
@@ -45,7 +46,12 @@ from ._spacetime import (  # noqa: F401
 
 
 def _register(name, module):
-    """Makes `module` importable as spacetime.<name>, with its submodules."""
+    """Makes the extension submodule `module` importable as spacetime.<name>, recursing into its submodules.
+
+    Args:
+        name: The dotted name below the package, e.g. "priors.wnoa".
+        module: The pybind11 submodule of _spacetime registered under that name.
+    """
     sys.modules[f"{__name__}.{name}"] = module
     for attribute in dir(module):
         child = getattr(module, attribute)

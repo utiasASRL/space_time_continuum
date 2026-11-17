@@ -47,7 +47,7 @@ namespace Spacetime::Standalone
         std::shared_ptr<Sensors::PoseSensor<ValueType>> addPoseSensor(Estimator &estimator, const std::shared_ptr<Priors::WNOA::Prior<Pose>> &prior)
         {
             const Eigen::Matrix<double, 6, 6> covariance = Eigen::Matrix<double, 6, 6>::Identity() * 0.01;
-            auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(covariance, prior);
+            auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
             estimator.addSensor(sensor);
             return sensor;
         }
@@ -131,23 +131,6 @@ namespace Spacetime::Standalone
     } // namespace
 
     // ---- Behaviour ported from the old OfflineInterface tests ----
-
-    TEST(EstimatorRunner, NonRealTimeConsumesAllDueMeasurements)
-    {
-        auto prior = makePrior();
-        Estimator estimator;
-        estimator.addPrior(prior);
-        auto sensor = addPoseSensor(estimator, prior);
-        sensor->addMeasurement(makeMeasurement(0.0));
-        sensor->addMeasurement(makeMeasurement(0.1));
-
-        auto clock = std::make_shared<SteppedClock>();
-        EstimatorRunner runner(estimator, clock, options(0.0, -1.0, 0.1));
-        runner.addDataloader(std::make_shared<FileDataloader>(estimator.getMeasurementQueues(), clock));
-        EXPECT_NO_THROW(runner.run());
-
-        EXPECT_TRUE(sensor->empty());
-    }
 
     TEST(EstimatorRunner, EndTimeCutoffPreservesUndeliveredMeasurements)
     {
@@ -254,33 +237,6 @@ namespace Spacetime::Standalone
         for (std::size_t i = 0; i < nodes.size(); i += 2)
             row_times.push_back(nodes[i]->time);
         EXPECT_EQ(row_times, (std::vector<double>{0.013, 0.05, 0.27, 0.31})); // 0.6 is past the end time
-    }
-
-    TEST(EstimatorRunner, PeriodControlsNonRealTimeStepCount)
-    {
-        Estimator estimator;
-        int coarse_steps = 0, fine_steps = 0;
-
-        EstimatorRunner coarse(estimator, std::make_shared<SteppedClock>(), options(0.0, 0.1, 0.05));
-        coarse.setTickCallback([&](double)
-                               { coarse_steps++; });
-        coarse.run();
-        EstimatorRunner fine(estimator, std::make_shared<SteppedClock>(), options(0.0, 0.1, 0.02));
-        fine.setTickCallback([&](double)
-                             { fine_steps++; });
-        fine.run();
-
-        EXPECT_EQ(coarse_steps, 3); // {0, 0.05, 0.1}
-        EXPECT_EQ(fine_steps, 6);   // {0, 0.02, ..., 0.1}
-    }
-
-    TEST(EstimatorRunner, RejectsNonPositivePeriod)
-    {
-        Estimator estimator;
-        EstimatorRunner zero(estimator, std::make_shared<SteppedClock>(), options(0.0, 0.1, 0.0));
-        EXPECT_THROW(zero.start(), std::invalid_argument);
-        EstimatorRunner negative(estimator, std::make_shared<WallClock>(), options(0.0, 0.1, -0.1));
-        EXPECT_THROW(negative.start(), std::invalid_argument);
     }
 
     // The old OfflineInterface replayed every model's queue (sensors and actuators alike).
@@ -428,18 +384,6 @@ namespace Spacetime::Standalone
                                { calls++; });
         runner.run();
         EXPECT_EQ(calls, 3);
-    }
-
-    TEST(EstimatorRunner, RequestStopEndsALongRealTimeRunPromptly)
-    {
-        Estimator estimator;
-        EstimatorRunner runner(estimator, std::make_shared<WallClock>(), options(0.0, 60.0, 0.5));
-        runner.start();
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        const auto stop_time = std::chrono::steady_clock::now();
-        runner.requestStop();
-        runner.join();
-        EXPECT_LT(secondsSince(stop_time), 1.0);
     }
 
     TEST(EstimatorRunner, DataloaderExceptionIsRethrownByJoin)

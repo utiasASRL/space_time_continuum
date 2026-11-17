@@ -19,7 +19,7 @@
 
 namespace Spacetime::Standalone
 {
-    /// An Interface::Clock that the standalone threads can (re)start and sleep on.
+    /// An Interface::Clock that the standalone threads can (re)start and sleep on. All methods are safe to call from any thread.
     struct PacingClock : public Interface::Clock
     {
         /// (Re)starts the clock so that now() reads `time`. Called by the runner as it starts.
@@ -35,10 +35,13 @@ namespace Spacetime::Standalone
     class SteppedClock : public PacingClock
     {
     public:
+        /// Sets the time to `time` (seconds).
         void start(double time) override { m_time.store(time); }
+        /// The last time set by start() or sleepUntil(). Lock-free.
         double now() const override { return m_time.load(); }
         /// Advances to `time` (never backwards) without waiting.
         void sleepUntil(double time, std::stop_token) override { m_time.store(std::max(m_time.load(), time)); }
+        /// Always false: time advances only through sleepUntil().
         bool isRealTime() const override { return false; }
 
     private:
@@ -49,8 +52,10 @@ namespace Spacetime::Standalone
     class WallClock : public PacingClock
     {
     public:
+        /// Starts at time 0 now; EstimatorRunner::start() restarts it at the start time.
         WallClock() { start(0.0); }
 
+        /// Makes now() read `time` (seconds) at this instant. Thread-safe.
         void start(double time) override
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -58,12 +63,14 @@ namespace Spacetime::Standalone
             m_start_wall_time = SteadyClock::now();
         }
 
+        /// Thread-safe (takes a mutex).
         double now() const override
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             return m_start_time + std::chrono::duration<double>(SteadyClock::now() - m_start_wall_time).count();
         }
 
+        /// Blocks until the wall clock reaches `time` (returns at once if it already has), or a stop is requested.
         void sleepUntil(double time, std::stop_token stop) override
         {
             std::unique_lock<std::mutex> lock(m_mutex);
@@ -73,6 +80,7 @@ namespace Spacetime::Standalone
                               { return false; });
         }
 
+        /// Always true.
         bool isRealTime() const override { return true; }
 
     private:

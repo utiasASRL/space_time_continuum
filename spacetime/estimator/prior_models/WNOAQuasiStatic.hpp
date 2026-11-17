@@ -1,3 +1,8 @@
+/**
+ * @file WNOAQuasiStatic.hpp
+ * @brief Umbrella header for the quasi-static WNOA prior (WNOA in arclength, no time dimension): state, prior, interpolator and InterpolationFactor.
+ */
+
 #ifndef WNOAQUASISTATIC_HPP
 #define WNOAQUASISTATIC_HPP
 

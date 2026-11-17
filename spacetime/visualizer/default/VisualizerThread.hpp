@@ -41,9 +41,13 @@ namespace Spacetime::Visualization::Default
          *        the QApplication and the Visualizer, runs `build`, then waits for
          *        beginPlayback().
          * @param argc, argv Passed to QApplication; must outlive this object (e.g. main's).
-         * @param on_closed Called on the visualizer thread once its event loop ends, for
-         *        whatever reason (the user quit or closed the window, or requestQuit()),
-         *        e.g. to stop the estimator.
+         * @param options, output_path Passed to the Visualizer (see its constructor).
+         * @param build Run once on the visualizer thread, after the Visualizer is built.
+         * @param on_closed Called on the visualizer thread once it is done, for whatever
+         *        reason (the user quit or closed the window, requestQuit(), or `build`
+         *        throwing), e.g. to stop the estimator.
+         * @param nice_delta Niceness added to the visualizer thread (see
+         *        Standalone::lowerCurrentThreadPriority).
          */
         VisualizerThread(int &argc, char **argv, VisualizerOptions options, std::string output_path, BuildFn build,
                          std::function<void()> on_closed = nullptr, int nice_delta = 10);
@@ -54,11 +58,14 @@ namespace Spacetime::Visualization::Default
         VisualizerThread(const VisualizerThread &) = delete;
         VisualizerThread &operator=(const VisualizerThread &) = delete;
 
-        /// Blocks until `build` has run. Rethrows anything it (or the visualizer's construction) threw.
+        /// Blocks until `build` has run. Rethrows anything it (or the QApplication's or visualizer's construction) threw; the thread then ends without running an event loop.
         void waitReady();
 
         /**
-         * @brief Shows the visualizer and starts its event loop, playing over [start_time, end_time].
+         * @brief Shows the visualizer and starts its event loop, playing over [start_time, end_time]
+         *        (see Visualizer::setTimeRange). Returns at once; call after waitReady(). Ignored
+         *        if requestQuit() came first.
+         * @param start_time, end_time Playback range [s].
          * @param live_time_source Online mode only: the current estimation time (see
          *        Visualizer::setLiveTimeSource), read on the visualizer thread, e.g. the
          *        runner's clock.
@@ -68,17 +75,18 @@ namespace Spacetime::Visualization::Default
         /// Asks the visualizer to quit, whether or not playback has begun. Safe to call from any thread.
         void requestQuit();
 
-        /// Waits for the thread to end. Returns the event loop's exit code (0 if it never ran).
+        /// Waits for the thread to end. Returns the event loop's exit code (0 if it never ran). Call from one thread at a time, not the visualizer thread.
         int join();
 
     private:
         /// What beginPlayback() hands to the visualizer thread.
         struct Playback
         {
-            double start_time, end_time;
-            std::function<double()> live_time_source;
+            double start_time, end_time;              ///< Playback range [s].
+            std::function<double()> live_time_source; ///< See beginPlayback.
         };
 
+        // Constructor arguments, used by threadMain.
         int &m_argc;
         char **m_argv;
         VisualizerOptions m_options;
@@ -87,17 +95,23 @@ namespace Spacetime::Visualization::Default
         std::function<void()> m_on_closed;
         int m_nice_delta;
 
+        /// Guards every field below except m_thread.
         std::mutex m_mutex;
+        /// Signalled when m_ready, m_quit_requested or m_playback changes.
         std::condition_variable m_changed;
+        /// Set once `build` ran (or construction threw).
         bool m_ready = false;
         bool m_quit_requested = false;
+        /// Set by beginPlayback.
         std::optional<Playback> m_playback;
+        /// What `build` (or construction) threw, rethrown by waitReady.
         std::exception_ptr m_build_error;
         QApplication *mp_app = nullptr; // set while the event loop can receive a quit
         int m_exit_code = 0;
 
         std::thread m_thread;
 
+        /// The visualizer thread's body (see the constructor).
         void threadMain();
     };
 } // namespace Spacetime::Visualization::Default

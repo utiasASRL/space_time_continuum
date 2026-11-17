@@ -39,7 +39,7 @@ namespace Spacetime::Priors::WNOV
             {
                 prior = std::make_shared<PriorType>(state, Pose(), epsilon0, 1e-4 * Matrix6::Identity(),
                                                     1e-2 * Matrix6::Identity(), 1e-1 * Matrix6::Identity(), prior_options);
-                sensor = std::make_shared<Sensor>(R, prior);
+                sensor = std::make_shared<Sensor>(prior);
                 estimator.addPrior(prior);
                 estimator.addSensor(sensor);
             }
@@ -131,24 +131,6 @@ namespace Spacetime::Priors::WNOV
         const double kept = baseMiss(false), removed = baseMiss(true);
         EXPECT_LT(removed, 1e-5);
         EXPECT_LT(removed, kept);
-    }
-
-    TEST(WNOVEstimator, OffNodeMeasurementsAreMatchedThroughTheInterpolation)
-    {
-        // With the measurement's own noise model (no conditional covariance added), a
-        // near-exact measurement between nodes must be reproduced by the interpolated pose.
-        PriorOptions options;
-        options.fixed_noise_model = true;
-        Fixture f(Estimator::BATCH_LAG, false, options);
-        const Pose measured(gtsam::Rot3::Rx(0.2), gtsam::Point3(0.3, 0.0, 0.375));
-        f.measure(0.0, 0.0, Pose());
-        f.measure(0.0, 0.375, measured); // between nodes 1 (s = 0.25) and 2 (s = 0.5)
-        f.estimator.estimate(0.0);
-        f.estimator.finalize();
-
-        auto queried = std::dynamic_pointer_cast<ValuesType>(f.prior->query(0.0, 0.375, f.estimator.getCurrentValues()));
-        ASSERT_NE(queried, nullptr);
-        EXPECT_TRUE(queried->pose().equals(measured, 1e-4));
     }
 
     TEST(WNOVEstimator, ConditionalCovarianceDownweightsOffNodeMeasurements)

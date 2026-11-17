@@ -25,7 +25,8 @@ namespace Spacetime::Priors::WNOAQuasiStatic
     template <typename PoseT>
     struct InterpolatedKeys
     {
-        using ValuesType = Values<PoseT>;
+        using ValuesType = Values<PoseT>; ///< The node values these keys index.
+        /// Dimension of each component (pose and strain both have the pose's tangent dimension).
         static constexpr int dim = gtsam::traits<PoseT>::dimension;
 
         /// Interpolated pose key.
@@ -36,7 +37,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         /// The full set of interpolated keys this node type defines.
         static gtsam::KeyVector keys() { return {Pose(), Strain()}; }
 
-        /// Insert the piece of `node` that `key` stands in for into `values`, at `key`.
+        /// Insert the piece of `node` that `key` stands in for into `values`, at `key`; throws std::runtime_error for any other key.
         static void insert(gtsam::Key key, const ValuesType &node, gtsam::Values &values)
         {
             if (key == Pose())
@@ -47,7 +48,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
                 throw std::runtime_error("WNOAQuasiStatic::InterpolatedKeys::insert: key is not one of this node type's interpolated keys.");
         }
 
-        /// The (offset, dim) row range `key`'s component occupies within the node's tangent vector.
+        /// The (offset, dim) row range `key`'s component occupies within the node's tangent vector; throws std::runtime_error for any other key.
         static std::pair<int, int> rowRange(gtsam::Key key)
         {
             if (key == Pose())

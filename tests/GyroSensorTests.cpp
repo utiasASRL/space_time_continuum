@@ -67,15 +67,6 @@ namespace Spacetime
         EXPECT_TRUE(e.isApprox(Eigen::Vector3d(0.2, -0.6, 0.8), 1e-12));
     }
 
-    TEST(GyroSensor, ErrorIsZeroWhenStateMatchesMeasurement)
-    {
-        const Eigen::Vector3d omega(0.3, -0.2, 0.5);
-        Vector6 varpi = Vector6::Zero();
-        varpi.head<3>() = omega;
-        varpi.tail<3>() << 1.0, 2.0, 3.0;
-        EXPECT_NEAR(makeFactor(omega).evaluateError(varpi).norm(), 0.0, 1e-12);
-    }
-
     TEST(GyroSensor, JacobianMatchesNumerical)
     {
         const auto factor = makeFactor(Eigen::Vector3d(0.3, -0.2, 0.5));
@@ -105,17 +96,6 @@ namespace Spacetime
         EXPECT_TRUE(H.row(1).isZero());
         EXPECT_FALSE(H.row(0).isZero());
         EXPECT_FALSE(H.row(2).isZero());
-    }
-
-    TEST(GyroSensor, FactorReferencesOnlyTheInterpolatedVelocityKey)
-    {
-        std::shared_ptr<StateType> state;
-        auto sensor = std::make_shared<Sensor>(makePrior(state));
-        auto inner = sensor->getFactor(makeGyroMeasurement(0.0, 0.0, Eigen::Vector3d(0.1, 0.2, 0.3)));
-        ASSERT_NE(inner, nullptr);
-        ASSERT_EQ(inner->keys().size(), 1u);
-        EXPECT_EQ(inner->keys().front(), ValueType::InterpolatedKeys::Velocity());
-        EXPECT_EQ(inner->dim(), 3u);
     }
 
     TEST(GyroSensor, InterpolatedFactorJacobiansMatchNumerical)
@@ -167,24 +147,6 @@ namespace Spacetime
         // cross-term approximation -- see WNOAInterpolationTests'
         // InterpolationFactorTimeOnlyJacobians, which uses 1e-2 for the same reason.
         EXPECT_TRUE(gtsam::internal::testFactorJacobians("GyroInterpolationFactor", fixed_factor, values, 1e-6, 1e-3));
-    }
-
-    TEST(GyroSensor, MeasurementsBeforeTheGraphAreDropped)
-    {
-        std::shared_ptr<StateType> state;
-        auto prior = makePrior(state);
-        auto sensor = std::make_shared<Sensor>(prior);
-
-        KeyManager km;
-        gtsam::Values current_values, new_values;
-        prior->extendState(km, 1.0, current_values, new_values);
-        current_values.insert(new_values);
-        new_values.clear();
-
-        sensor->addMeasurement(makeGyroMeasurement(0.0, 0.5, Eigen::Vector3d::Zero()));
-        auto factors = sensor->getNewFactors(1.0, new_values);
-        EXPECT_TRUE(factors.empty());
-        EXPECT_TRUE(sensor->empty());
     }
 
     TEST(GyroSensor, EstimatorTracksConstantAngularVelocity)

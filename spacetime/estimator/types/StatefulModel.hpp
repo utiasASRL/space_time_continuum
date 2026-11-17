@@ -161,7 +161,7 @@ namespace Spacetime::Types
         }
 
     protected:
-        std::shared_ptr<State> mp_state;
+        std::shared_ptr<State> mp_state; ///< The state this model extends; never null.
 
     private:
         /// The node the default getOuterFactor/query snap (time, arclength) to, or nullptr
@@ -175,7 +175,10 @@ namespace Spacetime::Types
         }
     };
 
-    /// A stateful model whose state is a `StateT` (see StatefulModel<State>).
+    /**
+     * @brief A stateful model whose state is a `StateT` (see StatefulModel<State>).
+     * @tparam StateT The state type this model extends (e.g. a ContinuumRobotState).
+     */
     template <StateType StateT>
     class StatefulModel : public StatefulModel<State>
     {
@@ -190,10 +193,11 @@ namespace Spacetime::Types
         std::shared_ptr<StateT> state() const { return std::static_pointer_cast<StateT>(mp_state); } // only ever set to a StateT, above
     };
 
-    /// Types derived from StatefulModel: models that store and extend a state.
+    /// Types derived from StatefulModel: models that store and extend a state. @tparam T The candidate model type.
     template <typename T>
     concept StatefulType = std::derived_from<T, StatefulModel<>>;
 
+    /// Shared pointer to the untyped StatefulModel base, as held by sensors and actuators.
     using pStatefulType = std::shared_ptr<StatefulModel<>>;
 } // namespace Spacetime::Types
 #endif // STATEFULMODEL_HPP

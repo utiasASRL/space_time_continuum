@@ -17,10 +17,10 @@
  */
 namespace Spacetime::Joints
 {
-    using Vector3 = Eigen::Vector3d;
-    using Vector6 = Eigen::Matrix<double, 6, 1>;
-    using Matrix3 = Eigen::Matrix3d;
-    using Matrix6 = Eigen::Matrix<double, 6, 6>;
+    using Vector3 = Eigen::Vector3d;              ///< 3-vector.
+    using Vector6 = Eigen::Matrix<double, 6, 1>;  ///< 6-vector, e.g. a body twist [omega; nu].
+    using Matrix3 = Eigen::Matrix3d;              ///< 3x3 matrix.
+    using Matrix6 = Eigen::Matrix<double, 6, 6>;  ///< 6x6 matrix.
 
     /**
      * @brief Rigid-joint velocity residual e = varpi_B - Ad(T_AB^-1) varpi_A: point B's body
@@ -32,9 +32,16 @@ namespace Spacetime::Joints
         using Base = gtsam::NoiseModelFactorN<Vector6, Vector6>;
         using Base::evaluateError;
 
+        /**
+         * @param velocity_a Key of point A's body twist varpi_A.
+         * @param velocity_b Key of point B's body twist varpi_B.
+         * @param offset The joint offset T_AB.
+         * @param noise 6-dimensional noise model of the residual.
+         */
         RigidVelocityFactor(gtsam::Key velocity_a, gtsam::Key velocity_b, const gtsam::Pose3 &offset, const gtsam::SharedNoiseModel &noise)
             : Base(noise, velocity_a, velocity_b), m_adjoint(offset.inverse().AdjointMap()) {}
 
+        /// The residual varpi_B - Ad(T_AB^-1) varpi_A, with its Jacobians -Ad(T_AB^-1) and I.
         gtsam::Vector evaluateError(const Vector6 &varpi_a, const Vector6 &varpi_b, gtsam::OptionalMatrixType H_a, gtsam::OptionalMatrixType H_b) const override
         {
             if (H_a)
@@ -70,9 +77,16 @@ namespace Spacetime::Joints
         using Base = gtsam::NoiseModelFactorN<gtsam::Pose3, gtsam::Pose3>;
         using Base::evaluateError;
 
+        /**
+         * @param pose_a Key of point A's pose T_A.
+         * @param pose_b Key of point B's pose T_B.
+         * @param offset Position r of point B relative to point A, in A's frame (m).
+         * @param noise 3-dimensional noise model of the residual.
+         */
         SphericalPositionFactor(gtsam::Key pose_a, gtsam::Key pose_b, const Vector3 &offset, const gtsam::SharedNoiseModel &noise)
             : Base(noise, pose_a, pose_b), m_offset(offset) {}
 
+        /// The residual R_A^T (t_B - t_A) - r, with Jacobians w.r.t. right perturbations of T_A and T_B.
         gtsam::Vector evaluateError(const gtsam::Pose3 &T_a, const gtsam::Pose3 &T_b, gtsam::OptionalMatrixType H_a, gtsam::OptionalMatrixType H_b) const override
         {
             const Matrix3 R_a = T_a.rotation().matrix();
@@ -106,10 +120,19 @@ namespace Spacetime::Joints
         using Base = gtsam::NoiseModelFactorN<gtsam::Pose3, Vector6, gtsam::Pose3, Vector6>;
         using Base::evaluateError;
 
+        /**
+         * @param pose_a Key of point A's pose T_A.
+         * @param velocity_a Key of point A's body twist varpi_A = [omega_A; nu_A].
+         * @param pose_b Key of point B's pose T_B.
+         * @param velocity_b Key of point B's body twist varpi_B = [omega_B; nu_B].
+         * @param offset Position r of point B relative to point A, in A's frame (m).
+         * @param noise 3-dimensional noise model of the residual.
+         */
         SphericalVelocityFactor(gtsam::Key pose_a, gtsam::Key velocity_a, gtsam::Key pose_b, gtsam::Key velocity_b,
                                 const Vector3 &offset, const gtsam::SharedNoiseModel &noise)
             : Base(noise, pose_a, velocity_a, pose_b, velocity_b), m_offset(offset) {}
 
+        /// The residual nu_A + omega_A x r - R_A^T R_B nu_B, with Jacobians w.r.t. right perturbations of the poses.
         gtsam::Vector evaluateError(const gtsam::Pose3 &T_a, const Vector6 &varpi_a, const gtsam::Pose3 &T_b, const Vector6 &varpi_b,
                                     gtsam::OptionalMatrixType H_pa, gtsam::OptionalMatrixType H_va,
                                     gtsam::OptionalMatrixType H_pb, gtsam::OptionalMatrixType H_vb) const override

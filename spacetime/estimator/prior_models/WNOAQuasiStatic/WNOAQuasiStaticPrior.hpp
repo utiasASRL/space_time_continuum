@@ -36,7 +36,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
      *        prior reduces to with K = 1 and no velocity.
      *
      * Every node row is an independent shape estimate, with gtsam's own factors (the same
-     * ones as WNOA::Prior's FactorType::WNOA):
+     * ones as WNOA::Prior's FactorType::Experimental):
      *  - unary gtsam::PriorFactor<Pose> and gtsam::PriorFactor<TangentVector> on its base
      *    node's pose and strain, from the pose and strain blocks of Q0;
      *  - a gtsam::WnoaMotionFactor on (pose, strain) between arclength neighbours, with PSD Q2.
@@ -60,9 +60,9 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         GTSAM_CONCEPT_ASSERT(gtsam::IsTestable<Pose>);
         GTSAM_CONCEPT_ASSERT(gtsam::IsLieGroup<Pose>);
 
-        static constexpr int dim = gtsam::traits<Pose>::dimension;
-        using MatrixN = Eigen::Matrix<double, dim, dim>;
-        using Matrix2N = Eigen::Matrix<double, 2 * dim, 2 * dim>;
+        static constexpr int dim = gtsam::traits<Pose>::dimension; ///< Pose tangent dimension.
+        using MatrixN = Eigen::Matrix<double, dim, dim>;            ///< PSD block (Q2).
+        using Matrix2N = Eigen::Matrix<double, 2 * dim, 2 * dim>;   ///< [pose, strain] block (Q0).
 
         /**
          * @param state The grid state this prior extends.

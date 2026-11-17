@@ -1,21 +1,10 @@
 """The extension imports, and GTSAM objects cross into it as GTSAM's own Python types."""
 
 import gtsam
-import numpy as np
 import pytest
 
 import spacetime as st
 from spacetime.priors import wnoa
-
-
-def test_submodules_are_importable():
-    import spacetime.types  # noqa: F401
-    import spacetime.priors.wnoa  # noqa: F401
-    import spacetime.priors.wnov  # noqa: F401
-    import spacetime.joints  # noqa: F401
-    import spacetime.sensors  # noqa: F401
-    import spacetime.interface  # noqa: F401
-    import spacetime.utilities  # noqa: F401
 
 
 def test_gtsam_pose_round_trips_as_a_gtsam_type():
@@ -41,9 +30,3 @@ def test_one_libgtsam_is_loaded():
     if not libraries:
         pytest.skip("libgtsam is linked statically")
     assert len(libraries) == 1, libraries
-
-
-def test_eigen_matrices_become_numpy():
-    measurement = st.types.MeasurementBase(0.0, 0.0, np.eye(4), np.eye(6))
-    assert isinstance(measurement.value, np.ndarray)
-    assert measurement.value.shape == (4, 4)

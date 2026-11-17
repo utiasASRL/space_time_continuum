@@ -13,7 +13,7 @@
 
 namespace Spacetime::Sensors
 {
-    using MeasurementType = Types::MeasurementBase;
+    using MeasurementType = Types::MeasurementBase; ///< Alias of Types::MeasurementBase for sensor code.
     namespace
     {
         /// Node values with a pose() and an interpolated Pose() key.
@@ -31,6 +31,8 @@ namespace Spacetime::Sensors
      *        pose T_ib of the robot at a given arclength and time. Measurement values are
      *        pose matrices (e.g. 4x4), covariances dim x dim in the pose's tangent order
      *        (GTSAM [rotational, translational] for Pose3).
+     * @tparam ValuesT The measured prior's node-values type (e.g. WNOA::Values<gtsam::Pose3>),
+     *         providing a pose() of a gtsam Lie group type and an interpolated Pose() key.
      */
     template <PoseSensorValuesType ValuesT>
     class PoseSensor : public Types::SensorBase
@@ -64,9 +66,9 @@ namespace Spacetime::Sensors
         class Factor : public gtsam::NoiseModelFactorN<Pose>
         {
         public:
-            using Base = gtsam::NoiseModelFactorN<Pose>;
+            using Base = gtsam::NoiseModelFactorN<Pose>; ///< gtsam base class.
 
-            /// `mask` is dim x 1; a 0 entry ignores that component.
+            /// `measured` is the measured pose T_ib; `mask` is dim x 1; a 0 entry ignores that component.
             Factor(const gtsam::SharedNoiseModel &noise_model, const Pose &measured, const Eigen::MatrixXi &mask)
                 : Base(noise_model, ValuesT::InterpolatedKeys::Pose()), m_measured(measured), m_mask(mask) {}
 
@@ -97,11 +99,8 @@ namespace Spacetime::Sensors
             Eigen::MatrixXi m_mask;
         };
 
-        /**
-         * @brief A sensor measuring the state of `stateful`.
-         * @param weight Unused: each measurement carries its own covariance.
-         */
-        PoseSensor(Eigen::Matrix<double, 6, 6> weight, Types::SensorBase::pStatefulType stateful)
+        /// A sensor measuring the state of `stateful`. Each measurement carries its own covariance.
+        explicit PoseSensor(Types::SensorBase::pStatefulType stateful)
             : Types::SensorBase(std::move(stateful)) {}
 
         ~PoseSensor() = default;

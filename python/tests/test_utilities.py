@@ -10,15 +10,23 @@ import spacetime as st
 from spacetime import utilities
 from spacetime.priors import wnoa, wnoa_quasi_static, wnov
 
-from conftest import REPO_ROOT, batch_estimator, make_wnoa_robot, run_session
+from conftest import batch_estimator, make_wnoa_robot, run_session
 
-DEFAULT_CONFIG = REPO_ROOT / "assets" / "config" / "default_config.json"
+IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+CONFIG = {
+    "estimator": {"smootherLag": -1, "compute_covariance": True, "lm_params": {"maxIterations": 100}},
+    "prior": {"type": "wnoa", "time_period": 0.05},
+    "demo_data": {"robot_length": 0.2, "robot_N": 3, "start_time": 0.0, "end_time": 1.0,
+                  "locks": [{"type": "pose", "s": 0.0, "value": IDENTITY}]},
+}
 
 
 @pytest.fixture
-def loader():
+def loader(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(CONFIG))
     loader = utilities.ConfigLoader()
-    assert loader.loadConfig(str(DEFAULT_CONFIG))
+    assert loader.loadConfig(str(path))
     return loader
 
 
@@ -50,14 +58,12 @@ def test_prior_loaders(loader):
     assert isinstance(loader.loadWNOAQuasiStaticPriorOptions(), wnoa_quasi_static.PriorOptions)
 
 
-@pytest.mark.parametrize("name, factor_type", [("wnoa", wnoa.FactorType.WNOA), ("legacy", wnoa.FactorType.Legacy),
-                                                ("paper", wnoa.FactorType.Paper)])
-def test_wnoa_factor_type_is_read(tmp_path, name, factor_type):
+def test_wnoa_factor_type_is_read(tmp_path):
     path = tmp_path / "factor_type.json"
-    path.write_text('{ "prior": { "type": "wnoa", "wnoa": { "factor_type": "%s" } } }' % name)
+    path.write_text('{ "prior": { "type": "wnoa", "wnoa": { "factor_type": "experimental" } } }')
     loader = utilities.ConfigLoader()
     assert loader.loadConfig(str(path))
-    assert loader.loadWNOAPriorOptions().factor_type == factor_type
+    assert loader.loadWNOAPriorOptions().factor_type == wnoa.FactorType.Experimental
 
 
 def test_demo_metadata_and_window(loader):
@@ -103,16 +109,6 @@ def test_visualizer_options_from_config(tmp_path):
     np.testing.assert_allclose(options.cameras[1].view_up, visualizer.CameraOptions().view_up)
 
 
-def test_invalid_visualizer_options_raise(tmp_path):
-    pytest.importorskip("spacetime.visualizer", reason="built without the visualizer")
-    config = tmp_path / "visualizer.json"
-    config.write_text(json.dumps({"visualizer": {"robot": {"radius": 0.0}}}))
-    loader = utilities.ConfigLoader()
-    assert loader.loadConfig(str(config))
-    with pytest.raises(ValueError):
-        loader.loadVisualizerOptions()
-
-
 def test_parse_extraction():
     assert utilities.parseExtraction("final") == utilities.Extraction.Final
     assert utilities.parseExtraction("back") == utilities.Extraction.Back
@@ -137,7 +133,7 @@ def test_export_ground_truth_predictions_writes_logs(tmp_path):
     _, prior = make_wnoa_robot(length=length)
     estimator = batch_estimator(compute_covariance=True)
     estimator.addModel(prior)
-    gt = sensors.PoseSensor(np.eye(6), prior)
+    gt = sensors.PoseSensor(prior)
     gt.addMeasurement(st.types.MeasurementBase(length, 0.1, gtsam.Pose3().matrix(), np.eye(6)))
     run_session(estimator, end_time=0.2)
     count = utilities.exportGroundTruthPredictions(prior, estimator.getCurrentValues(),

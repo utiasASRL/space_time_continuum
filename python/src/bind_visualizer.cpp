@@ -198,41 +198,54 @@ namespace SpacetimePython
         using CameraOptions = VisualizerOptions::CameraOptions;
         using RobotOptions = VisualizerOptions::RobotOptions;
 
-        py::class_<CameraOptions>(m, "CameraOptions")
+        py::class_<CameraOptions>(m, "CameraOptions", "A camera viewpoint, in the world frame.")
             .def(py::init<>())
-            .def_readwrite("position", &CameraOptions::position)
-            .def_readwrite("focal_point", &CameraOptions::focal_point)
-            .def_readwrite("view_up", &CameraOptions::view_up);
+            .def_readwrite("position", &CameraOptions::position, "Camera position [m].")
+            .def_readwrite("focal_point", &CameraOptions::focal_point, "The point looked at [m].")
+            .def_readwrite("view_up", &CameraOptions::view_up, "The up direction.");
 
         py::class_<RobotOptions>(m, "RobotOptions", "How the robot views are drawn.")
             .def(py::init<>())
             .def_readwrite("radius", &RobotOptions::radius, "Backbone tube radius [m]; also scales the node frames.");
 
-        py::class_<VisualizerOptions>(m, "VisualizerOptions")
+        py::class_<VisualizerOptions>(m, "VisualizerOptions", "Display options of the visualizer (see utilities.ConfigLoader.loadVisualizerOptions).")
             .def(py::init<>())
-            .def_readwrite("cameras", &VisualizerOptions::cameras, "One view per camera; empty for a single default view. A copy: assign the whole list.")
+            .def_readwrite("cameras", &VisualizerOptions::cameras,
+                           "The first is the interactive view, the rest only extra recorded screenshots; empty: the camera is fitted "
+                           "to the scene. A copy: assign the whole list.")
             .def_readwrite("robot", &VisualizerOptions::robot, "Applied to every robot added with addPrior.")
-            .def_readwrite("show_floor", &VisualizerOptions::show_floor)
-            .def_readwrite("show_world_frame", &VisualizerOptions::show_world_frame)
-            .def_readwrite("show_info_label", &VisualizerOptions::show_info_label)
-            .def_readwrite("show_diagnostics_label", &VisualizerOptions::show_diagnostics_label)
-            .def_readwrite("show_timeline_widget", &VisualizerOptions::show_timeline_widget)
-            .def_readwrite("stale_timeout", &VisualizerOptions::stale_timeout)
-            .def_readwrite("online", &VisualizerOptions::online)
-            .def_readwrite("estimator_window", &VisualizerOptions::estimator_window)
+            .def_readwrite("show_floor", &VisualizerOptions::show_floor, "Draw a ground plane.")
+            .def_readwrite("show_world_frame", &VisualizerOptions::show_world_frame, "Draw the world coordinate frame.")
+            .def_readwrite("show_info_label", &VisualizerOptions::show_info_label, "Currently unused.")
+            .def_readwrite("show_diagnostics_label", &VisualizerOptions::show_diagnostics_label, "Show the diagnostics overlay at startup (H toggles it).")
+            .def_readwrite("show_timeline_widget", &VisualizerOptions::show_timeline_widget, "Show the timeline at startup (Y toggles it).")
+            .def_readwrite("stale_timeout", &VisualizerOptions::stale_timeout, "Seconds after its last data before a non-static view is hidden.")
+            .def_readwrite("online", &VisualizerOptions::online,
+                           "Online: playback follows wall-clock time and views read the live estimate. Offline (default): replays the run.")
+            .def_readwrite("estimator_window", &VisualizerOptions::estimator_window,
+                           "The estimator's fixed-lag window [s], bounding the display delay; <= 0 means unknown. "
+                           "Visualizer.start() fills it in from a sliding-window estimator when left at -1.")
             .def_readwrite("estimation_period", &VisualizerOptions::estimation_period,
                            "The estimator's tick period [s]: offline, the arrow keys step between ticks and V exports one video frame per tick. "
                            "<= 0 (the default) means unknown.");
 
-        py::class_<Visualizer>(m, "Visualizer", "The visualizer window, on its own thread; add what to draw, then start().")
-            .def(py::init<VisualizerOptions, std::string>(), py::arg("options"), py::arg("output_path") = "")
+        py::class_<Visualizer>(m, "Visualizer",
+                               "The Qt/VTK visualizer window, on its own thread: add what to draw, then start(), beginPlayback() and join(). "
+                               "Keys B, S, N and E toggle the robots, pose sensors, joints and end effectors. Dropping it closes the window.")
+            .def(py::init<VisualizerOptions, std::string>(), py::arg("options"), py::arg("output_path") = "",
+                 "Screenshots and videos go to <output_path>/screenshots and <output_path>/videos (empty: the working directory).")
             .def("addPrior", &Visualizer::addPrior, py::arg("prior"), py::keep_alive<1, 2>(), "Draws the robot of `prior` (WNOA or WNOV), and its pose sensors.")
             .def("addPrior", &Visualizer::addWnovPrior, py::arg("prior"), py::keep_alive<1, 2>())
-            .def("addJoint", &Visualizer::addJoint, py::arg("joint"), py::keep_alive<1, 2>())
-            .def("addEndEffector", &Visualizer::addEndEffector, py::arg("end_effector"), py::keep_alive<1, 2>())
-            .def("robotCount", &Visualizer::robotCount)
-            .def("start", &Visualizer::start, py::arg("estimator"), py::arg("on_closed") = nullptr, py::keep_alive<1, 2>())
-            .def("beginPlayback", &Visualizer::beginPlayback, py::arg("start_time"), py::arg("end_time"))
-            .def("join", &Visualizer::join);
+            .def("addJoint", &Visualizer::addJoint, py::arg("joint"), py::keep_alive<1, 2>(),
+                 "Draws a joint between two WNOA robots added already (else ValueError).")
+            .def("addEndEffector", &Visualizer::addEndEffector, py::arg("end_effector"), py::keep_alive<1, 2>(),
+                 "Draws an end effector's frame and joints; its robots must be added already (else ValueError).")
+            .def("robotCount", &Visualizer::robotCount, "The number of robots added.")
+            .def("start", &Visualizer::start, py::arg("estimator"), py::arg("on_closed") = nullptr, py::keep_alive<1, 2>(),
+                 "Opens the window, drawing `estimator`'s snapshots, and returns once the views are built. `on_closed` (e.g. a session's "
+                 "requestStop) runs on the visualizer thread when the window closes. Add everything before: adding after raises RuntimeError.")
+            .def("beginPlayback", &Visualizer::beginPlayback, py::arg("start_time"), py::arg("end_time"),
+                 "Shows the window and starts its event loop, playing over [start_time, end_time] [s].")
+            .def("join", &Visualizer::join, "Waits for the window to be closed; returns the Qt exit code.");
     }
 } // namespace SpacetimePython

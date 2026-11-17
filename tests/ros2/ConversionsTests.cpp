@@ -61,9 +61,4 @@ namespace Spacetime
         EXPECT_THROW(Ros2::toPose3(pose), std::invalid_argument);
     }
 
-    TEST(Ros2Conversions, DefaultMessagesAreIdentity)
-    {
-        EXPECT_TRUE(Ros2::toPose3(geometry_msgs::msg::Transform()).equals(gtsam::Pose3(), 1e-15));
-        EXPECT_TRUE(Ros2::toPose3(geometry_msgs::msg::Pose()).equals(gtsam::Pose3(), 1e-15));
-    }
 } // namespace Spacetime

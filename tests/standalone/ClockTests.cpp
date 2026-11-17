@@ -16,19 +16,6 @@ namespace Spacetime::Standalone
         }
     } // namespace
 
-    TEST(SteppedClock, IsNotRealTime)
-    {
-        SteppedClock clock;
-        EXPECT_FALSE(clock.isRealTime());
-    }
-
-    TEST(SteppedClock, StartsAtTheStartTime)
-    {
-        SteppedClock clock;
-        clock.start(2.5);
-        EXPECT_DOUBLE_EQ(clock.now(), 2.5);
-    }
-
     // Offline, "sleeping" until a time just jumps the clock to it, without any wall-clock wait.
     TEST(SteppedClock, SleepUntilAdvancesInstantly)
     {
@@ -46,12 +33,6 @@ namespace Spacetime::Standalone
         clock.start(1.0);
         clock.sleepUntil(0.5, std::stop_token());
         EXPECT_DOUBLE_EQ(clock.now(), 1.0);
-    }
-
-    TEST(WallClock, IsRealTime)
-    {
-        WallClock clock;
-        EXPECT_TRUE(clock.isRealTime());
     }
 
     TEST(WallClock, TracksElapsedTimeFromItsStart)

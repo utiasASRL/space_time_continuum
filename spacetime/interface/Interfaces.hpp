@@ -1,7 +1,7 @@
 /**
  * @file Interfaces.hpp
  * @brief Every interface spacetime was built with (see the Interface* CMake options), as
- *        Spacetime::Interfaces::<Name> bundles satisfying Interface::InterfaceType. Link
+ *        Spacetime::Interfaces::\<Name\> bundles satisfying Interface::InterfaceType. Link
  *        spacetime::interfaces and include this, then select one with a single line, e.g.
  *        `using SelectedInterface = Spacetime::Interfaces::Standalone;`.
  * @author Spencer Teetaert

@@ -50,7 +50,7 @@ target_link_libraries(tests
     JsonCpp::JsonCpp
     GTest::gtest_main
 )
-# Lets tests read checked-in assets (e.g. assets/config/default_config.json).
+# Lets tests read checked-in files (e.g. InterfaceIsThreadFreeTests scans spacetime/interface/).
 target_compile_definitions(tests PRIVATE PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 if (InterfaceStandalone)
     target_link_libraries(tests PRIVATE standalone)

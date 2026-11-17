@@ -28,11 +28,6 @@ namespace Spacetime
         }
     }
 
-    TEST(EstimatorSnapshot, ImportTest)
-    {
-        EXPECT_TRUE(true);
-    }
-
     TEST(EstimatorSnapshot, NullBeforeFirstEstimate)
     {
         Estimator estimator = Estimator();

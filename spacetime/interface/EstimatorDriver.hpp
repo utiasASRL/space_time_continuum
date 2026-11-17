@@ -17,7 +17,8 @@
 
 namespace Spacetime::Interface
 {
-    /// One estimate per step(), plus a per-estimate callback (see the file comment).
+    /// One estimate per step(), plus a per-estimate callback (see the file comment). Not thread-safe:
+    /// step() and finish() must be called from one thread at a time.
     class EstimatorDriver
     {
     public:
@@ -39,7 +40,8 @@ namespace Spacetime::Interface
         /// Sets the per-estimate callback (see TickCallback).
         void setTickCallback(TickCallback callback) { m_tick_callback = std::move(callback); }
 
-        /// Estimates at `time`, then calls the tick callback.
+        /// Estimates at `time` (seconds; blocks for the whole estimate), then calls the tick callback.
+        /// Exceptions from Estimator::estimate or the callback propagate.
         void step(double time)
         {
             debug() << "Running estimator at time: " << time;
@@ -51,6 +53,7 @@ namespace Spacetime::Interface
         /// Ends the run: a batch-mode estimator solves the whole accumulated problem (see Estimator::finalize).
         void finish() { m_estimator.finalize(); }
 
+        /// Whether the driver was constructed for real-time estimation.
         bool isRealTime() const { return m_real_time; }
 
     private:

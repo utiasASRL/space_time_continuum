@@ -51,6 +51,13 @@ namespace Spacetime::Standalone
         /// Hands any measurement never delivered back to its queue, so no data is lost.
         ~FileDataloader() override { restoreUndelivered(); }
 
+        /**
+         * @brief Delivers the withheld measurements in time order, advancing the watermark past
+         *        each timestamp once all measurements at it are delivered. Sleeps on the clock
+         *        until each timestamp in real time. Calls finish() once everything is delivered;
+         *        on a stop request, hands the rest back to their queues instead (without moving
+         *        the watermark).
+         */
         void run(std::stop_token stop) override
         {
             while (m_next < m_pending.size() && !stop.stop_requested())
@@ -92,6 +99,7 @@ namespace Spacetime::Standalone
         std::vector<Entry> m_pending; // in time order
         std::size_t m_next = 0;       // index of the first undelivered entry
 
+        /// Re-adds every undelivered measurement to its queue (no watermark change).
         void restoreUndelivered()
         {
             for (; m_next < m_pending.size(); ++m_next)

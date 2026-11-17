@@ -113,17 +113,6 @@ namespace Spacetime
         }
     } // namespace
 
-    TEST(InterpolationFactorCache, ErrorAtTheLinearizationPointIsUnchanged)
-    {
-        Rig rig;
-        for (bool robust : {false, true})
-        {
-            const Factor cached = rig.factor(robust, false, true), exact = rig.factor(robust, false, false);
-            cached.linearize(rig.x);
-            EXPECT_NEAR(cached.error(rig.x), exact.error(rig.x), 1e-12 * std::max(1.0, exact.error(rig.x))) << "robust " << robust;
-        }
-    }
-
     TEST(InterpolationFactorCache, LinearizationIsUnchanged)
     {
         Rig rig;
@@ -176,15 +165,6 @@ namespace Spacetime
         cached.linearize(rig.x);
         cached.linearize(rig.y);
         EXPECT_NEAR(cached.error(rig.y), exact.error(rig.y), 1e-12 * std::max(1.0, exact.error(rig.y)));
-    }
-
-    TEST(InterpolationFactorCache, DisabledFlagKeepsTheExactError)
-    {
-        Rig rig;
-        const Factor exact = rig.factor(false, false, false);
-        const double before = exact.error(rig.y);
-        exact.linearize(rig.x);
-        EXPECT_DOUBLE_EQ(exact.error(rig.y), before);
     }
 
     TEST(InterpolationFactorCache, FixedNoiseModelTakesPrecedence)

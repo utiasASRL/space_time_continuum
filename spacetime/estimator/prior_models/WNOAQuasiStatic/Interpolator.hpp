@@ -35,8 +35,8 @@ namespace Spacetime::Priors::WNOAQuasiStatic
      * Arclength: the (pose, strain) WNOA interpolation of WNOA::Interpolator, which this
      * class delegates to with a zero velocity. Along arclength, WNOA's pose and strain
      * never depend on the velocity (Phi_s, Q_s and the chart are block-triangular with the
-     * velocity last), so the top-left 12 x 12 blocks of its mean, Jacobian and conditional
-     * covariance are exactly the quasi-static ones.
+     * velocity last), so the top-left 2*dim x 2*dim blocks (12 x 12 for Pose3) of its
+     * mean, Jacobian and conditional covariance are exactly the quasi-static ones.
      *
      * Time: the quasi-static prior has no motion model, so a query between two rows
      * resolves to the nearer row (the left one on a tie), and past the last row to that
@@ -56,12 +56,13 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         GTSAM_CONCEPT_ASSERT(gtsam::IsLieGroup<Pose>);
 
     public:
-        using NodeType = Node<Pose>;
-        using ValuesType = typename NodeType::ValuesType;
+        using NodeType = Node<Pose>;                      ///< Quasi-static grid node.
+        using ValuesType = typename NodeType::ValuesType; ///< Quasi-static node values (pose, strain).
+        /// Interpolated-key layout, exposed for Priors::InterpolationFactor (see Types::InterpolatedKeyMap).
         using InterpolatedKeys = WNOAQuasiStatic::InterpolatedKeys<Pose>;
 
-        static constexpr int dim = gtsam::traits<Pose>::dimension;
-        static constexpr int node_dim = NodeType::dim;
+        static constexpr int dim = gtsam::traits<Pose>::dimension; ///< Pose tangent dimension.
+        static constexpr int node_dim = NodeType::dim;              ///< Node tangent dimension (2 * dim).
 
         using MatrixN = Eigen::Matrix<double, dim, dim>;
         using MatrixNode = typename Base::MatrixNode;
@@ -171,6 +172,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
             return out;
         }
 
+        /// The pose and strain of a WNOA node, dropping its velocity.
         static ValuesType fromWNOA(const WNOAValues &v) { return ValuesType(v.pose(), v.epsilon()); }
 
         WNOAInterpolator m_wnoa; // its Q1, Q3 and Q4 never enter the arclength pose/strain blocks

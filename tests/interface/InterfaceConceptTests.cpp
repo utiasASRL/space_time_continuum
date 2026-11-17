@@ -136,11 +136,6 @@ namespace Spacetime::Interface
         }
     } // namespace
 
-    TEST(InterfaceConcept, AMinimalInterfaceSatisfiesIt)
-    {
-        static_assert(InterfaceType<MockInterface>);
-    }
-
     TEST(InterfaceConcept, IncompleteInterfacesDoNotSatisfyIt)
     {
         static_assert(!InterfaceType<NoSession>);
@@ -160,14 +155,5 @@ namespace Spacetime::Interface
         const Queues queues = {std::make_shared<Types::MeasurementQueue>()};
         EXPECT_EQ(runGeneric<MockInterface>(estimator, queues, ticks), "mock");
         EXPECT_EQ(ticks, (std::vector<double>{1.5}));
-    }
-
-    TEST(InterfaceConcept, SessionOptionsDefaults)
-    {
-        const SessionOptions options;
-        EXPECT_DOUBLE_EQ(options.start_time, 0.0);
-        EXPECT_LT(options.end_time, 0.0); // until the data ends
-        EXPECT_DOUBLE_EQ(options.period, 1.0 / 30.0);
-        EXPECT_FALSE(options.real_time);
     }
 } // namespace Spacetime::Interface

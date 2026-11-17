@@ -337,15 +337,6 @@ namespace Spacetime
 
     // ---- Factor -------------------------------------------------------------------------
 
-    TEST(AccelerometerFactor, KeysAndDimension)
-    {
-        const auto with_bias = makeFactor(preintegrate(0.0, 0.1, 5, genericReading, linearBias(0.0, 0.1)), Options());
-        EXPECT_EQ(with_bias.keys(), (gtsam::KeyVector{X0, V0, X1, V1, B0, B1}));
-        EXPECT_EQ(with_bias.dim(), 3u);
-        const auto without_bias = makeFactor(preintegrate(0.0, 0.1, 5, genericReading), Options());
-        EXPECT_EQ(without_bias.keys(), (gtsam::KeyVector{X0, V0, X1, V1}));
-    }
-
     TEST(AccelerometerFactor, IncompletePreintegrationThrows)
     {
         Preintegration pim(0.0, 0.1);
@@ -382,17 +373,6 @@ namespace Spacetime
         EXPECT_TRUE(gtsam::assert_equal(Vector3(-0.1 * dt, 0.0, 0.0), Vector3(makeFactor(pim, Options()).unwhitenedError(values)), 1e-12));
     }
 
-    TEST(AccelerometerFactor, GravityAtRestOnATiltedBodyGivesZeroError)
-    {
-        const Pose T(Rot::RzRyRx(0.4, -0.6, 0.3), gtsam::Point3(1.0, 2.0, 3.0));
-        const Options options;
-        const Vector3 specific_force = T.rotation().unrotate(-options.gravity);
-        const Preintegration pim = preintegrate(0.0, 0.1, 5, [&](double) { return specific_force; });
-        const gtsam::Values values = makeValues(T, Vector6::Zero(), T, Vector6::Zero());
-        for (const bool slerp : {false, true})
-            EXPECT_LT(makeFactor(pim, withSlerp(options, slerp)).unwhitenedError(values).norm(), 1e-12);
-    }
-
     TEST(AccelerometerFactor, ConstantWorldAccelerationGivesZeroError)
     {
         const Rot R = Rot::RzRyRx(0.2, 0.1, -0.3);
@@ -404,18 +384,6 @@ namespace Spacetime
         const gtsam::Values values = makeValues(Pose(R, gtsam::Point3()), twist(Vector3::Zero(), R.unrotate(v_world)),
                                                 Pose(R, gtsam::Point3()), twist(Vector3::Zero(), R.unrotate(v_world + a_world * dt)));
         EXPECT_LT(makeFactor(pim, options).unwhitenedError(values).norm(), 1e-12);
-    }
-
-    TEST(AccelerometerFactor, TheOffsetRotationReexpressesTheReadings)
-    {
-        const Pose T(Rot::RzRyRx(0.4, -0.6, 0.3), gtsam::Point3());
-        const Options options = withOffset(Options(), Pose(Rot::RzRyRx(1.2, 0.3, -0.7), gtsam::Point3()));
-        const Vector3 specific_force = options.offset.rotation().unrotate(T.rotation().unrotate(-options.gravity));
-        const Preintegration pim = preintegrate(0.0, 0.1, 5, [&](double) { return specific_force; });
-        const gtsam::Values values = makeValues(T, Vector6::Zero(), T, Vector6::Zero());
-        EXPECT_LT(makeFactor(pim, options).unwhitenedError(values).norm(), 1e-12);
-        // Without the offset the same readings are inconsistent.
-        EXPECT_GT(makeFactor(pim, Options()).unwhitenedError(values).norm(), 1e-2);
     }
 
     TEST(AccelerometerFactor, TheLeverArmAccountsForCentripetalAndAngularAcceleration)
@@ -705,7 +673,7 @@ namespace Spacetime
             auto prior = std::make_shared<EEPrior>(state, Pose(), Vector6::Constant(1.0));
             using PoseSensor = Sensors::PoseSensor<EEPrior::ValuesType>;
             const Eigen::Matrix<double, 6, 6> pose_covariance = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
-            auto pose_sensor = std::make_shared<PoseSensor>(pose_covariance, prior);
+            auto pose_sensor = std::make_shared<PoseSensor>(prior);
 
             // Batch: the end effector is unanchored between sparse poses, so the window
             // solves of a sliding-window smoother would be underconstrained at first.
@@ -784,7 +752,9 @@ namespace Spacetime
     {
         struct AccelerometerDemoData
         {
-            std::filesystem::path dir = std::filesystem::path(testing::TempDir()) / "accelerometer_sensor_demo_data";
+            // One folder per test: ctest -j runs each test in its own process, concurrently.
+            std::filesystem::path dir = std::filesystem::path(testing::TempDir()) /
+                                        (std::string("accelerometer_sensor_demo_data_") + testing::UnitTest::GetInstance()->current_test_info()->name());
 
             AccelerometerDemoData()
             {

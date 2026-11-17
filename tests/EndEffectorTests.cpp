@@ -136,30 +136,6 @@ namespace Spacetime
     // ---------------------------------------------------------------------------------
     // Node, state and prior
 
-    TEST(EndEffector, IsAZeroLengthRobotWithPoseAndVelocityOnly)
-    {
-        auto ee = std::make_shared<EndEffector>(eePose(), qPsd());
-        const auto state = ee->state();
-        ASSERT_EQ(state->arclengths.size(), 1u);
-        EXPECT_DOUBLE_EQ(state->arclengths.front(), 0.0);
-        EXPECT_DOUBLE_EQ(state->length, 0.0);
-
-        KeyManager km;
-        const EENode node(km, 0.0, 0.0);
-        EXPECT_EQ(node.keys().size(), 2u);
-        EXPECT_EQ(EENode::dim, 12u);
-        EXPECT_EQ(EEKeys::keys().size(), 2u);
-        EXPECT_EQ(EEKeys::rowRange(EEKeys::Pose()), std::make_pair(0, 6));
-        EXPECT_EQ(EEKeys::rowRange(EEKeys::Velocity()), std::make_pair(6, 6));
-    }
-
-    TEST(EndEffector, ItsStateIsExtendedByItsOwnPrior)
-    {
-        auto ee = std::make_shared<EndEffector>(eePose(), qPsd());
-        ASSERT_NE(ee->state(), nullptr);
-        EXPECT_EQ(ee->endEffectorPrior()->state(), ee->state());
-    }
-
     // As a stateful model, the end effector answers queries and builds outer factors through its prior.
     TEST(EndEffector, QueriesAndOuterFactorsAreItsPriors)
     {
@@ -276,22 +252,6 @@ namespace Spacetime
         EXPECT_THROW(ee->extendState(km, 0.0, gtsam::Values(), new_values), std::runtime_error);
     }
 
-    TEST(EndEffector, AttachReturnsAndKeepsTheJoint)
-    {
-        auto ee = std::make_shared<EndEffector>(eePose(), qPsd());
-        UprightRobot a(Eigen::Vector3d::Zero()), b(Eigen::Vector3d(0.2, 0, 0));
-        Joints::JointOptions options;
-        options.offset = a.tip().between(eePose());
-        auto joint = ee->attach(a.prior, kLength, Matrix6::Identity() * 1e-6, options);
-        ASSERT_NE(joint, nullptr);
-        EXPECT_EQ(joint->priorA(), a.prior);
-        EXPECT_EQ(joint->priorB(), ee->endEffectorPrior());
-        EXPECT_DOUBLE_EQ(joint->arclengthB(), 0.0);
-        EXPECT_TRUE(joint->offset().equals(options.offset));
-        ee->attach(b.prior, kLength / 2, Matrix6::Identity() * 1e-6);
-        EXPECT_EQ(ee->joints().size(), 2u);
-    }
-
     TEST(EndEffector, AttachValidatesThroughTheJoint)
     {
         auto ee = std::make_shared<EndEffector>(eePose(), qPsd());
@@ -353,7 +313,7 @@ namespace Spacetime
                 estimator.addModel(ee);
 
                 const Matrix6 covariance = Matrix6::Identity() * 1e-6;
-                auto sensor = std::make_shared<Sensors::PoseSensor<RobotValues>>(covariance, a.prior);
+                auto sensor = std::make_shared<Sensors::PoseSensor<RobotValues>>(a.prior);
                 for (int k = 0; k < ticks; k++)
                 {
                     const Pose measured = a.tip() * Pose(gtsam::Rot3(), gtsam::Point3(0, 0.01 * k, 0));
@@ -413,7 +373,7 @@ namespace Spacetime
         const Matrix6 covariance = Matrix6::Identity() * 1e-6;
         const auto measured = [&](int k)
         { return ee0 * Pose(gtsam::Rot3(), gtsam::Point3(0, 0.01 * k, 0)); };
-        auto sensor = std::make_shared<Sensors::PoseSensor<EEValues>>(covariance, ee); // measures the end effector itself
+        auto sensor = std::make_shared<Sensors::PoseSensor<EEValues>>(ee); // measures the end effector itself
         for (int k = 0; k < ticks; k++)
             sensor->addMeasurement(std::make_shared<Types::MeasurementBase>(0.0, k * kPeriod, measured(k).matrix(), covariance, Eigen::MatrixXi::Ones(6, 1)));
         estimator.addSensor(sensor);

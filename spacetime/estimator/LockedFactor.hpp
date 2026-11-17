@@ -31,7 +31,7 @@ namespace Spacetime
     class LockedFactor : public gtsam::NonlinearFactor
     {
     public:
-        using Base = gtsam::NonlinearFactor;
+        using Base = gtsam::NonlinearFactor; ///< The base factor type.
 
         /**
          * @param inner The factor to wrap.

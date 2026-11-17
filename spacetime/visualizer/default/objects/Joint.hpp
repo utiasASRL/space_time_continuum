@@ -78,6 +78,7 @@ namespace Spacetime::Visualization::Default
             }
         }
 
+        /// "Joint", or with `brief` false, "Joint (link)" / "Joint (ball)".
         std::string info(bool brief = true) const override { return brief ? "Joint" : std::string("Joint (") + (m_has_offset ? "link" : "ball") + ")"; }
 
         /// Whether a cylinder (link) is drawn between the points rather than a sphere at them.
@@ -99,6 +100,7 @@ namespace Spacetime::Visualization::Default
             mp_actor->SetVisibility(false);
         }
 
+        /// Adds the (initially hidden) actor, sharing the visualizer's unit mapper, and binds its visibility toggle (if set).
         void visualize(Visualizer &visualizer) const override
         {
             initActors(m_has_offset ? visualizer.unitCylinderMapper() : visualizer.unitSphereMapper());
@@ -106,6 +108,11 @@ namespace Spacetime::Visualization::Default
             bindVisibilityToggle(visualizer, info(true));
         }
 
+        /**
+         * @brief Places the cylinder between the two point positions (with an offset), or a
+         *        sphere of `radius` at their midpoint (without one); hidden if either pose is
+         *        unavailable or the view is toggled off. Only the points' positions are used.
+         */
         void updateVisualization(double time, double estimate_time) const override
         {
             const std::optional<Eigen::Matrix4d> pose_a = m_point_a(time, estimate_time), pose_b = m_point_b(time, estimate_time);
@@ -128,10 +135,13 @@ namespace Spacetime::Visualization::Default
             mp_actor->SetVisibility(visible_);
         }
 
+        /// The cylinder or sphere; created by initActors().
         mutable vtkSmartPointer<vtkActor> mp_actor;
 
     private:
+        /// Pose sources of the two joined points.
         PointPoseFn m_point_a, m_point_b;
+        /// See drawsLink.
         bool m_has_offset;
     };
 } // namespace Spacetime::Visualization::Default

@@ -51,8 +51,8 @@ namespace Spacetime::Priors
     public:
         using Base = gtsam::NoiseModelFactor;
         using This = TwoSidedInterpolationFactor<InterpolatorA, InterpolatorB>;
-        using NodeA = InterpolatedNode<InterpolatorA>;
-        using NodeB = InterpolatedNode<InterpolatorB>;
+        using NodeA = InterpolatedNode<InterpolatorA>; ///< Side A's interpolated node.
+        using NodeB = InterpolatedNode<InterpolatorB>; ///< Side B's interpolated node.
         /// Extra error-space covariance, evaluated on the inner factor's values.
         using ExtraCovarianceFn = std::function<Eigen::MatrixXd(const gtsam::Values &inner_values)>;
 
@@ -101,6 +101,7 @@ namespace Spacetime::Priors
                 m_key_to_index[this->keys_[i]] = i;
         }
 
+        /// Print both query points, this factor's keys and the inner factor.
         void print(const std::string &s = "", const gtsam::KeyFormatter &keyFormatter = gtsam::DefaultKeyFormatter) const override
         {
             std::cout << s << "TwoSidedInterpolationFactor between (t=" << m_node_a.time() << ", s=" << m_node_a.arclength()
@@ -133,6 +134,7 @@ namespace Spacetime::Priors
             return covariance;
         }
 
+        /// Linearize, whitening with the augmented covariance at `x` (cached for error() when cache_noise_model is set).
         std::shared_ptr<gtsam::GaussianFactor> linearize(const gtsam::Values &x) const override
         {
             if (!active(x))
@@ -158,6 +160,7 @@ namespace Spacetime::Priors
             return std::make_shared<gtsam::JacobianFactor>(terms, b);
         }
 
+        /// Noise-model loss of the error, using the cached augmented noise model when available.
         double error(const gtsam::Values &c) const override
         {
             if (!active(c))

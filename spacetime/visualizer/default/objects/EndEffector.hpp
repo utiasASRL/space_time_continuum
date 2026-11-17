@@ -37,10 +37,16 @@ namespace Spacetime::Visualization::Default
     class EndEffector : public Visualizable
     {
     public:
+        /// Node type of the end effector's single-node state.
         using NodeType = Joints::EndEffectorNode<Pose>;
         /// The estimated world_T_ee at (time, estimate_time), or nullopt.
         using PoseFn = std::function<std::optional<Eigen::Matrix4d>(double time, double estimate_time)>;
 
+        /**
+         * @brief Views `end_effector`, binding its own prior's interpolator. Keeps the end
+         *        effector's state and prior alive.
+         * @throws std::invalid_argument if `end_effector` is null.
+         */
         explicit EndEffector(std::shared_ptr<const Joints::EndEffector<Pose>> end_effector)
             : mp_poser(std::make_shared<ContinuumRobot<NodeType>>(end_effector ? end_effector->state() : nullptr))
         {
@@ -73,6 +79,7 @@ namespace Spacetime::Visualization::Default
         /// See toggleTemporalInterpolation (off by default).
         bool temporalInterpolationEnabled() const { return mp_poser->temporalInterpolationEnabled(); }
 
+        /// "EndEffector", or "EndEffector frame" if not `brief`.
         std::string info(bool brief = true) const override { return brief ? "EndEffector" : "EndEffector frame"; }
 
         /// Length of each drawn axis [m]. Set before visualize().
@@ -82,13 +89,14 @@ namespace Spacetime::Visualization::Default
         /// `mapper` (a frame of axis_length, see Utilities::createFrameMapper) -- one of its own if null.
         void initActors(vtkSmartPointer<vtkPolyDataMapper> mapper = nullptr) const
         {
-            mp_axes = mapper ? Utilities::createFrameActor(mapper) : Utilities::createFrameActor(kCylinderRadius * axis_length, axis_length);
+            mp_axes = mapper ? Utilities::createFrameActor(mapper) : Utilities::createFrameActor(kCylinderRadius, axis_length);
             mp_axes->SetVisibility(false);
         }
 
+        /// Adds the (initially hidden) frame, binds its visibility toggle (if set) and, offline, T for temporal interpolation.
         void visualize(Visualizer &visualizer) const override
         {
-            initActors(visualizer.frameMapper(kCylinderRadius * axis_length, axis_length));
+            initActors(visualizer.frameMapper(kCylinderRadius, axis_length));
             visualizer.addActor(mp_axes);
             bindVisibilityToggle(visualizer, info(true));
             // Temporal interpolation, as the robot views bind it (offline only; T toggles them together).
@@ -98,6 +106,7 @@ namespace Spacetime::Visualization::Default
                                               { return temporalInterpolationEnabled(); }, "Toggle " + info(true) + " temporal interpolation");
         }
 
+        /// Places the frame at poseAt(time, estimate_time); hidden if that is unavailable or toggled off.
         void updateVisualization(double time, double estimate_time) const override
         {
             const std::optional<Eigen::Matrix4d> pose = poseAt(time, estimate_time);
@@ -110,12 +119,14 @@ namespace Spacetime::Visualization::Default
             mp_axes->SetVisibility(visible_);
         }
 
+        /// The end-effector frame; created by initActors().
         mutable vtkSmartPointer<vtkActor> mp_axes;
 
     private:
         /// The frame's shaft radius relative to axis_length (see Utilities::createFrameMapper).
         static constexpr double kCylinderRadius = 0.04;
 
+        /// Undrawn robot view of the end effector's state, used only to resolve its pose (see the class comment).
         std::shared_ptr<ContinuumRobot<NodeType>> mp_poser;
     };
 } // namespace Spacetime::Visualization::Default

@@ -2,7 +2,7 @@
 
 Everything needed to regenerate the results of the TRO paper with the refactored spacetime
 estimator: Tables V and VI and the data of Figs. 11, 12, 13 and 14. Every run is a batch
-estimate with the "paper" factor type, except the quasi-static benchmark of Fig. 14, which
+estimate with the "wnoa" factor type, except the quasi-static benchmark of Fig. 14, which
 uses the `WNOAQuasiStatic` prior (GTSAM WNOA unary and arclength factors, same weights).
 
 ## Build
@@ -10,7 +10,7 @@ uses the `WNOAQuasiStatic` prior (GTSAM WNOA unary and arclength factors, same w
 1. Build and install spacetime, from the spacetime repository:
 
    ```bash
-   ./build.sh
+   ./build_release.sh
    sudo cmake --install build
    ```
 

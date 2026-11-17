@@ -50,42 +50,52 @@ namespace SpacetimePython
     {
         using Spacetime::Interface::SessionOptions;
 
-        py::class_<SessionOptions>(m, "SessionOptions")
+        py::class_<SessionOptions>(m, "SessionOptions", "What every interface's Session is constructed with.")
             .def(py::init<>())
-            .def_readwrite("start_time", &SessionOptions::start_time)
-            .def_readwrite("end_time", &SessionOptions::end_time, "Negative: until the last measurement.")
-            .def_readwrite("period", &SessionOptions::period, "Between estimates [s].")
-            .def_readwrite("real_time", &SessionOptions::real_time, "Paced by the wall clock, or as fast as possible.");
+            .def_readwrite("start_time", &SessionOptions::start_time, "Time of the first estimate [s].")
+            .def_readwrite("end_time", &SessionOptions::end_time, "Time to stop estimating at [s]. Negative: until the data ends (unbounded for live data).")
+            .def_readwrite("period", &SessionOptions::period, "Between estimates, and so between node rows [s].")
+            .def_readwrite("real_time", &SessionOptions::real_time, "Paced by the wall clock, or as fast as possible (deterministic).");
 
         py::class_<Session>(m, "Session",
-                            "Runs `estimator` (which must outlive it) on its own threads, delivering its measurement queues as if live.")
+                            "Runs `estimator` (kept alive by the session) on its own estimator and dataloader threads, delivering the "
+                            "measurements loaded into its queues as if live: as fast as possible, waiting for every dataloader, or in real time. "
+                            "Dropping the session stops and joins it.")
             .def(py::init<Spacetime::Estimator &, const SessionOptions &>(), py::arg("estimator"), py::arg("options"), py::keep_alive<1, 2>())
             .def(
                 "addMeasurementQueues", [](Session &self, const std::vector<Spacetime::Types::pMeasurementQueueType> &queues)
                 { self->addMeasurementQueues(queues); },
-                py::arg("queues"))
+                py::arg("queues"),
+                "Replays what is already loaded into `queues` (typically Estimator.getMeasurementQueues()) on a dataloader thread. "
+                "Empties the queues at once: call before start() and before any measurement callback subscribes.")
             .def(
                 "setTickCallback", [](Session &self, std::function<void(double)> callback) { self->setTickCallback(std::move(callback)); },
                 py::arg("callback"), "Calls `callback(time)` on the estimator thread after every estimate.")
-            .def("start", [](Session &self) { self->start(); }, py::call_guard<py::gil_scoped_release>())
-            .def("requestStop", [](Session &self) { self->requestStop(); })
+            .def("start", [](Session &self) { self->start(); }, py::call_guard<py::gil_scoped_release>(),
+                 "Starts the estimator and dataloader threads. Raises ValueError for invalid options (e.g. a non-positive period, "
+                 "or a batch-mode estimator in real time).")
+            .def("requestStop", [](Session &self) { self->requestStop(); }, "Asks the run to end as soon as possible; safe from any thread.")
             .def("join", [](Session &self) { self->join(); }, py::call_guard<py::gil_scoped_release>(),
                  "Waits for the session to finish; raises the first error of any of its threads.")
-            .def("finished", [](Session &self) { return self->finished(); })
-            .def("endTime", [](Session &self) { return self->endTime(); })
-            .def("now", [](Session &self) { return self->now(); })
-            .def("isRealTime", [](Session &self) { return self->isRealTime(); });
+            .def("finished", [](Session &self) { return self->finished(); }, "Whether the run has ended (False if never started).")
+            .def("endTime", [](Session &self) { return self->endTime(); }, "The end time actually used [s] (possibly inf); valid after start().")
+            .def("now", [](Session &self) { return self->now(); }, "The current estimation time [s]; safe from any thread.")
+            .def("isRealTime", [](Session &self) { return self->isRealTime(); }, "Whether SessionOptions.real_time selected the wall clock.");
 
         using Spacetime::Interface::SnapshotHistory;
-        py::classh<SnapshotHistory>(m, "SnapshotHistory", "Estimator snapshots by time.")
+        py::classh<SnapshotHistory>(m, "SnapshotHistory",
+                                     "Estimator snapshots by time, e.g. recorded from a session's tick callback, to look up the estimate as "
+                                     "of any past time. Thread-safe; keeps every snapshot recorded.")
             .def(py::init<>())
             .def(
                 "record", [](SnapshotHistory &self, std::shared_ptr<Spacetime::EstimatorSnapshot> snapshot) { self.record(snapshot); },
-                py::arg("snapshot"))
+                py::arg("snapshot"), "Appends `snapshot` (None is ignored); record in non-decreasing time order (not checked).")
             .def(
                 "at", [](const SnapshotHistory &self, double time) { return std::const_pointer_cast<Spacetime::EstimatorSnapshot>(self.at(time)); },
-                py::arg("time"))
-            .def("latest", [](const SnapshotHistory &self) { return std::const_pointer_cast<Spacetime::EstimatorSnapshot>(self.latest()); })
-            .def("size", &SnapshotHistory::size);
+                py::arg("time"), "The latest snapshot stamped at or before `time`, or None.")
+            .def(
+                "latest", [](const SnapshotHistory &self) { return std::const_pointer_cast<Spacetime::EstimatorSnapshot>(self.latest()); },
+                "The most recently recorded snapshot, or None.")
+            .def("size", &SnapshotHistory::size, "The number of recorded snapshots.");
     }
 } // namespace SpacetimePython

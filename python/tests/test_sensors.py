@@ -22,13 +22,13 @@ def quasi_static_prior():
 
 def test_factories_pick_the_prior_values_type():
     _, prior = make_wnoa_robot()
-    assert isinstance(sensors.PoseSensor(np.eye(6), prior), sensors.PoseSensorWNOA)
+    assert isinstance(sensors.PoseSensor(prior), sensors.PoseSensorWNOA)
     assert isinstance(sensors.FBGSensor(prior), sensors.FBGSensorWNOA)
     assert isinstance(sensors.GyroSensor(prior), sensors.GyroSensorWNOA)
     _, prior_v = wnov_prior()
-    assert isinstance(sensors.PoseSensor(np.eye(6), prior_v), sensors.PoseSensorWNOV)
+    assert isinstance(sensors.PoseSensor(prior_v), sensors.PoseSensorWNOV)
     _, prior_q = quasi_static_prior()
-    assert isinstance(sensors.PoseSensor(np.eye(6), prior_q), sensors.PoseSensorQuasiStatic)
+    assert isinstance(sensors.PoseSensor(prior_q), sensors.PoseSensorQuasiStatic)
     assert isinstance(sensors.FBGSensor(prior_q), sensors.FBGSensorQuasiStatic)
     with pytest.raises(TypeError):
         sensors.GyroSensor(prior_q)  # no velocity in a quasi-static node
@@ -36,7 +36,7 @@ def test_factories_pick_the_prior_values_type():
 
 def test_sensors_are_models_and_queues():
     _, prior = make_wnoa_robot()
-    sensor = sensors.PoseSensor(np.eye(6), prior)
+    sensor = sensors.PoseSensor(prior)
     assert isinstance(sensor, types.SensorBase)
     assert isinstance(sensor, types.Model)
     assert isinstance(sensor, types.MeasurementQueue)
@@ -45,7 +45,7 @@ def test_sensors_are_models_and_queues():
 
 def test_null_prior_raises():
     with pytest.raises((TypeError, ValueError, RuntimeError)):
-        sensors.PoseSensor(np.eye(6), None)
+        sensors.PoseSensor(None)
 
 
 def test_unsupported_prior_raises():
@@ -55,12 +55,12 @@ def test_unsupported_prior_raises():
 
     prior = OwnPrior(types.State())
     with pytest.raises(TypeError):
-        sensors.PoseSensor(np.eye(6), prior)
+        sensors.PoseSensor(prior)
 
 
 def test_pose_sensor_get_factor():
     _, prior = make_wnoa_robot()
-    sensor = sensors.PoseSensor(np.eye(6), prior)
+    sensor = sensors.PoseSensor(prior)
     measurement = types.MeasurementBase(0.1, 0.0, gtsam.Pose3().matrix(), np.eye(6), np.ones((6, 1), dtype=np.int32))
     factor = sensor.getFactor(measurement)
     assert isinstance(factor, gtsam.NoiseModelFactor)

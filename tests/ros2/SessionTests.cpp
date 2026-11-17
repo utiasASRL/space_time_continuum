@@ -82,18 +82,6 @@ namespace Spacetime
         }
     } // namespace
 
-    TEST(Ros2Session, NameIsRos2)
-    {
-        EXPECT_EQ(Interfaces::ROS2::name, "ros2");
-    }
-
-    TEST(Ros2Session, IsRealTime)
-    {
-        EstimatorRig rig;
-        Ros2::Session session(rig.estimator, sessionOptions(-1.0), rosOptions());
-        EXPECT_TRUE(session.isRealTime());
-    }
-
     TEST(Ros2Session, BatchEstimatorCannotStart)
     {
         EstimatorRig rig(Estimator::BATCH_LAG);

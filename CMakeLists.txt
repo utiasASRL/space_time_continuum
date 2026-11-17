@@ -98,12 +98,10 @@ if(Visualizer AND NOT VisualizerBackend STREQUAL "default")
     message(FATAL_ERROR "Unknown VisualizerBackend '${VisualizerBackend}'. Available backends: default")
 endif()
 if(Visualizer)
-    set(Qt6_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6")
-    set(Qt6CoreTools_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6CoreTools")
-    set(Qt6GuiTools_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6GuiTools")
-    set(Qt6QmlTools_DIR "/home/spencer/packages/qt/6.8.0/gcc_64/lib/cmake/Qt6QmlTools")
-    set(VTK_DIR "/usr/local/include/vtk-9.3")
-
+    # Found through CMake's usual search: a system install is found as is; for one elsewhere
+    # (e.g. a Qt online-installer prefix such as ~/Qt/6.8.0/gcc_64), pass its prefix with
+    # -DCMAKE_PREFIX_PATH=<prefix> (or set Qt6_DIR / VTK_DIR to the folders holding
+    # Qt6Config.cmake / vtk-config.cmake).
     find_package(VTK 9.3 REQUIRED) # VTK
     find_package(Qt6 REQUIRED COMPONENTS Core Gui Xml Network Widgets OpenGLWidgets) # Qt
 

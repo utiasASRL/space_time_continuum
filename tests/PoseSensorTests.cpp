@@ -24,41 +24,6 @@ namespace Spacetime
     using StateType = Types::ContinuumRobotState<NodeType>;
     using ValueType = Priors::WNOA::Values<Pose>;
 
-    TEST(PoseSensor, ImportTest)
-    {
-        EXPECT_TRUE(true); // This test just checks that the test file compiles and runs without errors. The actual tests are in the other TEST cases below
-    }
-
-    TEST(PoseSensor, EstimationLoop)
-    {
-        unsigned int spatial_dim = 4;
-        std::shared_ptr<StateType> state = std::make_shared<StateType>(1.0, spatial_dim);
-
-        // Prior setup
-        ValueType node_reference;
-        node_reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
-        std::shared_ptr<Priors::WNOA::Prior<Pose>> prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
-
-        // Estimator setup
-        Estimator estimator = Estimator();
-        estimator.addPrior(prior);
-
-        // Sensor setup: linked to `prior` at construction, rather than passing a
-        // prior model in at factor-generation time.
-        Eigen::Matrix<double, 6, 6> measurement_covariance = Eigen::Matrix<double, 6, 6>::Identity() * 0.01;
-        std::shared_ptr<Sensors::PoseSensor<ValueType>> pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(measurement_covariance, prior);
-        estimator.addSensor(pose_sensor);
-
-        Eigen::Matrix4d measurement_value = Eigen::Matrix4d::Identity();
-        measurement_value(2, 3) = 1.0; // 1m translation in z direction
-        std::shared_ptr<Types::MeasurementBase> measurement = std::make_shared<Types::MeasurementBase>(0.0, 0.0, measurement_value, measurement_covariance, Eigen::MatrixXi::Ones(6, 1));
-        pose_sensor->addMeasurement(measurement);
-
-        gtsam::Values current_values, new_values;
-
-        estimator.estimate(0.0);
-    }
-
     namespace
     {
         std::shared_ptr<Types::MeasurementBase> makePoseMeasurement(double time)
@@ -75,7 +40,7 @@ namespace Spacetime
             ValueType node_reference;
             auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
             Eigen::Matrix<double, 6, 6> covariance = Eigen::Matrix<double, 6, 6>::Identity() * 0.01;
-            return std::make_shared<Sensors::PoseSensor<ValueType>>(covariance, prior);
+            return std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
         }
 
         std::vector<double> times(const std::vector<std::shared_ptr<Types::MeasurementBase>> &measurements)
@@ -158,7 +123,7 @@ namespace Spacetime
         auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
 
         Eigen::Matrix<double, 6, 6> measurement_covariance = Eigen::Matrix<double, 6, 6>::Identity() * 0.01;
-        auto pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(measurement_covariance, prior);
+        auto pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
 
         gtsam::Values current_values, new_values;
         KeyManager km;
@@ -195,7 +160,7 @@ namespace Spacetime
         auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
 
         Eigen::Matrix<double, 6, 6> measurement_covariance = Eigen::Matrix<double, 6, 6>::Identity() * 0.01;
-        auto pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(measurement_covariance, prior);
+        auto pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
 
         gtsam::Values current_values, new_values;
         KeyManager km;
@@ -240,7 +205,7 @@ namespace Spacetime
             estimator.addPrior(prior);
 
             Eigen::Matrix<double, 6, 6> measurement_covariance = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
-            auto pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(measurement_covariance, prior);
+            auto pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
             estimator.addSensor(pose_sensor);
 
             estimator.estimate(0.0);

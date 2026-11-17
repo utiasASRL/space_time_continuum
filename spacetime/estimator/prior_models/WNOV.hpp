@@ -1,3 +1,8 @@
+/**
+ * @file WNOV.hpp
+ * @brief Umbrella header for the WNOV (white-noise-on-velocity) prior: state, prior, interpolator and InterpolationFactor.
+ */
+
 #ifndef WNOV_HPP
 #define WNOV_HPP
 

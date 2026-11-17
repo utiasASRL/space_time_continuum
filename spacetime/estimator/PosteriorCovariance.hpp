@@ -51,6 +51,7 @@ namespace Spacetime
          *        BayesTreeMarginals). If given, the blocks are recovered in one pass over it
          *        (see BayesTreeCovariance::recover), and only the pairs it cannot recover
          *        are queried from `marginals`. If null, every group is queried.
+         * @return The extracted blocks (never null).
          */
         static std::shared_ptr<const PosteriorCovariance> compute(
             const gtsam::Marginals &marginals, const std::vector<gtsam::KeyVector> &groups,

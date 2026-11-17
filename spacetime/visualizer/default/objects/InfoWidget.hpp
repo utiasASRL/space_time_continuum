@@ -37,7 +37,9 @@ namespace Spacetime::Visualization::Default
      *        rich-text content, sized to fit it exactly) inside a QScrollArea (whose
      *        own geometry the owner controls and keeps window-bounded). Content
      *        that overflows the panel's fixed viewport scrolls instead of being
-     *        cropped or forcing the panel to keep growing.
+     *        cropped or forcing the panel to keep growing. Labels and values are
+     *        inserted into the rich text unescaped (so `<br>` in a value breaks the
+     *        line). GUI thread only; value functions run there, on every refresh().
      */
     class InfoWidget : public QScrollArea
     {
@@ -47,15 +49,16 @@ namespace Spacetime::Visualization::Default
         /// One panel row: a bold header, or a label with an optional value.
         struct DisplayItem
         {
+            /// Kind of row.
             enum Type
             {
-                VALUE,
-                HEADER
+                VALUE, ///< A label, optionally followed by ": <value>".
+                HEADER ///< A bold section header.
             };
-            Type type;
-            std::string label;
-            void *value;
-            std::function<std::string()> stringifier; // Function to convert value to string
+            Type type;          ///< Kind of row.
+            std::string label;  ///< Header text, or the row's label.
+            void *value;        ///< Pointer the row streams (only checked for null), or nullptr.
+            std::function<std::string()> stringifier; ///< Produces the value text; empty for a label-only row.
 
             /// A value row: label `l`, optional pointer `v` (only checked for null), and stringifier `s` (may be empty for a label-only row).
             DisplayItem(const std::string &l, void *v, std::function<std::string()> s)
@@ -66,7 +69,9 @@ namespace Spacetime::Visualization::Default
                 : type(HEADER), label(headerText), value(nullptr) {}
         };
 
+        /// The rows, in display order.
         std::vector<DisplayItem> m_displayItems;
+        /// The rich-text content inside the scroll area (owned by Qt).
         QLabel *m_content;
         /// The text last shown, so an unchanged panel is not re-laid out (see updateDisplay).
         QString m_displayedText;
@@ -125,6 +130,7 @@ namespace Spacetime::Visualization::Default
             static std::false_type test(...);
 
         public:
+            /// Whether `std::ostream << T` is well-formed.
             static constexpr bool value = decltype(test<T>(0))::value;
         };
 

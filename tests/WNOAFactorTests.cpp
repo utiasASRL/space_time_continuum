@@ -1,5 +1,7 @@
 #include <cstdio>
 #include <fstream>
+#include <string>
+#include <unistd.h>
 
 #include <Eigen/Dense>
 #include <gtsam/geometry/Pose3.h>
@@ -16,8 +18,6 @@
 
 namespace Spacetime::Priors::WNOA
 {
-    using namespace Legacy;
-
     namespace
     {
         using Pose = gtsam::Pose3;
@@ -51,7 +51,8 @@ namespace Spacetime::Priors::WNOA
 
         std::string writeTempConfig(const std::string &name, const std::string &contents)
         {
-            const std::string path = testing::TempDir() + name;
+            // Per-test (and per-process) name: ctest runs tests concurrently.
+            const std::string path = testing::TempDir() + testing::UnitTest::GetInstance()->current_test_info()->name() + "_" + std::to_string(::getpid()) + "_" + name;
             std::ofstream(path) << contents;
             return path;
         }
@@ -70,25 +71,7 @@ namespace Spacetime::Priors::WNOA
     // BinarySpaceFactor / BinaryTimeFactor
     // ------------------------------------------------------------------
 
-    TEST(PaperFactors, SpaceNoiseModelIsTheQsCovariance)
-    {
-        KeyManager km;
-        auto node0 = std::make_shared<NodeType>(km, 0.0, 0.0);
-        auto node1 = std::make_shared<NodeType>(km, 0.25, 0.0);
-        auto factor = BinarySpaceFactor::createFactor<Pose>(node0, node1, kQa, kQb);
-        EXPECT_TRUE(covarianceOf(*factor).isApprox(Functions<Pose>::getQs(0.25, kQa, kQb), 1e-9));
-    }
-
-    TEST(PaperFactors, TimeNoiseModelIsTheQtCovariance)
-    {
-        KeyManager km;
-        auto node0 = std::make_shared<NodeType>(km, 0.0, 0.0);
-        auto node1 = std::make_shared<NodeType>(km, 0.0, 0.1);
-        auto factor = BinaryTimeFactor::createFactor<Pose>(node0, node1, kQa, kQb);
-        EXPECT_TRUE(covarianceOf(*factor).isApprox(Functions<Pose>::getQt(0.1, kQa, kQb), 1e-9));
-    }
-
-    TEST(PaperFactors, EachFactorUsesItsOwnSpacing)
+    TEST(WNOAFactors, EachFactorUsesItsOwnSpacing)
     {
         // Factors built back to back with different spacings must not share a noise model.
         KeyManager km;
@@ -109,7 +92,7 @@ namespace Spacetime::Priors::WNOA
         EXPECT_TRUE(covarianceOf(*long_time).isApprox(Functions<Pose>::getQt(0.2, kQa, kQb), 1e-9));
     }
 
-    TEST(PaperFactors, SpaceJacobiansWithNonzeroRates)
+    TEST(WNOAFactors, SpaceJacobiansWithNonzeroRates)
     {
         KeyManager km;
         auto node0 = std::make_shared<NodeType>(km, 0.0, 0.0);
@@ -126,12 +109,12 @@ namespace Spacetime::Priors::WNOA
                 gtsam::Values values;
                 insertValues(node0, v0, values);
                 insertValues(node1, v1, values);
-                EXPECT_TRUE(gtsam::internal::testFactorJacobians("PaperSpaceFactor", *factor, values, 1e-6, 1e-5)) << "coupling " << coupling;
+                EXPECT_TRUE(gtsam::internal::testFactorJacobians("WNOASpaceFactor", *factor, values, 1e-6, 1e-5)) << "coupling " << coupling;
             }
         }
     }
 
-    TEST(PaperFactors, TimeJacobiansWithNonzeroRates)
+    TEST(WNOAFactors, TimeJacobiansWithNonzeroRates)
     {
         KeyManager km;
         auto node0 = std::make_shared<NodeType>(km, 0.0, 0.0);
@@ -145,11 +128,11 @@ namespace Spacetime::Priors::WNOA
             gtsam::Values values;
             insertValues(node0, v0, values);
             insertValues(node1, v1, values);
-            EXPECT_TRUE(gtsam::internal::testFactorJacobians("PaperTimeFactor", *factor, values, 1e-6, 1e-5));
+            EXPECT_TRUE(gtsam::internal::testFactorJacobians("WNOATimeFactor", *factor, values, 1e-6, 1e-5));
         }
     }
 
-    TEST(PaperFactors, ZeroErrorNodesHaveZeroError)
+    TEST(WNOAFactors, ZeroErrorNodesHaveZeroError)
     {
         ValueType v0;
         v0.setRandom();
@@ -169,7 +152,7 @@ namespace Spacetime::Priors::WNOA
         EXPECT_LT(time.evaluateError(v0.pose(), v0.epsilon(), v0.varpi(), time_next.pose(), time_next.epsilon(), time_next.varpi()).norm(), 1e-12);
     }
 
-    TEST(PaperFactors, SpaceVelocityRowMatchesTheLegacyForm)
+    TEST(WNOAFactors, SpaceVelocityRowMatchesTheLegacyForm)
     {
         // Legacy (T_bi): e = varpi1 - varpi0 - ds * eps0^curlywedge * varpi0, with eps_bi = -eps_ib,
         // varpi_bi = -varpi_ib; its error is the negative of the T_ib one.
@@ -185,7 +168,7 @@ namespace Spacetime::Priors::WNOA
         EXPECT_TRUE(e.segment<6>(6).isApprox(v1.epsilon() - v0.epsilon()));
     }
 
-    TEST(PaperFactors, UncoupledSpaceVelocityRowIsTheDifference)
+    TEST(WNOAFactors, UncoupledSpaceVelocityRowIsTheDifference)
     {
         // TRO paper, Eq. (20): e_varpi = varpi1 - varpi0, with the same pose and strain rows
         // as the coupled (legacy) factor.
@@ -205,21 +188,7 @@ namespace Spacetime::Priors::WNOA
         }
     }
 
-    TEST(PaperFactors, CouplingVanishesWithoutStrain)
-    {
-        const double ds = 0.2;
-        BinarySpaceFactor::Factor<Pose> coupled(0, 1, 2, 3, 4, 5, BinarySpaceFactor::noiseModel<Pose>(ds, kQa, kQb), ds, true);
-        BinarySpaceFactor::Factor<Pose> uncoupled(0, 1, 2, 3, 4, 5, BinarySpaceFactor::noiseModel<Pose>(ds, kQa, kQb), ds, false);
-        ValueType v0, v1;
-        v0.setRandom();
-        v1.setRandom();
-        v0.epsilon(Vector6::Zero());
-        const gtsam::Vector e = uncoupled.evaluateError(v0.pose(), v0.epsilon(), v0.varpi(), v1.pose(), v1.epsilon(), v1.varpi());
-        const gtsam::Vector e_coupled = coupled.evaluateError(v0.pose(), v0.epsilon(), v0.varpi(), v1.pose(), v1.epsilon(), v1.varpi());
-        EXPECT_TRUE(e.isApprox(e_coupled, 1e-15));
-    }
-
-    TEST(PaperFactors, SpaceErrorVanishesOnACompatibleField)
+    TEST(WNOAFactors, SpaceErrorVanishesOnACompatibleField)
     {
         // T(s,t) = Exp(t c) Exp(s a) has a constant strain eps = a and a velocity
         // varpi(s) = Ad(Exp(-s a)) c, so d(eps)/dt = 0 and d(varpi)/ds = -ad(eps) varpi.
@@ -274,9 +243,9 @@ namespace Spacetime::Priors::WNOA
         };
     } // namespace
 
-    TEST(PaperFactors, PriorUsesTheGroupFactorsWhenSelected)
+    TEST(WNOAFactors, PriorUsesTheGroupFactorsWhenSelected)
     {
-        for (FactorType type : {FactorType::Legacy, FactorType::Paper})
+        for (FactorType type : {FactorType::Legacy, FactorType::WNOA})
         {
             PriorOptions options;
             options.factor_type = type;
@@ -307,11 +276,11 @@ namespace Spacetime::Priors::WNOA
         }
     }
 
-    TEST(PaperFactors, InitialRowHasZeroSpaceError)
+    TEST(WNOAFactors, InitialRowHasZeroSpaceError)
     {
         // The first row's initial values come from the space factors' zero-error nodes, so
         // each factor type must use the zero-error node of its own space factor.
-        for (FactorType type : {FactorType::Legacy, FactorType::Paper})
+        for (FactorType type : {FactorType::Legacy, FactorType::WNOA})
         {
             PriorOptions options;
             options.factor_type = type;
@@ -325,11 +294,11 @@ namespace Spacetime::Priors::WNOA
         }
     }
 
-    TEST(PaperFactors, PaperUnaryFactorUsesTheFullQ0AndAnExactJacobian)
+    TEST(WNOAFactors, WNOAUnaryFactorUsesTheFullQ0AndAnExactJacobian)
     {
-        // The legacy and paper factor types share the unary factor.
+        // The WNOA and legacy factor types share the unary factor.
         PriorOptions options;
-        options.factor_type = FactorType::Paper;
+        options.factor_type = FactorType::WNOA;
         PriorFixture f(options);
         KeyManager km;
         gtsam::Values current, fresh;
@@ -349,20 +318,43 @@ namespace Spacetime::Priors::WNOA
         far.varpi((Vector6() << -0.1, 0.0, 0.2, 0.3, -0.4, 0.5).finished());
         gtsam::Values values;
         insertValues(base, far, values);
-        EXPECT_TRUE(gtsam::internal::testFactorJacobians("PaperUnaryFactor", *unary, values, 1e-6, 1e-5));
+        EXPECT_TRUE(gtsam::internal::testFactorJacobians("WNOAUnaryFactor", *unary, values, 1e-6, 1e-5));
     }
 
-    TEST(PaperFactors, PriorDefaultsToTheLieAlgebraFactors)
+    TEST(WNOAFactors, PriorDefaultsToTheUncoupledGroupFactors)
     {
+        EXPECT_EQ(PriorOptions().factor_type, FactorType::WNOA);
         PriorFixture f{PriorOptions()};
+        KeyManager km;
+        gtsam::Values current, fresh;
+        auto row0 = f.prior->extendState(km, 0.0, current, fresh);
+        EXPECT_EQ(countFactors<gtsam::WnoaMotionFactor<Pose>>(row0), 0u);
+        EXPECT_EQ(countFactors<BinarySpaceFactor::Factor<Pose>>(row0), 3u);
+        for (const auto &factor : row0)
+            if (auto space = std::dynamic_pointer_cast<BinarySpaceFactor::Factor<Pose>>(factor))
+                EXPECT_FALSE(space->couplesStrainAndVelocity());
+    }
+
+    TEST(WNOAFactors, PriorUsesTheLieAlgebraFactorsWhenExperimental)
+    {
+        PriorOptions options;
+        options.factor_type = FactorType::Experimental;
+        PriorFixture f(options);
         KeyManager km;
         gtsam::Values current, fresh;
         auto row0 = f.prior->extendState(km, 0.0, current, fresh);
         EXPECT_EQ(countFactors<gtsam::WnoaMotionFactor<Pose>>(row0), 3u);
         EXPECT_EQ(countFactors<BinarySpaceFactor::Factor<Pose>>(row0), 0u);
+        EXPECT_EQ(countFactors<UnaryFactor::Factor<Pose>>(row0), 0u);
+        EXPECT_EQ(countFactors<gtsam::PriorFactor<Pose>>(row0), 1u);
+        current.insert(fresh);
+        fresh.clear();
+        auto row1 = f.prior->extendState(km, 0.1, current, fresh);
+        EXPECT_EQ(countFactors<gtsam::WnoaMotionFactor<Pose>>(row1), 3u + 4u);
+        EXPECT_EQ(countFactors<BinaryTimeFactor::Factor<Pose>>(row1), 0u);
     }
 
-    TEST(PaperFactors, FixedNoiseModelSkipsTheConditionalCovariance)
+    TEST(WNOAFactors, FixedNoiseModelSkipsTheConditionalCovariance)
     {
         // An off-node measurement: the inflated factor weighs the same residual less.
         auto errorFor = [](bool fixed)
@@ -422,29 +414,29 @@ namespace Spacetime::Priors::WNOA
         }
     } // namespace
 
-    TEST(PaperFactors, EveryRowHasAUnaryFactorByDefault)
+    TEST(WNOAFactors, EveryRowHasAUnaryFactorByDefault)
     {
-        for (FactorType type : {FactorType::WNOA, FactorType::Legacy, FactorType::Paper})
+        for (FactorType type : {FactorType::Experimental, FactorType::Legacy, FactorType::WNOA})
         {
             PriorOptions options;
             options.factor_type = type;
             EXPECT_FALSE(options.remove_unary);
-            const std::size_t per_row = type == FactorType::WNOA ? 3u : 1u;
+            const std::size_t per_row = type == FactorType::Experimental ? 3u : 1u;
             const ExtendedRows extended = extendThreeRows(options);
             for (const FactorVector &row : extended.rows)
                 EXPECT_EQ(countUnaryFactors(row), per_row);
         }
     }
 
-    TEST(PaperFactors, RemoveUnaryKeepsOnlyTheFirstRowsUnaryFactor)
+    TEST(WNOAFactors, RemoveUnaryKeepsOnlyTheFirstRowsUnaryFactor)
     {
-        for (FactorType type : {FactorType::WNOA, FactorType::Legacy, FactorType::Paper})
+        for (FactorType type : {FactorType::Experimental, FactorType::Legacy, FactorType::WNOA})
         {
             PriorOptions with, without;
             with.factor_type = without.factor_type = type;
             without.remove_unary = true;
             const ExtendedRows kept = extendThreeRows(with), removed = extendThreeRows(without);
-            const std::size_t per_row = type == FactorType::WNOA ? 3u : 1u;
+            const std::size_t per_row = type == FactorType::Experimental ? 3u : 1u;
 
             EXPECT_EQ(countUnaryFactors(removed.rows[0]), per_row);
             for (std::size_t r = 0; r < removed.rows.size(); r++)
@@ -457,9 +449,9 @@ namespace Spacetime::Priors::WNOA
         }
     }
 
-    TEST(PaperFactors, RemoveUnaryLeavesTheInitialValuesUnchanged)
+    TEST(WNOAFactors, RemoveUnaryLeavesTheInitialValuesUnchanged)
     {
-        for (FactorType type : {FactorType::WNOA, FactorType::Legacy, FactorType::Paper})
+        for (FactorType type : {FactorType::Experimental, FactorType::Legacy, FactorType::WNOA})
         {
             PriorOptions with, without;
             with.factor_type = without.factor_type = type;
@@ -472,23 +464,23 @@ namespace Spacetime::Priors::WNOA
     // ConfigLoader
     // ------------------------------------------------------------------
 
-    TEST(PaperFactors, ConfigLoaderReadsThePriorOptions)
+    TEST(WNOAFactors, ConfigLoaderReadsThePriorOptions)
     {
         const std::string path = writeTempConfig("wnoa_prior_options.json", R"({
-            "prior": { "type": "wnoa", "wnoa": { "factor_type": "paper", "fixed_noise_model": true, "remove_unary": true } }
+            "prior": { "type": "wnoa", "wnoa": { "factor_type": "legacy", "fixed_noise_model": true, "remove_unary": true } }
         })");
         Utilities::ConfigLoader loader;
         ASSERT_TRUE(loader.loadConfig(path));
         const PriorOptions options = loader.loadWNOAPriorOptions();
-        EXPECT_EQ(options.factor_type, FactorType::Paper);
+        EXPECT_EQ(options.factor_type, FactorType::Legacy);
         EXPECT_TRUE(options.fixed_noise_model);
         EXPECT_TRUE(options.remove_unary);
         std::remove(path.c_str());
     }
 
-    TEST(PaperFactors, ConfigLoaderReadsEachFactorType)
+    TEST(WNOAFactors, ConfigLoaderReadsEachFactorType)
     {
-        const std::pair<const char *, FactorType> cases[] = {{"wnoa", FactorType::WNOA}, {"legacy", FactorType::Legacy}, {"paper", FactorType::Paper}};
+        const std::pair<const char *, FactorType> cases[] = {{"wnoa", FactorType::WNOA}, {"legacy", FactorType::Legacy}, {"experimental", FactorType::Experimental}};
         for (const auto &[name, type] : cases)
         {
             const std::string path = writeTempConfig("wnoa_prior_factor_type.json", std::string(R"({ "prior": { "type": "wnoa", "wnoa": { "factor_type": ")") + name + R"(" } } })");
@@ -499,7 +491,7 @@ namespace Spacetime::Priors::WNOA
         }
     }
 
-    TEST(PaperFactors, ConfigLoaderDefaultsThePriorOptions)
+    TEST(WNOAFactors, ConfigLoaderDefaultsThePriorOptions)
     {
         const std::string path = writeTempConfig("wnoa_prior_options_missing.json", R"({ "prior": { "type": "wnoa", "time_period": 0.1, "wnoa": {} } })");
         Utilities::ConfigLoader loader;
@@ -511,7 +503,7 @@ namespace Spacetime::Priors::WNOA
         std::remove(path.c_str());
     }
 
-    TEST(PaperFactors, ConfigLoaderRejectsAnUnknownFactorType)
+    TEST(WNOAFactors, ConfigLoaderRejectsAnUnknownFactorType)
     {
         const std::string path = writeTempConfig("wnoa_prior_options_bad.json", R"({ "prior": { "type": "wnoa", "wnoa": { "factor_type": "group" } } })");
         Utilities::ConfigLoader loader;
@@ -524,13 +516,30 @@ namespace Spacetime::Priors::WNOA
         catch (const std::invalid_argument &e)
         {
             const std::string message = e.what();
-            for (const char *name : {"\"wnoa\"", "\"legacy\"", "\"paper\""})
+            for (const char *name : {"\"wnoa\"", "\"legacy\"", "\"experimental\""})
                 EXPECT_NE(message.find(name), std::string::npos) << message;
         }
         std::remove(path.c_str());
     }
 
-    TEST(PaperFactors, ConfigLoaderReadsTheDemoTimeWindow)
+    TEST(WNOAFactors, ConfigLoaderRejectsTheRenamedPaperFactorType)
+    {
+        const std::string path = writeTempConfig("wnoa_prior_options_paper.json", R"({ "prior": { "type": "wnoa", "wnoa": { "factor_type": "paper" } } })");
+        Utilities::ConfigLoader loader;
+        ASSERT_TRUE(loader.loadConfig(path));
+        try
+        {
+            loader.loadWNOAPriorOptions();
+            ADD_FAILURE() << "expected std::invalid_argument";
+        }
+        catch (const std::invalid_argument &e)
+        {
+            EXPECT_NE(std::string(e.what()).find("renamed to \"wnoa\""), std::string::npos) << e.what();
+        }
+        std::remove(path.c_str());
+    }
+
+    TEST(WNOAFactors, ConfigLoaderReadsTheDemoTimeWindow)
     {
         const std::string path = writeTempConfig("demo_time_window.json", R"({ "demo_data": { "start_time": 2.5 } })");
         Utilities::ConfigLoader loader;

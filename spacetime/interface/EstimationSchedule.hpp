@@ -25,7 +25,12 @@ namespace Spacetime::Interface
     class EstimationSchedule
     {
     public:
-        /// @throws std::invalid_argument if `period` is not positive.
+        /**
+         * @brief A schedule from `start_time` to `end_time` (inclusive), one estimate per `period` seconds.
+         * @param real_time Pace to the clock and skip overrun boundaries (see next()), rather than
+         *        return every boundary.
+         * @throws std::invalid_argument if `period` is not positive.
+         */
         EstimationSchedule(double start_time, double end_time, double period, bool real_time)
             : m_start_time(start_time), m_end_time(end_time), m_period(period), m_real_time(real_time)
         {
@@ -73,10 +78,10 @@ namespace Spacetime::Interface
         /// Index of the schedule boundary the current estimate belongs to.
         long long tick() const { return m_tick; }
 
-        double startTime() const { return m_start_time; }
-        double endTime() const { return m_end_time; }
-        double period() const { return m_period; }
-        bool isRealTime() const { return m_real_time; }
+        double startTime() const { return m_start_time; } ///< Time of the first estimate, in seconds.
+        double endTime() const { return m_end_time; }     ///< Time of the last estimate (inclusive), in seconds.
+        double period() const { return m_period; }        ///< Seconds between schedule boundaries.
+        bool isRealTime() const { return m_real_time; }   ///< Whether next() paces to a real-time clock.
 
     private:
         double m_start_time, m_end_time, m_period;

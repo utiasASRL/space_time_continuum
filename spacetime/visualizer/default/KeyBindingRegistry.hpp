@@ -17,7 +17,8 @@ namespace Spacetime::Visualization::Default
      *        QShortcut in the same context (only activatedAmbiguously), so the
      *        Visualizer creates a single QShortcut per key and dispatches to
      *        every handler registered here. Kept free of any QObject/widget so
-     *        it can be unit-tested without a QApplication.
+     *        it can be unit-tested without a QApplication. Not thread-safe (the
+     *        Visualizer uses it on the GUI thread only). Handlers cannot be removed.
      */
     class KeyBindingRegistry
     {
@@ -59,7 +60,9 @@ namespace Spacetime::Visualization::Default
         }
 
     private:
+        /// Per key, its handlers in registration order.
         std::map<Qt::Key, std::vector<std::function<void()>>> m_handlers;
+        /// Per key, its toggle-state queries (see allOn).
         std::map<Qt::Key, std::vector<std::function<bool()>>> m_states;
     };
 } // namespace Spacetime::Visualization::Default

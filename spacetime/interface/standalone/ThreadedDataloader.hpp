@@ -29,7 +29,8 @@ namespace Spacetime::Standalone
         virtual void run(std::stop_token stop) = 0;
 
         /**
-         * @brief Blocks until deliveredThrough(time), or a stop is requested on `stop`.
+         * @brief Blocks until deliveredThrough(time), or a stop is requested on `stop`. Safe to
+         *        call from any thread (the estimator thread, in EstimatorRunner).
          * @return deliveredThrough(time); false only if stopped first.
          */
         bool waitUntilDeliveredThrough(double time, std::stop_token stop) const
@@ -40,6 +41,7 @@ namespace Spacetime::Standalone
         }
 
     protected:
+        /// Wakes every waitUntilDeliveredThrough() caller. Called from the thread that moved the watermark.
         void onWatermarkMoved() override
         {
             // Taking the wait mutex orders this notify after a waiter's predicate check, so no wake-up is lost.

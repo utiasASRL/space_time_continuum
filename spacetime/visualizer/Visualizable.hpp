@@ -1,3 +1,9 @@
+/**
+ * @file Visualizable.hpp
+ * @brief Backend-agnostic base of every object a visualizer draws.
+ * @author Spencer Teetaert
+ */
+
 #ifndef VISUALIZABLE_HPP
 #define VISUALIZABLE_HPP
 

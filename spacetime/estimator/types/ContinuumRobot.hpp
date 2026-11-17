@@ -30,6 +30,11 @@ namespace Spacetime::Types
      * @brief The state of a continuum robot: a grid of NodeT nodes, one row (at fixed
      *        arclengths) per addStateAtTime call. Nodes are indexed by a flat index (order
      *        of creation) and by their (spatial, temporal) grid index.
+     *
+     * The estimator thread alone extends and reads the state; a visualizer thread reads
+     * it only through snapshotEstimationNodes.
+     *
+     * @tparam NodeT The node type of every grid point (e.g. WNOA::Node<gtsam::Pose3>).
      */
     template <NodeType NodeT>
     struct ContinuumRobotState : public State
@@ -41,7 +46,7 @@ namespace Spacetime::Types
         
         std::vector<std::shared_ptr<NodeT>> estimation_nodes; ///< Every node, by flat index.
 
-        /// `spatial_dim` nodes evenly spaced over [0, length] (requires spatial_dim >= 2).
+        /// `spatial_dim` nodes evenly spaced over [0, length] [m] (requires spatial_dim >= 2; not checked).
         ContinuumRobotState(double length, unsigned int spatial_dim)
             : length(length), spatial_dim(spatial_dim)
         {
@@ -52,7 +57,7 @@ namespace Spacetime::Types
                 // debug() << "Added arclength: " << arclengths.back() << " at index: " << n;
             }
         }
-        /// Nodes at the given ascending `arclengths` (non-empty).
+        /// Nodes at the given ascending `arclengths` [m] (non-empty; not checked). `length` is the last one.
         ContinuumRobotState(std::vector<double> arclengths)
             : length(arclengths.back()), spatial_dim(arclengths.size()), arclengths(arclengths)
         {
@@ -62,7 +67,7 @@ namespace Spacetime::Types
             }
         } // Constructor for custom node locations on the robot
 
-        /// Flat index of the node at a grid index, or unsigned(-1) if there is none.
+        /// Flat index of the node at (spatial index, temporal index), or unsigned(-1) if there is none.
         unsigned int getNodeIndex(unsigned int spatial_index, unsigned int temporal_index) const
         {
             NodeGridIndex key{spatial_index, temporal_index};
@@ -115,7 +120,12 @@ namespace Spacetime::Types
                                    { node.insert(type, value, values); }});
         }
 
-        /// Adds a row of nodes at `time`, at every arclength, applying the matching locks.
+        /**
+         * @brief Adds a row of nodes at `time` [s], at every arclength, registering their keys
+         *        with `km`, and inserts the matching locks' values into lockedValues(). Rows
+         *        are expected in increasing time. Warns once for a time-specific lock whose
+         *        time was skipped.
+         */
         void addStateAtTime(KeyManager &km, double time) override
         {
             const unsigned int temporal_index = m_time_values.size();

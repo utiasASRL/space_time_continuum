@@ -48,6 +48,11 @@ namespace Spacetime::Visualization::Default
      *        ContinuumRobotState::snapshotEstimationNodes and the values to draw them at
      *        from a bound EstimatorSnapshot source. The robot's sensors are drawn by
      *        views of their own (see makeSensorView).
+     *
+     *        Like every default-backend view, it is used on the visualizer thread only;
+     *        the estimator may extend the state concurrently, which is safe because the
+     *        nodes are read through the state's mutex-guarded snapshotEstimationNodes().
+     * @tparam NodeT Node type of the drawn ContinuumRobotState.
      */
     template <Types::NodeType NodeT>
     class ContinuumRobot : public Visualizable
@@ -76,9 +81,13 @@ namespace Spacetime::Visualization::Default
         /// The state whose node grid this view draws.
         const std::shared_ptr<const Types::ContinuumRobotState<NodeT>> &state() const { return mp_state; }
 
+        /// Backbone polyline points (true nodes plus spatial interpolation points), rewritten every frame.
         mutable vtkSmartPointer<vtkPoints> mp_backbone_points;
+        /// Backbone polyline (points, line cells and per-segment grey shades); see rebuildBackboneGeometry.
         mutable vtkSmartPointer<vtkPolyData> mp_backbone_polydata;
+        /// Turns the backbone polyline into a tube of `radius`.
         mutable vtkSmartPointer<vtkTubeFilter> mp_backbone_tube;
+        /// The backbone tube's actor; created hidden by initBackbone.
         mutable vtkSmartPointer<vtkActor> mp_backbone_actor;
         /// One frame per spatial node (see Utilities::createFrameActor).
         mutable std::vector<vtkSmartPointer<vtkActor>> mp_axes;
@@ -92,7 +101,9 @@ namespace Spacetime::Visualization::Default
         mutable vtkSmartPointer<vtkPolyDataMapper> mp_covariance_mapper;
         /// Where the ellipsoids are added once created; set by visualize().
         mutable vtkSmartPointer<vtkRenderer> mp_covariance_renderer;
+        /// Whether the covariance ellipsoids are on (toggle C, see toggleCovariance).
         mutable bool m_show_covariance = false;
+        /// Set once the missing-covariance warning was logged, so it is logged only once.
         mutable bool m_warned_missing_covariance = false;
 
         /// Backbone tube radius; also scales the node frames. Read in visualize().
@@ -166,8 +177,8 @@ namespace Spacetime::Visualization::Default
         /// An STL mesh drawn rigidly attached to the robot at an arclength (see addSTL).
         struct AttachedMesh
         {
-            double arclength;
-            vtkSmartPointer<vtkActor> actor;
+            double arclength;                ///< Where along the robot it is attached [m].
+            vtkSmartPointer<vtkActor> actor; ///< The mesh's actor (mesh already scaled and offset).
             /// Whether the latest frame placed it (a pose resolved with the robot shown), i.e. it may be shown.
             bool drawn = false;
         };
@@ -302,7 +313,7 @@ namespace Spacetime::Visualization::Default
          * @brief Draws the backbone, node frames and attached meshes (the covariance ellipsoids are
          *        created once first shown, see toggleCovariance), and binds the controls: the visibility toggle (if set),
          *        [ / ] spatial interpolation points, T temporal interpolation (offline
-         *        only), C posterior covariance, A node frames and V attached meshes.
+         *        only), C posterior covariance, A node frames and G attached meshes (geometry).
          */
         void visualize(Visualizer &visualizer) const override
         {
@@ -340,7 +351,7 @@ namespace Spacetime::Visualization::Default
                                           { toggleNodeFrames(); }, [this]()
                                           { return nodeFramesShown(); }, "Toggle " + info(true) + " node frames");
 
-            visualizer.bindToggleShortcut(Qt::Key_V, [this]()
+            visualizer.bindToggleShortcut(Qt::Key_G, [this]()
                                           { toggleMeshes(); }, [this]()
                                           { return meshesShown(); }, "Toggle " + info(true) + " meshes");
         };

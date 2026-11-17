@@ -19,10 +19,10 @@ namespace Spacetime::Visualization::Default
     /// Where a point on a rendered plot lies: inside the axes, on the x-axis strip below them, on the y-axis strip left of them, or elsewhere (title, corners).
     enum class PlotRegion
     {
-        Outside,
-        Plot,
-        XAxis,
-        YAxis
+        Outside, ///< Title, corners or outside the image.
+        Plot,    ///< Inside the axes rectangle (see plotArea).
+        XAxis,   ///< The tick-label strip below the axes.
+        YAxis    ///< The tick-label strip left of the axes.
     };
 
     /// The axes rectangle renderPlot() draws into for an image of `size` (after the same clamping).
@@ -37,6 +37,10 @@ namespace Spacetime::Visualization::Default
      *        (`gt_x`, `gt_y`) as black dots. Non-finite samples break the lines instead
      *        of being drawn. Shows "No data available" if nothing is finite. Drawn into a
      *        QImage (needs a QGuiApplication for text).
+     * @param series   The plotted line (mean and bounds, see PlotSeries).
+     * @param gt_x, gt_y Ground-truth samples; ignored unless of equal, non-zero length.
+     * @param title    Drawn centred above the axes.
+     * @param color    Colour of the mean and bounds.
      * @param size     Image size; clamped to at least 100 x 60.
      * @param marker_x If finite and within the x range, a dashed vertical marker is drawn there.
      * @param range    Data window to show; fitted to the data (see fitRange) if nullopt.

@@ -1,3 +1,10 @@
+/**
+ * @file ConfigLoader.hpp
+ * @brief JSON configuration of the estimator, priors, demo sensor data and visualizer
+ *        (sections "estimator", "prior", "demo_data", "visualizer").
+ * @author Spencer Teetaert
+ */
+
 #ifndef CONFIGLOADER_HPP
 #define CONFIGLOADER_HPP
 
@@ -52,8 +59,9 @@ namespace Spacetime::Utilities
 
         /**
          * @brief Parse a JSON file and merge its top-level sections into the config.
-         * @return false if the file cannot be parsed.
+         * @return false if the file cannot be opened or parsed.
          * @throws std::runtime_error if a top-level section is already loaded (see mergeJsonInto).
+         * @throws std::invalid_argument if the file's top level is not a JSON object.
          */
         bool loadConfig(std::string filename)
         {
@@ -80,7 +88,7 @@ namespace Spacetime::Utilities
             return true;
         }
 
-        /// Adds the top-level sections of a config built in memory, as loadConfig does a file's.
+        /// Adds the top-level sections of a config built in memory, as loadConfig does a file's. Throws as mergeJsonInto.
         void addConfig(const Json::Value &config) { mergeJsonInto(root, config); }
 
         /**
@@ -263,7 +271,7 @@ namespace Spacetime::Utilities
 
         /**
          * @brief Read the WNOA prior's options from the "prior.wnoa" section: "factor_type"
-         *        ("wnoa", "legacy" or "paper"), "fixed_noise_model", "cache_noise_model" and "remove_unary".
+         *        ("wnoa", "legacy" or "experimental"), "fixed_noise_model", "cache_noise_model" and "remove_unary".
          *        Missing entries keep PriorOptions' defaults.
          * @throws std::invalid_argument on an unknown factor_type.
          */
@@ -281,10 +289,12 @@ namespace Spacetime::Utilities
                     options.factor_type = Spacetime::Priors::WNOA::FactorType::WNOA;
                 else if (factor_type == "legacy")
                     options.factor_type = Spacetime::Priors::WNOA::FactorType::Legacy;
+                else if (factor_type == "experimental")
+                    options.factor_type = Spacetime::Priors::WNOA::FactorType::Experimental;
                 else if (factor_type == "paper")
-                    options.factor_type = Spacetime::Priors::WNOA::FactorType::Paper;
+                    throw std::invalid_argument("prior.wnoa.factor_type \"paper\" has been renamed to \"wnoa\" (the old \"wnoa\" factors are now \"experimental\").");
                 else
-                    throw std::invalid_argument("prior.wnoa.factor_type must be \"wnoa\", \"legacy\" or \"paper\", got \"" + factor_type + "\".");
+                    throw std::invalid_argument("prior.wnoa.factor_type must be \"wnoa\", \"legacy\" or \"experimental\", got \"" + factor_type + "\".");
             }
             if (wnoa_root.isMember("lock_first_pose"))
                 warning() << "prior.wnoa.lock_first_pose is not read; use demo_data.locks instead.";
@@ -501,8 +511,11 @@ namespace Spacetime::Utilities
          *        [3], "random_walk_sigma" [3]} (standard deviations, squared into the
          *        covariance and PSD).
          * @throws std::invalid_argument if an "accelerometer" or "R_accelerometer" array has the wrong length.
-         * @param sensors Receives the measurement sensors.
-         * @param gt Receives the sensors whose file is flagged as ground truth.
+         * @tparam PriorT The prior the sensors are bound to (e.g. Priors::WNOA::Prior<gtsam::Pose3>).
+         * @param sensors Receives the measurement sensors (appended to).
+         * @param gt Receives the sensors whose file is flagged as ground truth (appended to).
+         * @param prior_model The prior every sensor resolves its state through (see Types::SensorBase).
+         *        Build it, and its robot, from loadDemoMetadata first.
          */
         template <typename PriorT>
             requires requires { typename PriorT::ValuesType; }
@@ -559,8 +572,9 @@ namespace Spacetime::Utilities
                 const Spacetime::Sensors::AccelerometerOptions accelerometer_options = readAccelerometerOptions(demo_data_root);
 
                 // Load each sensor file into new sensor objects and add to sensors vector
-                loadData(data_dir, start_time, end_time, sensors, gt, prior_model, include_aurora, include_gyro, include_strain, R_aurora, R_gyro, R_strain,
-                         include_accelerometer, R_accelerometer, accelerometer_options);
+                if (!loadData(data_dir, start_time, end_time, sensors, gt, prior_model, include_aurora, include_gyro, include_strain, R_aurora, R_gyro, R_strain,
+                              include_accelerometer, R_accelerometer, accelerometer_options))
+                    warning() << "No demo data loaded from: " << data_dir;
             }
         }
 
@@ -745,7 +759,16 @@ namespace Spacetime::Utilities
          *        accelerometer sits at its first row's arclength.
          * @note "vicon" files are always loaded; "aurora" files are always given a
          *       sensor, which is left empty unless include_aurora is set.
+         * @param data_dir Directory of the CSV files (`~` is expanded).
+         * @param start_time,end_time Rows outside [start_time, end_time] [s] are skipped.
+         * @param sensors,sensors_gt Receive the measurement and ground-truth sensors (appended to).
+         * @param prior_model The prior every sensor is bound to.
+         * @param R_aurora,R_gyro,R_strain,R_accelerometer Measurement covariance given to
+         *        every row of that sensor type, in GTSAM [rotational, translational] order.
+         * @param accelerometer_options Options of every accelerometer built.
          * @return false if globbing `data_dir` fails, including when it holds no CSV file.
+         *         Files without a "<label>,<type>" first line, and rows with the wrong number of
+         *         values for their sensor type, are skipped with a warning.
          */
         template <typename PriorT>
         bool loadData(
@@ -776,7 +799,11 @@ namespace Spacetime::Utilities
 
             if (return_value != 0)
             {
-                std::cerr << "Glob failed with error code: " << return_value;
+                if (return_value == GLOB_NOMATCH)
+                    warning() << "No CSV files found in: " << data_dir;
+                else
+                    error() << "Listing the CSV files in " << data_dir << " failed (glob error " << return_value << ").";
+                globfree(&glob_result);
                 return false;
             }
 
@@ -790,6 +817,11 @@ namespace Spacetime::Utilities
 
                 // Read sensor type
                 reader.readLine(text);
+                if (text.size() < 2)
+                {
+                    warning() << "Missing the \"<label>,<sensor type>\" first line. Skipping file: " << file_path;
+                    continue;
+                }
                 std::string sensor_type = text[1];
                 sensor_type.erase(std::remove(sensor_type.begin(), sensor_type.end(), '\r'), sensor_type.end());
 
@@ -810,7 +842,7 @@ namespace Spacetime::Utilities
                 Eigen::MatrixXd R;
                 if (sensor_type == std::string("vicon") || sensor_type == std::string("aurora"))
                 {
-                    sensor = std::make_shared<Spacetime::Sensors::PoseSensor<ValuesT>>(R_aurora, prior_model);
+                    sensor = std::make_shared<Spacetime::Sensors::PoseSensor<ValuesT>>(prior_model);
                     R = R_aurora;
                 }
                 else if (sensor_type == std::string("gyro"))
@@ -890,16 +922,26 @@ namespace Spacetime::Utilities
 
                     if (sensor_type == std::string("vicon") || (sensor_type == std::string("aurora") && include_aurora))
                     {
+                        if (values.size() != 6)
+                        {
+                            warning() << "Skipping the pose row at t=" << timestep << " in " << file_path << ": expected 6 pose values, got " << values.size();
+                            continue;
+                        }
                         measurement->mask = Eigen::Matrix<int, 6, 1>::Ones(); // Assuming all components are valid
-                        Eigen::Matrix<double, 6, 1> value_ = Eigen::Map<Eigen::Matrix<double, 6, 1>>(std::vector<double>(values.begin(), values.end()).data());
+                        const Eigen::Matrix<double, 6, 1> value_ = Eigen::Map<const Eigen::Matrix<double, 6, 1>>(values.data());
                         Eigen::Matrix<double, 6, 1> value;
                         value << value_.tail<3>(), value_.head<3>();
                         measurement->value = gtsam::traits<gtsam::Pose3>::Expmap(value).matrix();
                     }
                     else if (sensor_type == std::string("gyro") && include_gyro)
                     {
+                        if (values.size() != 3)
+                        {
+                            warning() << "Skipping the gyro row at t=" << timestep << " in " << file_path << ": expected 3 angular velocity values, got " << values.size();
+                            continue;
+                        }
                         measurement->mask = Eigen::Matrix<int, 3, 1>::Ones(); // Assuming all components are valid
-                        Eigen::Matrix<double, 3, 1> value = Eigen::Map<Eigen::Matrix<double, 3, 1>>(std::vector<double>(values.begin(), values.end()).data());
+                        const Eigen::Matrix<double, 3, 1> value = Eigen::Map<const Eigen::Matrix<double, 3, 1>>(values.data());
                         measurement->value = value;
                     }
                     else if (sensor_type == std::string("accelerometer"))

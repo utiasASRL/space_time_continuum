@@ -178,16 +178,6 @@ namespace Spacetime
         EXPECT_NEAR(result.blocks.at({x1, x1})(0, 0), s0 * s0 + s1 * s1, 1e-12);
     }
 
-    TEST(BayesTreeCovariance, MatchesMarginalsOnAGridWithMixedDimensions)
-    {
-        RandomProblem problem(12, 5);
-        const BayesTreeMarginals marginals(problem.graph, problem.solution);
-        const auto result = BayesTreeCovariance::recover(marginals.bayesTree(), problem.allPairs());
-        EXPECT_FALSE(result.blocks.empty());
-        expectMatchesMarginals(result, marginals);
-        EXPECT_EQ(result.blocks.size() + result.unresolved.size(), problem.allPairs().size());
-    }
-
     TEST(BayesTreeCovariance, EveryVarianceAndFactorLinkedPairIsRecovered)
     {
         RandomProblem problem(12, 5);

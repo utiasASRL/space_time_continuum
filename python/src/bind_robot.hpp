@@ -40,23 +40,31 @@ namespace SpacetimePython
         using StateT = Spacetime::Types::ContinuumRobotState<NodeT>;
 
         py::classh<StateT, Spacetime::Types::State>(m, name, "A robot's grid of nodes: the same arclengths at every estimation time.")
-            .def(py::init<double, unsigned int>(), py::arg("length"), py::arg("spatial_dim"))
-            .def(py::init<std::vector<double>>(), py::arg("arclengths"))
-            .def_readonly("length", &StateT::length)
-            .def_readonly("spatial_dim", &StateT::spatial_dim)
-            .def_readonly("arclengths", &StateT::arclengths)
+            .def(py::init<double, unsigned int>(), py::arg("length"), py::arg("spatial_dim"),
+                 "`spatial_dim` (>= 2, not checked) nodes per row, evenly spaced over [0, length] [m].")
+            .def(py::init<std::vector<double>>(), py::arg("arclengths"), "Nodes at the given ascending, non-empty `arclengths` [m]; the length is the last one.")
+            .def_readonly("length", &StateT::length, "Robot length [m].")
+            .def_readonly("spatial_dim", &StateT::spatial_dim, "Nodes per row.")
+            .def_readonly("arclengths", &StateT::arclengths, "Node arclengths [m], ascending.")
             .def("lock", &lockByType<StateT>, py::arg("type"), py::arg("s"), py::arg("value"), py::arg("t") = std::nullopt,
-                 "Locks variable `type` (e.g. \"pose\", \"strain\") of the node at arclength `s` (-1 for the tip) to `value`, "
-                 "at time `t` or at every time.")
-            .def("snapshotEstimationNodes", &StateT::snapshotEstimationNodes)
-            .def("getNextSpatialNode", &StateT::getNextSpatialNode, py::arg("node"))
-            .def("getPreviousSpatialNode", &StateT::getPreviousSpatialNode, py::arg("node"))
-            .def("getNextTemporalNode", &StateT::getNextTemporalNode, py::arg("node"))
-            .def("getPreviousTemporalNode", &StateT::getPreviousTemporalNode, py::arg("node"))
+                 "Locks variable `type` (e.g. \"pose\", \"strain\") of the node at arclength `s` (-1 for the tip) to `value` "
+                 "(a gtsam.Pose3 or a 6-vector), in the row at time `t` or in every row; applies to rows created after the call. "
+                 "Raises ValueError for an `s` that is not a node arclength, an unknown variable or a value of the wrong type.")
+            .def("snapshotEstimationNodes", &StateT::snapshotEstimationNodes,
+                 "A copy of every node, by flat index; safe to call while the estimator thread adds rows.")
+            .def("getNextSpatialNode", &StateT::getNextSpatialNode, py::arg("node"),
+                 "The next node along the robot, or None at the tip; raises RuntimeError if `node` is not in the state.")
+            .def("getPreviousSpatialNode", &StateT::getPreviousSpatialNode, py::arg("node"), "The previous node along the robot, or None at the base.")
+            .def("getNextTemporalNode", &StateT::getNextTemporalNode, py::arg("node"), "The node at the same arclength in the next row, or None in the latest row.")
+            .def("getPreviousTemporalNode", &StateT::getPreviousTemporalNode, py::arg("node"),
+                 "The node at the same arclength in the previous row, or None in the first row.")
             .def("getClosestShiftedNode", &StateT::getClosestShiftedNode, py::arg("arclength"), py::arg("time"), py::arg("spatial_direction"),
-                 py::arg("temporal_direction"))
-            .def("getNodeIndex", &StateT::getNodeIndex, py::arg("spatial_index"), py::arg("temporal_index"))
-            .def("getNodeArclengthTime", &StateT::getNodeArclengthTime, py::arg("index"));
+                 py::arg("temporal_direction"),
+                 "The node nearest (L1 in arclength + time) to (arclength, time) on the side each direction selects "
+                 "(< 0 at or below, > 0 at or above, 0 either), or None.")
+            .def("getNodeIndex", &StateT::getNodeIndex, py::arg("spatial_index"), py::arg("temporal_index"),
+                 "The flat index of the node at a grid index, or 2**32 - 1 if there is none.")
+            .def("getNodeArclengthTime", &StateT::getNodeArclengthTime, py::arg("index"), "(arclength, time) of the node at flat `index`, or (-1, -1) if there is none.");
     }
 } // namespace SpacetimePython
 

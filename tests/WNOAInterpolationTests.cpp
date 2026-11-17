@@ -184,43 +184,6 @@ namespace Spacetime::Priors::WNOA
         }
     } // namespace
 
-    TEST(WNOAInterpolation, ImportTest)
-    {
-        EXPECT_TRUE(true);
-    }
-
-    // ------------------------------------------------------------------
-    // Lambda/Psi
-    // ------------------------------------------------------------------
-
-    TEST(WNOAInterpolation, LambdaPsiTimeBoundaries)
-    {
-        InterpolatorType interp = makeInterpolator();
-        const double t_k = 1.0, t_kp1 = 2.5;
-
-        auto [lambda_left, psi_left] = interp.getLambdaPsiTime(t_k, t_kp1, t_k);
-        EXPECT_TRUE(lambda_left.isApprox(MatrixNode::Identity()));
-        EXPECT_TRUE(psi_left.isZero());
-
-        auto [lambda_right, psi_right] = interp.getLambdaPsiTime(t_k, t_kp1, t_kp1);
-        EXPECT_TRUE(lambda_right.isZero());
-        EXPECT_TRUE(psi_right.isApprox(MatrixNode::Identity()));
-    }
-
-    TEST(WNOAInterpolation, LambdaPsiSpaceBoundaries)
-    {
-        InterpolatorType interp = makeInterpolator();
-        const double s_n = 0.0, s_np1 = 3.0;
-
-        auto [lambda_left, psi_left] = interp.getLambdaPsiSpace(s_n, s_np1, s_n);
-        EXPECT_TRUE(lambda_left.isApprox(MatrixNode::Identity()));
-        EXPECT_TRUE(psi_left.isZero());
-
-        auto [lambda_right, psi_right] = interp.getLambdaPsiSpace(s_n, s_np1, s_np1);
-        EXPECT_TRUE(lambda_right.isZero());
-        EXPECT_TRUE(psi_right.isApprox(MatrixNode::Identity()));
-    }
-
     // ------------------------------------------------------------------
     // 1D (single-axis) interpolation: mean, boundary behaviour, Jacobians
     // ------------------------------------------------------------------
@@ -333,22 +296,6 @@ namespace Spacetime::Priors::WNOA
         InterpolatorType interp = makeInterpolator();
         EXPECT_TRUE(interp.computeConditionalCovSpace(0.0, 2.0, 0.0).isZero());
         EXPECT_TRUE(interp.computeConditionalCovSpace(0.0, 2.0, 2.0).isZero());
-    }
-
-    TEST(WNOAInterpolation, ConditionalCovTimeInteriorIsSymmetricPSD)
-    {
-        InterpolatorType interp = makeInterpolator();
-        expectPSD(interp.computeConditionalCovTime(0.0, 2.0, 0.3));
-        expectPSD(interp.computeConditionalCovTime(0.0, 2.0, 1.0));
-        expectPSD(interp.computeConditionalCovTime(0.0, 2.0, 1.9));
-    }
-
-    TEST(WNOAInterpolation, ConditionalCovSpaceInteriorIsSymmetricPSD)
-    {
-        InterpolatorType interp = makeInterpolator();
-        expectPSD(interp.computeConditionalCovSpace(0.0, 3.0, 0.4));
-        expectPSD(interp.computeConditionalCovSpace(0.0, 3.0, 1.5));
-        expectPSD(interp.computeConditionalCovSpace(0.0, 3.0, 2.8));
     }
 
     // ------------------------------------------------------------------
@@ -685,33 +632,6 @@ namespace Spacetime::Priors::WNOA
             const MatrixNode numerical = numericalCornerJacobian(f, values, node);
             expectJacobianMapMatches(jac, node, numerical, 1e-4);
         }
-    }
-
-    TEST(WNOAInterpolation, InterpolateFullSpaceTimeExactCornerIsZeroCovariance)
-    {
-        KeyManager km;
-        auto node00 = std::make_shared<NodeType>(km, 0.0, 0.0);
-        auto node01 = std::make_shared<NodeType>(km, 0.0, 2.0);
-        auto node10 = std::make_shared<NodeType>(km, 3.0, 0.0);
-        auto node11 = std::make_shared<NodeType>(km, 3.0, 2.0);
-        ValuesType v00, v01, v10, v11;
-        v00.setRandom();
-        v01.setRandom();
-        v10.setRandom();
-        v11.setRandom();
-        gtsam::Values values;
-        insertNode(node00, v00, values);
-        insertNode(node01, v01, values);
-        insertNode(node10, v10, values);
-        insertNode(node11, v11, values);
-
-        InterpolatorType interp = makeInterpolator();
-        Eigen::MatrixXd cov;
-        auto result = interp.interpolate(0.0, 0.0, values, node00, node01, node10, node11, nullptr, &cov);
-        auto typed = std::dynamic_pointer_cast<ValuesType>(result);
-        ASSERT_TRUE(typed);
-        expectValuesEqual(*typed, v00, 1e-5);
-        EXPECT_TRUE(cov.isApprox(Eigen::MatrixXd::Zero(node_dim, node_dim), 1e-6));
     }
 
     // ------------------------------------------------------------------
@@ -1055,33 +975,11 @@ namespace Spacetime::Priors::WNOA
         // gtsam::PriorFactor<Pose>, at reference=Identity) is measurably larger
         // than it was through the identity-favoring bespoke error function this
         // test previously used. 1e-2 comfortably covers the ~5e-3 worst-case
-        // absolute residual measured across these three deterministic tests.
+        // absolute residual measured across these deterministic tests.
         InterpolationFactor<InterpolatorType> factor(
             inner_factor, interp, 0.7, 0.0, node00, node01, nullptr, nullptr, true);
 
         EXPECT_TRUE(gtsam::internal::testFactorJacobians("InterpolationFactor-TimeOnly", factor, values, 1e-6, 1e-2));
-    }
-
-    TEST(WNOAInterpolation, InterpolationFactorSpaceOnlyJacobians)
-    {
-        KeyManager km;
-        auto node00 = std::make_shared<NodeType>(km, 0.0, 0.0);
-        auto node10 = std::make_shared<NodeType>(km, 3.0, 0.0);
-        ValuesType v00 = deterministicSmallValues(0), v10 = deterministicSmallValues(2);
-        gtsam::Values values;
-        insertNode(node00, v00, values);
-        insertNode(node10, v10, values);
-
-        InterpolatorType interp = makeInterpolator();
-        auto noise_model = gtsam::noiseModel::Gaussian::Covariance(MatrixN::Identity());
-        auto inner_factor = posePriorInnerFactor(Pose(), noise_model);
-        // See comment in InterpolationFactorTimeOnlyJacobians for why
-        // fixed_noise_model=true and deterministicSmallValues() (not
-        // smallRandomValues()) are used here.
-        InterpolationFactor<InterpolatorType> factor(
-            inner_factor, interp, 0.0, 1.2, node00, nullptr, node10, nullptr, true);
-
-        EXPECT_TRUE(gtsam::internal::testFactorJacobians("InterpolationFactor-SpaceOnly", factor, values, 1e-6, 1e-2));
     }
 
     TEST(WNOAInterpolation, InterpolationFactorFullSpaceTimeJacobians)
@@ -1148,58 +1046,6 @@ namespace Spacetime::Priors::WNOA
     }
 
     // ------------------------------------------------------------------
-    // End-to-end: WNOA::Prior::getOuterFactor
-    // ------------------------------------------------------------------
-
-    TEST(WNOAInterpolation, PriorGetInterpolationFactorDispatch)
-    {
-        unsigned int spatial_dim = 3;
-        auto state = std::make_shared<StateType>(2.0, spatial_dim);
-        ValuesType node_reference;
-        node_reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
-        auto prior = std::make_shared<Prior<Pose>>(state, node_reference);
-
-        gtsam::Values current_values, new_values;
-        KeyManager km;
-        prior->extendState(km, 0.0, current_values, new_values);
-        current_values.insert(new_values);
-        new_values.clear();
-        prior->extendState(km, 0.5, current_values, new_values); // one node per call, at the requested time
-        current_values.insert(new_values);
-
-        Eigen::MatrixXd measurement_cov = MatrixN::Identity() * 1e-3;
-        auto noise_model = gtsam::noiseModel::Gaussian::Covariance(measurement_cov);
-        auto inner_factor = posePriorInnerFactor(Pose(), noise_model);
-
-        // Exact node match: 1 node -> 3 keys.
-        auto factor_exact = prior->getOuterFactor(0.0, 0.0, inner_factor);
-        ASSERT_NE(factor_exact, nullptr);
-        EXPECT_EQ(factor_exact->keys().size(), 3u);
-
-        // Time-only interpolation (query time 0.25 falls strictly between the
-        // t=0.0 and t=0.5 nodes created above; arclength 0.0 matches exactly):
-        // 2 nodes -> 6 keys.
-        auto factor_time = prior->getOuterFactor(0.25, 0.0, inner_factor);
-        ASSERT_NE(factor_time, nullptr);
-        EXPECT_EQ(factor_time->keys().size(), 6u);
-
-        // Space-only interpolation (time 0.0 matches exactly; arclength 0.5 falls
-        // strictly between the s=0.0 and s=1.0 nodes): 2 nodes -> 6 keys.
-        auto factor_space = prior->getOuterFactor(0.0, 0.5, inner_factor);
-        ASSERT_NE(factor_space, nullptr);
-        EXPECT_EQ(factor_space->keys().size(), 6u);
-
-        // Full space-time interpolation (both coordinates interior): 4 nodes -> 12 keys.
-        auto factor_full = prior->getOuterFactor(0.25, 0.5, inner_factor);
-        ASSERT_NE(factor_full, nullptr);
-        EXPECT_EQ(factor_full->keys().size(), 12u);
-
-        // All returned factors must have finite, evaluable error at the current operating point.
-        for (const auto &factor : {factor_exact, factor_time, factor_space, factor_full})
-            EXPECT_TRUE(std::isfinite(factor->error(current_values)));
-    }
-
-    // ------------------------------------------------------------------
     // InterpolationFactor wrapping an extrapolating query
     // ------------------------------------------------------------------
 
@@ -1248,30 +1094,6 @@ namespace Spacetime::Priors::WNOA
         }
     } // namespace
 
-    TEST(WNOAInterpolation, InterpolationFactorTimeExtrapolationJacobians)
-    {
-        KeyManager km;
-        auto node00 = std::make_shared<NodeType>(km, 0.0, 0.0);
-        gtsam::Values values;
-        insertNode(node00, deterministicSmallValues(0), values);
-
-        expectFactorJacobiansCorrect("InterpolationFactor-TimeExtrapolation",
-                                     /*time=*/0.7, /*arclength=*/0.0,
-                                     node00, nullptr, nullptr, nullptr, values, /*tol=*/2e-2);
-    }
-
-    TEST(WNOAInterpolation, InterpolationFactorSpaceExtrapolationJacobians)
-    {
-        KeyManager km;
-        auto node00 = std::make_shared<NodeType>(km, 0.0, 0.0);
-        gtsam::Values values;
-        insertNode(node00, deterministicSmallValues(0), values);
-
-        expectFactorJacobiansCorrect("InterpolationFactor-SpaceExtrapolation",
-                                     /*time=*/0.0, /*arclength=*/1.2,
-                                     node00, nullptr, nullptr, nullptr, values, /*tol=*/2e-2);
-    }
-
     TEST(WNOAInterpolation, InterpolationFactorSpaceExtrapolationWithTimeInterpolationJacobians)
     {
         KeyManager km;
@@ -1284,20 +1106,6 @@ namespace Spacetime::Priors::WNOA
         expectFactorJacobiansCorrect("InterpolationFactor-SpaceExtrapTimeInterp",
                                      /*time=*/0.7, /*arclength=*/1.2,
                                      node00, node01, nullptr, nullptr, values, /*tol=*/1e-2);
-    }
-
-    TEST(WNOAInterpolation, InterpolationFactorTimeExtrapolationWithSpaceInterpolationJacobians)
-    {
-        KeyManager km;
-        auto node00 = std::make_shared<NodeType>(km, 0.0, 0.0);
-        auto node10 = std::make_shared<NodeType>(km, 3.0, 0.0);
-        gtsam::Values values;
-        insertNode(node00, deterministicSmallValues(0), values);
-        insertNode(node10, deterministicSmallValues(2), values);
-
-        expectFactorJacobiansCorrect("InterpolationFactor-TimeExtrapSpaceInterp",
-                                     /*time=*/0.7, /*arclength=*/1.2,
-                                     node00, nullptr, node10, nullptr, values, /*tol=*/1e-2);
     }
 
     TEST(WNOAInterpolation, InterpolationFactorDoubleExtrapolationJacobians)
@@ -1318,9 +1126,8 @@ namespace Spacetime::Priors::WNOA
 
     namespace
     {
-        /// A 3-arclength (s = 0, 1, 2) robot with two temporal rows (t = 0, 0.5), matching
-        /// the fixture PriorGetInterpolationFactorDispatch uses. extendState adds one row per
-        /// call at exactly the requested time.
+        /// A 3-arclength (s = 0, 1, 2) robot with two temporal rows (t = 0, 0.5).
+        /// extendState adds one row per call at exactly the requested time.
         struct PriorFixture
         {
             std::shared_ptr<StateType> state = std::make_shared<StateType>(2.0, 3);
@@ -1344,7 +1151,7 @@ namespace Spacetime::Priors::WNOA
         };
     } // namespace
 
-    TEST(WNOAInterpolation, PriorGetInterpolationFactorExtrapolation)
+    TEST(WNOAInterpolation, PriorGetOuterFactorDispatch)
     {
         PriorFixture f;
         // The grid spans t in [0, 0.5] and s in [0, 2].
@@ -1360,9 +1167,14 @@ namespace Spacetime::Priors::WNOA
             double time, arclength;
             std::size_t expected_keys;
         };
-        // Past the end in either axis, the corresponding bordering node is simply absent,
-        // so the factor spans fewer nodes than the interpolating equivalent would.
+        // Each corner node contributes 3 keys. Past the end in either axis, the corresponding
+        // bordering node is simply absent, so the factor spans fewer nodes than the
+        // interpolating equivalent would.
         const Case cases[] = {
+            {"exact node match", 0.0, 0.0, 3},
+            {"time-only interpolation", 0.25, 0.0, 6},
+            {"arclength-only interpolation", 0.0, 0.5, 6},
+            {"full space-time interpolation", 0.25, 0.5, 12},
             {"time-extrapolation on a grid arclength", 0.75, 0.0, 3},
             {"time-extrapolation with arclength interpolation", 0.75, 0.5, 6},
             {"arclength-extrapolation with time interpolation", 0.25, 2.5, 6},

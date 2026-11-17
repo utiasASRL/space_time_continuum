@@ -10,14 +10,6 @@ from spacetime import interface
 from conftest import batch_estimator, make_wnoa_robot, run_session
 
 
-def test_session_options_defaults_match_cpp():
-    options = interface.SessionOptions()
-    assert options.start_time == 0.0
-    assert options.end_time == -1.0
-    assert options.period == pytest.approx(1.0 / 30.0)
-    assert options.real_time is False
-
-
 def test_offline_session_runs_to_end_time():
     _, prior = make_wnoa_robot()
     estimator = batch_estimator()

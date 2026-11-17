@@ -71,6 +71,18 @@ namespace Spacetime::Visualization::Default
      *        ~30 FPS timer, advances its PlaybackController and updates every added
      *        Visualizable, plus the playback/camera/screenshot/video shortcuts, the
      *        diagnostics panel and the timeline overlay. Starts playing.
+     *
+     *        Built-in keys: Space play/pause, Up/Down playback speed * 1.5 and / 1.5, Left/Right step
+     *        one estimation tick (offline), , / . phase delay -/+ 0.01 s, R reset camera,
+     *        = / - zoom in/out, O orbit, X screenshot, V record video (offline), L loop
+     *        (offline), H diagnostics panel, Y timeline, Q quit. Offline, dragging or
+     *        clicking the timeline seeks. Views add their own keys (see bindShortcut).
+     *
+     *        A Qt widget: construct, use and destroy it on the thread that owns the
+     *        QApplication (see VisualizerThread); no method is thread-safe. Data sources
+     *        bound to its views (snapshot sources, live time source) are called on that
+     *        thread every frame, so they must be safe to call concurrently with the
+     *        estimator.
      */
     class Visualizer : public QVTKOpenGLNativeWidget
     {
@@ -82,7 +94,7 @@ namespace Spacetime::Visualization::Default
     public:
         /**
          * @param options     Display options; `options.online` fixes the playback mode.
-         * @param output_path Root folder for recorded screenshots (written under `<output_path>/screenshots/`); empty means the working directory.
+         * @param output_path Root folder for recorded screenshots and videos (written under `<output_path>/screenshots/` and `<output_path>/videos/`); empty means the working directory.
          */
         Visualizer(VisualizerOptions options, std::string output_path = "");
         /// Default destructor; child widgets are owned by Qt.
@@ -237,7 +249,7 @@ namespace Spacetime::Visualization::Default
         std::filesystem::path videosFolder() const;
         /// Writes grabFrame() as a PNG to `file_path`, creating its parent folders if needed.
         void writeFrame(const std::filesystem::path &file_path);
-        /// Left/right arrows (offline only): steps to the adjacent estimation tick in `direction` (see PlaybackController::stepTick), or 1% of the range if VisualizerOptions::estimation_period is unknown, then renders.
+        /// Left/right arrows (offline only): steps to the adjacent estimation tick in `direction` (see PlaybackController::stepTick), or by max(0.01 s, 1% of the range) if VisualizerOptions::estimation_period is unknown, then renders. Ignored while exporting a video.
         void stepTime(int direction);
         /// X: saves one screenshot (see screenshot()); a failure is logged and shown instead of thrown, since Qt aborts on an exception leaving an event handler.
         void takeScreenshot();
@@ -271,13 +283,17 @@ namespace Spacetime::Visualization::Default
         /// Amount one delay hotkey press changes the phase delay by: currently a fixed 0.01 s (a window-relative step is commented out in the implementation).
         double delayStep() const;
 
+        /// The widget's render window and its single renderer.
         vtkSmartPointer<vtkRenderWindow> mp_renWin;
         vtkSmartPointer<vtkRenderer> mp_ren;
 
         PlaybackController m_playback;
+        /// Drives slotAnimationTimer every 33 ms.
         QTimer m_animation_timer;
+        /// Wall time of the last animation tick, to advance playback by the elapsed wall time.
         std::chrono::steady_clock::time_point m_last_tick_time;
 
+        /// Writes screenshots (see writeFrame).
         vtkNew<vtkPNGWriter> m_screenshot_writer;
         /// The video being exported (see startVideoExport), or nullptr.
         std::unique_ptr<VideoWriter> m_video;
@@ -290,17 +306,24 @@ namespace Spacetime::Visualization::Default
         /// Whether the camera orbits its focal point as playback advances (toggle O; see kOrbitDegreesPerSecond).
         bool m_orbiting = false;
 
+        /// See the constructor.
         std::string m_output_path;
 
+        /// Top-centre message label (see sendMessage); a Qt child, like the other overlays.
         QLabel *m_infoLabel;
+        /// Hides m_infoLabel after a timed sendMessage.
         QTimer m_infoTimer;
+        /// The diagnostics panel (toggle H): playback state, timings, camera and the controls list.
         InfoWidget *m_diagnosticsLabel = nullptr;
+        /// Handlers of keys bound through bindShortcut / bindToggleShortcut.
         KeyBindingRegistry m_key_bindings;
         /// Labels added by addControlInfo, so each is listed once.
         std::set<std::string> m_control_infos;
+        /// The timeline overlay (toggle Y).
         TimelineWidget *m_timelineWidget = nullptr;
         /// See addOverlayWidget.
         std::vector<std::pair<QWidget *, std::function<QRect(QSize)>>> m_overlays;
+        /// See setTimeRange.
         double m_time_range_start = 0.0, m_time_range_end = 1.0;
 
         /// See unitSphereMapper / unitCylinderMapper.
@@ -313,8 +336,11 @@ namespace Spacetime::Visualization::Default
         /// Weight of the newest frame in m_update_seconds / m_render_seconds.
         static constexpr double kFrameTimeSmoothing = 0.1;
 
+        /// Whether saved screenshots and videos are logged.
         bool m_verbose = true;
+        /// Screenshot subfolder index (see incrementSampleIndex).
         int m_sample_index = 0;
+        /// File number of the next screenshot.
         unsigned int m_screenshot_frame_idx = 0;
     };
 } // namespace Spacetime::Visualization::Default

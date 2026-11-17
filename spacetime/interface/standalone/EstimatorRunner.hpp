@@ -43,15 +43,16 @@ namespace Spacetime::Standalone
     /// How an EstimatorRunner runs (see its file comment).
     struct RunnerOptions
     {
-        double start_time = 0.0; ///< Time of the first estimate.
+        double start_time = 0.0; ///< Time of the first estimate, in seconds.
         /// Time to stop estimating at. If negative: until the data ends (see Interface::resolveEndTime).
         double end_time = -1.0;
-        double period = 1.0 / 30.0; ///< Time between estimates, and so between nodes.
+        double period = 1.0 / 30.0; ///< Time between estimates, and so between nodes, in seconds.
         /// Whether to wait on the dataloaders' watermarks before each estimate. Defaults to !clock->isRealTime().
         std::optional<bool> synchronize;
     };
 
-    /// Owns the estimator thread and the dataloader threads (see the file comment).
+    /// Owns the estimator thread and the dataloader threads (see the file comment). Configure
+    /// (addDataloader, setTickCallback) and start() from one thread; requestStop() is safe from any.
     class EstimatorRunner
     {
     public:
@@ -85,7 +86,8 @@ namespace Spacetime::Standalone
          *         estimator (see Estimator::isBatch) is given a real-time clock.
          * @throws std::logic_error if already started.
          * @note A batch-mode estimator only accumulates factors during the loop, and is solved
-         *       by Estimator::finalize() once it ends.
+         *       by Estimator::finalize() once it ends (also when it ends on a stop request), on
+         *       the estimator thread.
          */
         void start()
         {
@@ -130,7 +132,7 @@ namespace Spacetime::Standalone
                 std::rethrow_exception(std::exchange(m_error, nullptr));
         }
 
-        /// start() then join(): runs to the end time on the calling thread's behalf.
+        /// start() then join(): blocks the calling thread until the run ends. Throws as start() and join() do.
         void run()
         {
             start();
@@ -183,6 +185,7 @@ namespace Spacetime::Standalone
             }
         }
 
+        /// Body of the estimator thread: the estimate loop, finalize, then stops and joins the dataloader threads.
         void estimatorThread(Interface::EstimationSchedule &schedule, Interface::EstimatorDriver &driver, bool synchronize)
         {
             guarded([&]()
@@ -197,6 +200,7 @@ namespace Spacetime::Standalone
             m_finished = true;
         }
 
+        /// Steps `driver` on the schedule's times until done or stopped; returns early if stopped during a watermark wait.
         void estimateLoop(Interface::EstimationSchedule &schedule, Interface::EstimatorDriver &driver, bool synchronize, std::stop_token stop)
         {
             std::optional<double> previous_time;

@@ -33,6 +33,8 @@ namespace Spacetime::Utilities
      * @brief Swap the two halves of every 6-vector block, converting between the GTSAM
      *        [rotational, translational] and the legacy [translational, rotational]
      *        tangent orderings (the swap is its own inverse).
+     * @tparam Blocks Number of 6-vector blocks (e.g. 3 for [pose, eps, varpi]).
+     * @return The 6*Blocks square permutation P; apply as P * x, or P * Sigma * P^T.
      */
     template <int Blocks>
     Eigen::Matrix<double, 6 * Blocks, 6 * Blocks> tangentOrderSwap()

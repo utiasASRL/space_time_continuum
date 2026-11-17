@@ -23,6 +23,9 @@ namespace Spacetime::Priors::WNOA
      *
      * In time, the pose integrates velocity (Q1) and strain is a random walk (Q3); in
      * arclength, the pose integrates strain (Q2) and velocity is a random walk (Q4).
+     * Q1..Q4 are dim x dim power spectral densities in [rot, trans] order.
+     *
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
     class Functions
@@ -32,13 +35,13 @@ namespace Spacetime::Priors::WNOA
         static constexpr unsigned int node_dim = NodeType::dim;
 
     public:
-        using MatrixN = Eigen::Matrix<double, dim, dim>;
-        using Matrix3N = Eigen::Matrix<double, node_dim, node_dim>;
+        using MatrixN = Eigen::Matrix<double, dim, dim>;            ///< One component's block (dim x dim).
+        using Matrix3N = Eigen::Matrix<double, node_dim, node_dim>; ///< Whole-node block, [pose, strain, velocity].
         using VectorN = Eigen::Vector<double, dim>;
         using Vector3N = Eigen::Vector<double, node_dim>;
         using Jacobian = gtsam::OptionalMatrixType;
 
-        /// Accumulated process noise Q_t(dt) over a time step dt > 0.
+        /// Accumulated process noise Q_t(dt) over a time step dt > 0 (asserted): Q1 couples pose and velocity, Q3 drives strain.
         static Matrix3N getQt(double dt, const MatrixN &Q1, const MatrixN &Q3)
         {
             assert(dt > 0 && "Time must be positive.");
@@ -53,7 +56,7 @@ namespace Spacetime::Priors::WNOA
             return Qt;
         }
 
-        /// Accumulated process noise Q_s(ds) over an arclength step ds > 0.
+        /// Accumulated process noise Q_s(ds) over an arclength step ds > 0 (asserted): Q2 couples pose and strain, Q4 drives velocity.
         static Matrix3N getQs(double ds, const MatrixN &Q2, const MatrixN &Q4)
         {
             assert(ds > 0 && "Arclength must be positive.");

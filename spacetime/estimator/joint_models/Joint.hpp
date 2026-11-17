@@ -35,7 +35,7 @@ namespace Spacetime::Joints
     /// Optional settings of a Joint.
     struct JointOptions
     {
-        JointType type = JointType::Rigid;
+        JointType type = JointType::Rigid; ///< What the joint holds together.
         /// T_AB: joint point B relative to joint point A, in A's frame (T_B = T_A T_AB).
         /// A spherical joint only uses its translation.
         gtsam::Pose3 offset;
@@ -64,13 +64,13 @@ namespace Spacetime::Joints
     class Joint : public Types::Model
     {
     public:
-        using InterpolatorA = typename PriorA::InterpolatorType;
-        using InterpolatorB = typename PriorB::InterpolatorType;
-        using KeysA = typename InterpolatorA::InterpolatedKeys;
-        using KeysB = typename InterpolatorB::InterpolatedKeys;
-        using StateA = Types::ContinuumRobotState<typename PriorA::NodeType>;
-        using StateB = Types::ContinuumRobotState<typename PriorB::NodeType>;
-        using FactorType = Priors::TwoSidedInterpolationFactor<InterpolatorA, InterpolatorB>;
+        using InterpolatorA = typename PriorA::InterpolatorType;                             ///< Robot A's interpolator.
+        using InterpolatorB = typename PriorB::InterpolatorType;                             ///< Robot B's interpolator.
+        using KeysA = typename InterpolatorA::InterpolatedKeys;                              ///< Placeholder keys of robot A's interpolated node.
+        using KeysB = typename InterpolatorB::InterpolatedKeys;                              ///< Placeholder keys of robot B's interpolated node.
+        using StateA = Types::ContinuumRobotState<typename PriorA::NodeType>;                ///< Robot A's state.
+        using StateB = Types::ContinuumRobotState<typename PriorB::NodeType>;                ///< Robot B's state.
+        using FactorType = Priors::TwoSidedInterpolationFactor<InterpolatorA, InterpolatorB>; ///< Outer factor wrapping each residual.
 
         static_assert(std::is_same_v<std::decay_t<decltype(std::declval<typename PriorA::ValuesType>().pose())>, gtsam::Pose3> &&
                           std::is_same_v<std::decay_t<decltype(std::declval<typename PriorB::ValuesType>().pose())>, gtsam::Pose3>,
@@ -148,17 +148,25 @@ namespace Spacetime::Joints
             return factors;
         }
 
+        /// The prior of robot A.
         std::shared_ptr<PriorA> priorA() const { return m_prior_a; }
+        /// The prior of robot B.
         std::shared_ptr<PriorB> priorB() const { return m_prior_b; }
+        /// Joint arclength s_a on robot A.
         double arclengthA() const { return m_s_a; }
+        /// Joint arclength s_b on robot B.
         double arclengthB() const { return m_s_b; }
+        /// The offset T_AB (see JointOptions::offset).
         const gtsam::Pose3 &offset() const { return m_options.offset; }
+        /// The options the joint was built with.
         const JointOptions &options() const { return m_options; }
+        /// The offset's covariance, as given to the constructor (6x6 rigid, 3x3 spherical).
         const Eigen::MatrixXd &offsetCovariance() const { return m_offset_covariance; }
         /// Whether the joined points are apart (the offset has a translation), e.g. to draw a link rather than a ball.
         bool hasOffset() const { return m_options.offset.translation().norm() > 1e-9; }
 
     private:
+        /// @throws std::invalid_argument if `s` lies outside the state's node arclengths (or it has none).
         template <typename StateT>
         static void checkArclength(const StateT &state, double s, const std::string &name)
         {
@@ -166,6 +174,7 @@ namespace Spacetime::Joints
                 throw std::invalid_argument("Joint: arclength " + std::to_string(s) + " lies outside robot " + name + "'s nodes.");
         }
 
+        /// Time of the state's newest node row, or nullopt if it has none yet.
         template <typename StateT>
         static std::optional<double> newestRowTime(const StateT &state)
         {
@@ -231,7 +240,7 @@ namespace Spacetime::Joints
         JointOptions m_options;
         std::shared_ptr<StateA> m_state_a;
         std::shared_ptr<StateB> m_state_b;
-        std::optional<double> m_last_joined_time;
+        std::optional<double> m_last_joined_time; // time of the last row joined, so each row is joined once
     };
 } // namespace Spacetime::Joints
 

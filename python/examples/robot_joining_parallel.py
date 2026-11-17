@@ -90,7 +90,7 @@ def main():
 
     # The end effector's pose, measured directly (e.g. a tracker on the platform).
     covariance = np.diag([1e-4, 1e-4, 1e-4, 1e-6, 1e-6, 1e-6])
-    sensor = sensors.PoseSensor(covariance, platform_ee.endEffectorPrior())
+    sensor = sensors.PoseSensor(platform_ee.endEffectorPrior())
     k = 0
     while k * PERIOD <= END_TIME + 1e-9:
         t = k * PERIOD

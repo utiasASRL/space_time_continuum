@@ -100,7 +100,8 @@ namespace Spacetime::Visualization::Default
      *        (see formatRuntime), read from the latest published snapshot. Online it
      *        tracks every estimate; offline the estimator has finished before playback,
      *        so it shows the run's constant average and total (batch: total only).
-     *        Hidden by default: H toggles it together with the diagnostics panel.
+     *        Starts shown only if the diagnostics panel does
+     *        (VisualizerOptions::show_diagnostics_label); H toggles both together.
      */
     class RuntimeWidget : public Visualizable
     {
@@ -110,6 +111,7 @@ namespace Spacetime::Visualization::Default
         /// Height of the bar, in pixels (see Visualizer::bottomBarHeight).
         static constexpr int kHeight = Visualizer::bottomBarHeight();
 
+        /// Returns the estimator's latest snapshot; called on the visualizer thread every frame, so it must be thread-safe.
         using SnapshotSource = std::function<std::shared_ptr<const EstimatorSnapshot>()>;
 
         /**
@@ -125,7 +127,7 @@ namespace Spacetime::Visualization::Default
         /// Short name if `brief`, otherwise a one-line description.
         std::string info(bool brief = true) const override { return brief ? "RuntimeWidget" : "RuntimeWidget: estimator phase timings"; }
 
-        /// Creates the bar along the bottom of the window, shown only while the diagnostics panel is, and binds H to toggle it.
+        /// Creates the bar along the bottom of the window (shown if the diagnostics panel is), and binds H to toggle it with the panel.
         void visualize(Visualizer &visualizer) const override
         {
             m_online = visualizer.isOnline();
@@ -165,11 +167,15 @@ namespace Spacetime::Visualization::Default
         }
 
     private:
+        /// Sets the bar's text.
         void setText(const std::string &text) const { mp_label->setText(QString::fromStdString(text)); }
 
+        /// See the constructor.
         SnapshotSource m_source;
         mutable QLabel *mp_label = nullptr; // owned by the visualizer
+        /// The snapshot last shown, so an unchanged one is not reformatted.
         mutable std::shared_ptr<const EstimatorSnapshot> mp_last_snapshot;
+        /// Visualizer::isOnline(), captured by visualize().
         mutable bool m_online = false;
     };
 } // namespace Spacetime::Visualization::Default

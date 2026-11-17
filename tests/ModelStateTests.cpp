@@ -12,7 +12,6 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/joint_models/EndEffector.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
-#include <spacetime/estimator/prior_models/WNOV.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
 #include <spacetime/estimator/types/Robot.hpp>
 
@@ -33,7 +32,7 @@ namespace Spacetime
 
         std::shared_ptr<Sensors::PoseSensor<ValueType>> makeSensor(const std::shared_ptr<PriorType> &prior)
         {
-            return std::make_shared<Sensors::PoseSensor<ValueType>>(Eigen::Matrix<double, 6, 6>::Identity(), prior);
+            return std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
         }
 
         /// A stateful model extending its state by one row per call, relying on StatefulModel's default outer factors and queries.
@@ -48,9 +47,6 @@ namespace Spacetime
                 return {};
             }
         };
-
-        template <typename T>
-        concept HasState = requires(const T &model) { model.state(); };
 
         /// A stateless model logging its extendState calls into `log`.
         class RecordingModel : public Types::Model
@@ -69,12 +65,6 @@ namespace Spacetime
             std::vector<std::string> &m_log;
         };
     } // namespace
-
-    TEST(Model, IsStateless)
-    {
-        EXPECT_FALSE(HasState<Types::Model>);
-        EXPECT_TRUE(HasState<Types::StatefulModel<>>);
-    }
 
     TEST(StatefulModel, StoresItsTypedState)
     {
@@ -109,22 +99,6 @@ namespace Spacetime
         EXPECT_FALSE(Types::StatefulType<Types::SensorBase>);
     }
 
-    TEST(StatefulModel, PriorStoresTheStateItExtends)
-    {
-        auto state = makeState();
-        auto prior = makePrior(state);
-        EXPECT_EQ(prior->state(), state);
-
-        KeyManager km;
-        gtsam::Values new_values;
-        prior->extendState(km, 0.0, gtsam::Values(), new_values);
-        EXPECT_EQ(state->estimation_nodes.size(), 3u);
-
-        using WNOVNode = Priors::WNOV::Node<Pose>;
-        auto wnov_state = std::make_shared<Types::ContinuumRobotState<WNOVNode>>(1.0, 3);
-        EXPECT_EQ(std::make_shared<Priors::WNOV::Prior<Pose>>(wnov_state, Pose(), gtsam::Vector6::Zero())->state(), wnov_state);
-    }
-
     TEST(StatefulModel, ItsLockedValuesAreItsStates)
     {
         auto state = makeState();
@@ -143,19 +117,7 @@ namespace Spacetime
         auto prior = makePrior(makeState());
         auto sensor = makeSensor(prior);
         EXPECT_EQ(sensor->stateful(), prior);
-        EXPECT_THROW(Sensors::PoseSensor<ValueType>(Eigen::Matrix<double, 6, 6>::Identity(), nullptr), std::runtime_error);
-    }
-
-    TEST(Robot, KeepsItsModelsInOrder)
-    {
-        auto prior = makePrior(makeState());
-        auto sensor = makeSensor(prior);
-        Types::Robot robot;
-        robot.addModel(prior);
-        robot.addModel(sensor);
-        ASSERT_EQ(robot.models().size(), 2u);
-        EXPECT_EQ(robot.models()[0], prior);
-        EXPECT_EQ(robot.models()[1], sensor);
+        EXPECT_THROW(Sensors::PoseSensor<ValueType>(nullptr), std::runtime_error);
     }
 
     TEST(Robot, NullModelThrows)
@@ -207,13 +169,6 @@ namespace Spacetime
         estimator.estimate(0.0);
         EXPECT_EQ(state->estimation_nodes.size(), 3u);
         EXPECT_TRUE(log.empty());
-    }
-
-    TEST(EstimatorAddModel, StatefulModelsOnDifferentStatesAreAccepted)
-    {
-        Estimator estimator;
-        estimator.addPrior(makePrior(makeState()));
-        EXPECT_NO_THROW(estimator.addPrior(makePrior(makeState())));
     }
 
     // An end effector extends its state through its own prior, so the prior is not added separately.

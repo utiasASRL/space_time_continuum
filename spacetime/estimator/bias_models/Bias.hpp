@@ -32,38 +32,44 @@ namespace Spacetime::Biases
      * @brief Values of a bias node: the bias, of any gtsam manifold type T (e.g. a
      *        gtsam::Vector3 accelerometer bias, or a gtsam::Pose3 sensor extrinsic). Stored
      *        in Types::NodeValues::values as its matrix.
+     * @tparam T The bias type.
      */
     template <typename T>
     struct BiasValues : public Types::NodeValues
     {
-        using BiasType = T;
-        using InterpolatedKeys = BiasKeys<T>;
-        static constexpr unsigned int dim = gtsam::traits<T>::dimension;
+        using BiasType = T;                                              ///< The bias type.
+        using InterpolatedKeys = BiasKeys<T>;                            ///< The bias's interpolated key map.
+        static constexpr unsigned int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
 
         /// The identity bias.
         BiasValues() : BiasValues(gtsam::traits<T>::Identity()) {}
 
+        /// Holds `value`.
         explicit BiasValues(const T &value)
         {
             values.resize(1);
             bias(value);
         }
 
+        /// The bias.
         T bias() const { return T(values.at(0)); }
+        /// Sets the bias.
         void bias(const T &value) { values[0] = value.matrix(); }
     };
 
-    /// A bias's interpolated key (see Types::InterpolatedKeyMap): the whole node.
+    /// A bias's interpolated key (see Types::InterpolatedKeyMap): the whole node. @tparam T The bias type.
     template <typename T>
     struct BiasKeys
     {
-        using ValuesType = BiasValues<T>;
-        static constexpr int dim = gtsam::traits<T>::dimension;
+        using ValuesType = BiasValues<T>;                       ///< The node-values type.
+        static constexpr int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
 
         /// Interpolated bias key. Only needs to be distinct from the other keys of an inner factor.
         static gtsam::Key Bias() { return gtsam::Symbol('B', 0); }
+        /// The single interpolated key, Bias().
         static gtsam::KeyVector keys() { return {Bias()}; }
 
+        /// Inserts `node`'s bias into `values` at `key`. @throws std::runtime_error unless `key` is Bias().
         static void insert(gtsam::Key key, const ValuesType &node, gtsam::Values &values)
         {
             if (key != Bias())
@@ -71,6 +77,7 @@ namespace Spacetime::Biases
             values.insert(key, node.bias());
         }
 
+        /// (0, dim): the bias spans the whole node. @throws std::runtime_error unless `key` is Bias().
         static std::pair<int, int> rowRange(gtsam::Key key)
         {
             if (key != Bias())
@@ -83,22 +90,27 @@ namespace Spacetime::Biases
      * @brief A bias node at one (arclength, time): a single "bias" variable, keyed with the
      *        'b' character (KeyManager numbers keys per character, so several bias models
      *        share it without collisions).
+     * @tparam T The bias type.
      */
     template <typename T>
     struct BiasNode : public Types::NodeBase
     {
-        using ValuesType = BiasValues<T>;
-        static constexpr unsigned int dim = gtsam::traits<T>::dimension;
+        using ValuesType = BiasValues<T>;                                ///< The node-values type.
+        static constexpr unsigned int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
 
+        /// Registers the bias variable with `km`, timestamped at `time`.
         BiasNode(KeyManager &km, double arclength, double time) : Types::NodeBase(km, arclength, time)
         {
             m_bias_key = this->registerVariable<T>(km, "bias", 'b');
         }
 
+        /// Key of the bias variable (of type T).
         gtsam::Key biasKey() const { return m_bias_key; }
 
+        /// The single pair (BiasKeys<T>::Bias(), biasKey()).
         std::vector<std::pair<gtsam::Key, gtsam::Key>> interpolatedKeys() const override { return {{BiasKeys<T>::Bias(), m_bias_key}}; }
 
+        /// The bias read from `values` (gtsam's error if absent).
         std::shared_ptr<Types::NodeValues> getValuesBase(const gtsam::Values &values) const override
         {
             return std::make_shared<ValuesType>(values.at<T>(m_bias_key));
@@ -108,18 +120,19 @@ namespace Spacetime::Biases
         gtsam::Key m_bias_key;
     };
 
-    /// The state of a bias: one node per row, at a single arclength.
+    /// The state of a bias: one node per row, at a single arclength. @tparam T The bias type.
     template <typename T>
     using BiasState = Types::ContinuumRobotState<BiasNode<T>>;
 
     /**
      * @brief Linear interpolation of a bias in time between two bias nodes: the geodesic
      *        b0 * Exp(tau * Log(b0^-1 b1)), which for a vector space is (1 - tau) b0 + tau b1.
+     * @tparam T The bias type.
      */
     template <typename T>
     struct BiasInterpolator
     {
-        using Jacobian = typename gtsam::MakeJacobian<T, T>::type;
+        using Jacobian = typename gtsam::MakeJacobian<T, T>::type; ///< dim x dim Jacobian of T w.r.t. T.
 
         /// The bias a fraction `tau` of the way from `b0` to `b1`, with its Jacobians w.r.t. both.
         static T interpolate(const T &b0, const T &b1, double tau, gtsam::Matrix *H0 = nullptr, gtsam::Matrix *H1 = nullptr)
@@ -136,12 +149,12 @@ namespace Spacetime::Biases
         }
     };
 
-    /// The parameters of a BiasModel. The covariances are dim x dim, in T's tangent space.
+    /// The parameters of a BiasModel. The covariances are dim x dim, in T's tangent space. @tparam T The bias type.
     template <typename T>
     struct BiasOptions
     {
-        static constexpr int dim = gtsam::traits<T>::dimension;
-        using Matrix = Eigen::Matrix<double, dim, dim>;
+        static constexpr int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
+        using Matrix = Eigen::Matrix<double, dim, dim>;         ///< A dim x dim covariance.
 
         /// Prior mean of the first bias node, and every node's initial guess until one is estimated.
         T initial = gtsam::traits<T>::Identity();
@@ -169,20 +182,20 @@ namespace Spacetime::Biases
     class BiasModel : public Types::StatefulModel<BiasState<T>>
     {
     public:
-        using BiasType = T;
-        using NodeType = BiasNode<T>;
-        using ValuesType = BiasValues<T>;
-        using StateType = BiasState<T>;
-        using Options = BiasOptions<T>;
-        static constexpr int dim = gtsam::traits<T>::dimension;
+        using BiasType = T;                                     ///< The bias type.
+        using NodeType = BiasNode<T>;                           ///< A bias node.
+        using ValuesType = BiasValues<T>;                       ///< A bias node's values.
+        using StateType = BiasState<T>;                         ///< The bias's state.
+        using Options = BiasOptions<T>;                         ///< The model's parameters.
+        static constexpr int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
 
         /// The node(s) bordering a query time and its fraction `tau` of the way between them.
         struct Bracket
         {
-            std::shared_ptr<NodeType> node0;
+            std::shared_ptr<NodeType> node0; ///< The last node at or before the query time.
             /// nullptr when the query is on node0, or past the last node (where the bias is held).
             std::shared_ptr<NodeType> node1;
-            double tau = 0.0;
+            double tau = 0.0; ///< Fraction of the way from node0 to node1 (0 without node1).
         };
 
         /// Weights of each bias node key in a linearly interpolated bias.
@@ -196,9 +209,14 @@ namespace Spacetime::Biases
         explicit BiasModel(const Options &options = Options(), double arclength = 0.0)
             : Types::StatefulModel<StateType>(std::make_shared<StateType>(std::vector<double>{arclength})), m_options(options) {}
 
+        /// The options the model was built with.
         const Options &options() const { return m_options; }
 
-        /// Adds a bias node at `time` (unless one exists there or later), with its prior or random-walk factor.
+        /**
+         * @brief Adds a bias node at `time` (unless one exists there or later), with its prior
+         *        (the first node, initialized at BiasOptions::initial) or random-walk
+         *        BetweenFactor (initialized at the previous node's current estimate).
+         */
         Types::Model::Factors extendState(KeyManager &km, double time, const gtsam::Values &current_values, gtsam::Values &new_values) override
         {
             Types::Model::Factors factors;
@@ -229,7 +247,7 @@ namespace Spacetime::Biases
             return factors;
         }
 
-        /// The node(s) bordering `time`; nullopt before the first node or without nodes.
+        /// The node(s) bordering `time` [s]; nullopt before the first node or without nodes. Past the last node, that node alone (the bias is held).
         std::optional<Bracket> bracket(double time) const
         {
             const auto &nodes = this->state()->estimation_nodes;

@@ -75,12 +75,14 @@ namespace Spacetime::Priors
     class GridInterpolator
     {
     public:
-        using NodeType = NodeT;
-        using ValuesType = typename NodeT::ValuesType;
+        using NodeType = NodeT;                        ///< The prior's grid node type.
+        using ValuesType = typename NodeT::ValuesType; ///< The node's values (mean of one grid point).
         /// Exposed for Priors::InterpolationFactor (see Types::InterpolatedKeyMap).
         using InterpolatedKeys = InterpolatedKeysT;
 
+        /// Tangent dimension of one node.
         static constexpr int node_dim = NodeT::dim;
+        /// node_dim x node_dim matrix (conditional covariances, single-node Jacobians).
         using MatrixNode = Eigen::Matrix<double, node_dim, node_dim>;
         /// Jacobian of one axis stage, [d/d(n0) | d/d(n1)] (see resolveAxis).
         using AxisJacobian = Eigen::Matrix<double, node_dim, 2 * node_dim>;
@@ -88,24 +90,19 @@ namespace Spacetime::Priors
         static_assert(Types::InterpolatedKeyMap<InterpolatedKeysT, ValuesType>,
                       "InterpolatedKeysT must satisfy Types::InterpolatedKeyMap.");
 
-        /**
-         * @brief How a query coordinate relates to its anchor node along one axis.
-         *  - Coincide: the query already lies on the anchor's coordinate.
-         *  - Interpolate: a bordering node past the query exists on this axis.
-         *  - Extrapolate: no bordering node exists; the query is past the last one.
-         */
+        /// How a query coordinate relates to its anchor node along one axis (see classifyAxis).
         enum class AxisMode
         {
-            Coincide,
-            Interpolate,
-            Extrapolate
+            Coincide,    ///< The query lies on the anchor's coordinate (offset below TOLERANCE).
+            Interpolate, ///< A bordering node past the query was supplied on this axis.
+            Extrapolate  ///< No bordering node was supplied; the query lies forward of the anchor.
         };
 
         /// One axis stage of a planned query: how it resolves and, unless it coincides, Derived's plan for it.
         struct AxisStage
         {
-            AxisMode mode = AxisMode::Coincide;
-            AxisPlanT plan{};
+            AxisMode mode = AxisMode::Coincide; ///< How this stage resolves.
+            AxisPlanT plan{};                   ///< Derived's plan; default-constructed when mode is Coincide.
         };
 
         /**
@@ -123,9 +120,9 @@ namespace Spacetime::Priors
          */
         struct Plan
         {
-            AxisMode space_mode = AxisMode::Coincide;
-            AxisMode time_mode = AxisMode::Coincide;
-            AxisStage space0, space1, time;
+            AxisMode space_mode = AxisMode::Coincide; ///< Arclength axis mode, relative to node00.
+            AxisMode time_mode = AxisMode::Coincide;  ///< Time axis mode, relative to node00.
+            AxisStage space0, space1, time;           ///< Axis stages; which are used depends on the shape (see above).
         };
 
         /**
@@ -134,7 +131,7 @@ namespace Spacetime::Priors
          *
          * @param t_k Left border time.
          * @param t_kp1 Right border time.
-         * @param time Query time, t_k <= time <= t_kp1.
+         * @param time Query time, t_k <= time <= t_kp1 (std::runtime_error otherwise).
          * @param node_k Left border node values.
          * @param node_kp1 Right border node values.
          * @param jac Optional output Jacobian (node_dim x 2*node_dim), ordered
@@ -160,6 +157,10 @@ namespace Spacetime::Priors
         /**
          * @brief Interpolate a single node in arclength between two bordering nodes at
          *        the same time. Symmetric counterpart to interpolateTime.
+         * @param s_n Left border arclength.
+         * @param s_np1 Right border arclength.
+         * @param arclength Query arclength, s_n <= arclength <= s_np1.
+         * @throws std::runtime_error if arclength lies before s_n or past s_np1.
          */
         ValuesType interpolateSpace(
             double s_n, double s_np1, double arclength,
@@ -189,6 +190,7 @@ namespace Spacetime::Priors
          * @param conditionalCov Optional output conditional covariance (node_dim x
          *        node_dim), assuming node_anchor is known exactly, in the extrapolated
          *        node's state perturbation frame.
+         * @throws std::runtime_error if time < t_anchor (beyond TOLERANCE).
          */
         ValuesType extrapolateTime(
             double t_anchor, double time, const ValuesType &node_anchor,
@@ -244,6 +246,8 @@ namespace Spacetime::Priors
          *        (paper eqs. (36) and (38)). Set to an empty (0 x 0) matrix when
          *        `posterior` is null or lacks a required block (e.g. a marginalized
          *        corner); the mean is returned regardless.
+         * @return The interpolated node's values (a ValuesType).
+         * @throws std::runtime_error as makePlan does.
          */
         std::shared_ptr<Types::NodeValues> interpolate(
             double time, double arclength, const gtsam::Values &values,
@@ -265,6 +269,9 @@ namespace Spacetime::Priors
          * @brief The value-independent part of interpolate()'s query at (time, arclength)
          *        against these corners (see Plan), validating the corners as interpolate()
          *        does. Only the corners' coordinates are read, not their values.
+         * @throws std::runtime_error for a null node00, a node10 (node01) not strictly past
+         *         node00 in arclength (time), a query before node00 on either axis or past
+         *         its bordering node, or a missing node11 when both axes interpolate.
          */
         Plan makePlan(
             double time, double arclength,

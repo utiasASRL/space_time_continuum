@@ -1,3 +1,9 @@
+/**
+ * @file EndTime.hpp
+ * @brief Resolves SessionOptions::end_time against the dataloaders' known data end times.
+ * @author Spencer Teetaert
+ */
+
 #ifndef SPACETIME_INTERFACE_ENDTIME_HPP
 #define SPACETIME_INTERFACE_ENDTIME_HPP
 
@@ -11,7 +17,10 @@ namespace Spacetime::Interface
      *        one means "until the data ends": the latest Dataloader::lastTime() among
      *        `dataloaders` (at least 0), or unbounded (+infinity, until stopped) if any of
      *        them is live.
+     * @tparam Dataloaders A range whose elements dereference (`->`) to an Interface::Dataloader.
+     * @param end_time The requested end time, in seconds; negative for "until the data ends".
      * @param dataloaders Any range of (smart) pointers to Interface::Dataloader or derived types.
+     * @return The end time to use, in seconds (possibly +infinity).
      */
     template <typename Dataloaders>
     double resolveEndTime(double end_time, const Dataloaders &dataloaders)

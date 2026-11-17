@@ -25,15 +25,15 @@ namespace SpacetimePython
     {
         py::class_<Rviz::SnapshotPublisherOptions>(m, "SnapshotPublisherOptions", "Where and how often a SnapshotPublisher publishes.")
             .def(py::init<>())
-            .def_readwrite("rate", &Rviz::SnapshotPublisherOptions::rate, "Checks for a new snapshot per second; 0 publishes only on publishLatest().")
-            .def_readwrite("topic_prefix", &Rviz::SnapshotPublisherOptions::topic_prefix, "Topics are <prefix>/<robot>/poses and <prefix>/markers.")
-            .def_readwrite("tf_topic", &Rviz::SnapshotPublisherOptions::tf_topic, "Where node frames are broadcast.");
+            .def_readwrite("rate", &Rviz::SnapshotPublisherOptions::rate, "Checks for a new snapshot this many times per second (wall time); <= 0 publishes only on publishLatest().")
+            .def_readwrite("topic_prefix", &Rviz::SnapshotPublisherOptions::topic_prefix, "Topics are <prefix>/<robot>/poses (PoseArray) and <prefix>/markers (MarkerArray), relative to the node's namespace unless absolute.")
+            .def_readwrite("tf_topic", &Rviz::SnapshotPublisherOptions::tf_topic, "The TFMessage topic node frames are broadcast on.");
 
         py::class_<Rviz::RobotDisplayOptions>(m, "RobotDisplayOptions", "How one robot is published.")
             .def(py::init<>())
             .def_readwrite("frame_id", &Rviz::RobotDisplayOptions::frame_id, "The frame the robot's poses are in, e.g. 'aurora_field'.")
             .def_readwrite("radius", &Rviz::RobotDisplayOptions::radius, "Of the drawn tube [m].")
-            .def_readwrite("extra_points", &Rviz::RobotDisplayOptions::extra_points, "Per node-to-node segment.")
+            .def_readwrite("extra_points", &Rviz::RobotDisplayOptions::extra_points, "Extra backbone points per node-to-node segment, for a smoother tube.")
             .def_readwrite("node_frames", &Rviz::RobotDisplayOptions::node_frames, "Broadcast each node on TF as <robot>/node_<i>.")
             .def_readwrite("covariance", &Rviz::RobotDisplayOptions::covariance,
                            "Draw the 99.7% position-covariance ellipsoids (needs EstimatorOptions.compute_covariance).");
@@ -47,7 +47,8 @@ namespace SpacetimePython
                                                                                  { return estimator.getSnapshot(); },
                                                                                  clock, options); }),
                  py::arg("estimator"), py::arg("clock"), py::arg("options") = Rviz::SnapshotPublisherOptions(), py::keep_alive<1, 2>(),
-                 "`clock` is the session's (Session.clock()), which stamps the messages.")
+                 "Publishes `estimator`'s getSnapshot() (the estimator is kept alive). `clock` is the session's (Session.clock()), which stamps "
+                 "the messages; snapshots are skipped until it has started. Raises ValueError for a null clock.")
             .def(
                 "addRobot", [](Rviz::SnapshotPublisherNode &self, const std::string &name, const pStateful &prior, const Rviz::RobotDisplayOptions &options)
                 {
@@ -63,15 +64,18 @@ namespace SpacetimePython
                         throw py::type_error("SnapshotPublisher.addRobot: the prior must be a built-in one (WNOA, WNOV, quasi-static or an end effector's).");
                 },
                 py::arg("name"), py::arg("prior"), py::arg("options") = Rviz::RobotDisplayOptions(),
-                "Publishes the robot `prior` extends as `name`. Add robots and joints before the session starts.")
+                "Publishes the robot `prior` extends as `name` (a topic token, [A-Za-z][A-Za-z0-9_]*). Add robots and joints before the session starts. "
+                "Raises ValueError for a taken or invalid name or a robot added already.")
             .def(
                 "addJoint", [](Rviz::SnapshotPublisherNode &self, const std::string &name, const RobotJoint &joint, double radius)
                 { self.addJoint(name, joint, radius); },
-                py::arg("name"), py::arg("joint"), py::arg("radius") = 0.015, "Draws `joint` between its robots, added before it.")
+                py::arg("name"), py::arg("joint"), py::arg("radius") = 0.015,
+                "Draws `joint` between its robots, added before it: a cylinder of `radius` [m] if its points are apart, else a sphere. "
+                "Raises ValueError for a taken or invalid name, a robot not added, or robots in different frames.")
             .def(
                 "addJoint", [](Rviz::SnapshotPublisherNode &self, const std::string &name, const EndEffectorJoint &joint, double radius)
                 { self.addJoint(name, joint, radius); },
-                py::arg("name"), py::arg("joint"), py::arg("radius") = 0.015)
+                py::arg("name"), py::arg("joint"), py::arg("radius") = 0.015, "Draws an end effector's joint; see the RobotJoint overload.")
             .def("publishLatest", &Rviz::SnapshotPublisherNode::publishLatest, py::call_guard<py::gil_scoped_release>(),
                  "Publishes the latest snapshot if it is new (and the clock has started); returns whether it did.");
     }

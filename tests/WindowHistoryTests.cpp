@@ -74,8 +74,8 @@ namespace Spacetime::Utilities
                 estimator.addPrior(prior);
 
                 const Eigen::Matrix<double, 6, 6> R = Eigen::Matrix<double, 6, 6>::Identity() * 1e-4;
-                auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(R, prior);
-                ground_truth = std::make_shared<Sensors::PoseSensor<ValueType>>(R, prior);
+                auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
+                ground_truth = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
                 for (int k = 0; k < kTicks; k++)
                 {
                     Eigen::Matrix4d tip = Eigen::Matrix4d::Identity();

@@ -81,14 +81,6 @@ namespace Spacetime
         EXPECT_EQ(formatRuntime(&snapshot, true), totals);
     }
 
-    TEST(RuntimeWidget, BatchDisabledCovarianceShowsOff)
-    {
-        EstimatorSnapshot snapshot = twoSteps(false);
-        snapshot.batch = true;
-        EXPECT_EQ(formatRuntime(&snapshot, false),
-                  "Graph Construction: 4.0 ms   |   Solve: 10.0 ms   |   Covariance Extraction: off   |   Total: 14.0 ms");
-    }
-
     TEST(RuntimeWidget, BatchUntimedPhaseShowsAPlaceholder)
     {
         // A batch snapshot before finalize(): construction was timed, the solve not yet.

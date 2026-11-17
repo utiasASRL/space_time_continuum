@@ -23,6 +23,7 @@ namespace Spacetime::Priors::WNOV
      * @brief Values of a WNOV node: its pose alone. Under the white-noise-on-velocity
      *        prior the pose is a random walk in arclength and time, so no strain or
      *        velocity is part of the state.
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
     struct Values : public Types::NodeValues
@@ -30,7 +31,8 @@ namespace Spacetime::Priors::WNOV
         using Base = Types::NodeValues;
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
         using PoseType = Pose;
-        using InterpolatedKeys = WNOV::InterpolatedKeys<Pose>;
+        using InterpolatedKeys = WNOV::InterpolatedKeys<Pose>; ///< This node type's interpolated-key layout.
+        /// Tangent dimension (the pose's).
         static constexpr unsigned int dim = gtsam::traits<Pose>::dimension;
 
         /// Identity pose.
@@ -85,12 +87,16 @@ namespace Spacetime::Priors::WNOV
         }
     };
 
-    /// A WNOV node: a single pose variable at (arclength, time).
+    /**
+     * @brief A WNOV node: a single pose variable at (arclength, time).
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
+     */
     template <typename Pose>
     struct Node : public Types::NodeBase
     {
+        /// Tangent dimension (the pose's).
         static constexpr unsigned int dim = gtsam::traits<Pose>::dimension;
-        using ValuesType = Values<Pose>;
+        using ValuesType = Values<Pose>; ///< This node's values.
 
         /// Register this node's pose variable ('p') with `km`.
         Node(KeyManager &km, double arclength, double time) : Types::NodeBase(km, arclength, time)

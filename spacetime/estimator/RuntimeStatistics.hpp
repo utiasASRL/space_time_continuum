@@ -15,17 +15,17 @@ namespace Spacetime
     /// The timed phases of an estimation step (see Estimator::estimate / finalize).
     enum class RuntimePhase
     {
-        GraphConstruction, ///< Building the new variables and factors.
-        Solve,             ///< The smoother update and estimate.
+        GraphConstruction, ///< Building the new variables and factors (both Types::Model phases, locking, onMarginalization).
+        Solve,             ///< The smoother update and estimate (in batch mode, finalize()'s Levenberg-Marquardt solve).
         Covariance,        ///< Posterior covariance extraction.
     };
 
     /// One duration (seconds) per RuntimePhase.
     struct PhaseTimings
     {
-        double graph_construction = 0.0;
-        double solve = 0.0;
-        double covariance = 0.0;
+        double graph_construction = 0.0; ///< RuntimePhase::GraphConstruction.
+        double solve = 0.0;              ///< RuntimePhase::Solve.
+        double covariance = 0.0;         ///< RuntimePhase::Covariance.
     };
 
     /**
@@ -67,7 +67,7 @@ namespace Spacetime
                            { return a.count ? a.total / static_cast<double>(a.count) : 0.0; });
         }
 
-        /// The summed duration of each phase.
+        /// The summed duration of each phase (0 if never recorded).
         PhaseTimings total() const
         {
             return collect([](const Accumulator &a)

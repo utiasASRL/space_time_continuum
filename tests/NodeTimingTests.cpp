@@ -84,22 +84,6 @@ namespace Spacetime
     // One node per extendState call, at exactly the requested time
     // ------------------------------------------------------------------
 
-    TEST(NodeTiming, EachCallAddsExactlyOneRowAtTheRequestedTime)
-    {
-        Rig rig;
-        rig.extend(0.0);
-        EXPECT_EQ(rig.rows(), 1u);
-        EXPECT_DOUBLE_EQ(rig.newestTime(), 0.0);
-
-        rig.extend(0.07); // finer than the period
-        EXPECT_EQ(rig.rows(), 2u);
-        EXPECT_DOUBLE_EQ(rig.newestTime(), 0.07);
-
-        rig.extend(0.43); // far coarser than the period: still ONE row, no back-filling
-        EXPECT_EQ(rig.rows(), 3u);
-        EXPECT_DOUBLE_EQ(rig.newestTime(), 0.43);
-    }
-
     TEST(NodeTiming, RepeatedOrEarlierTimesAddNothing)
     {
         // A zero-length or backwards interval would break the WNOA motion factors.
@@ -180,8 +164,7 @@ namespace Spacetime
         Rig rig;
         Estimator estimator(/*smootherLag=*/10.0);
         estimator.addPrior(rig.prior);
-        auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(
-            Eigen::Matrix<double, 6, 6>::Identity() * 1e-4, rig.prior);
+        auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(rig.prior);
         estimator.addSensor(sensor);
 
         estimator.estimate(0.0);
@@ -299,8 +282,7 @@ namespace Spacetime
             explicit SensorRig(double smoother_lag) : estimator(smoother_lag)
             {
                 estimator.addPrior(rig.prior);
-                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(
-                    Eigen::Matrix<double, 6, 6>::Identity() * 1e-4, rig.prior);
+                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(rig.prior);
                 estimator.addSensor(sensor);
             }
 

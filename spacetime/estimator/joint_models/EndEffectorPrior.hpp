@@ -31,10 +31,10 @@ namespace Spacetime::Joints
         using Base = Priors::GridPrior<EndEffectorNode<Pose>, EndEffectorInterpolator<Pose>>;
 
     public:
-        using NodeType = EndEffectorNode<Pose>;
-        using ValuesType = typename NodeType::ValuesType;
-        using StateType = Types::ContinuumRobotState<NodeType>;
-        using TangentVector = typename gtsam::traits<Pose>::TangentVector;
+        using NodeType = EndEffectorNode<Pose>;                            ///< Node: a pose and a body twist.
+        using ValuesType = typename NodeType::ValuesType;                  ///< A node's (pose, twist) values.
+        using StateType = Types::ContinuumRobotState<NodeType>;            ///< The zero-length grid state.
+        using TangentVector = typename gtsam::traits<Pose>::TangentVector; ///< Tangent vector of Pose ([rot, trans]).
 
         /**
          * @param state The end effector's zero-length state.
@@ -45,6 +45,12 @@ namespace Spacetime::Joints
             : Base(state, EndEffectorInterpolator<Pose>(q_psd_diag), false, true, "EndEffectorPrior"),
               m_initial_pose(initial_pose), m_q_psd_diag(q_psd_diag) {}
 
+        /**
+         * @brief Phase 1: adds one row at `time` (if strictly after the last, see
+         *        GridPrior::beginRow) and its WnoaMotionFactor to the previous row. The
+         *        initial guess is the previous row's pose propagated by its twist over dt,
+         *        with the same twist; the first row gets the initial pose at rest.
+         */
         Types::Model::Factors extendState(KeyManager &km, double time, const gtsam::Values &current_values, gtsam::Values &new_values) override
         {
             Types::Model::Factors new_factors;

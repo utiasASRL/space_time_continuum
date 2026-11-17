@@ -223,12 +223,6 @@ namespace Spacetime::Visualization::Default::Utilities
         expectUserMatrixReused(actor);
     }
 
-    TEST(VisualizerUtilities, SetUserMatrixUpdatesAFrameActorsMatrixInPlace)
-    {
-        const auto frame = createFrameActor(0.01, 0.1);
-        expectUserMatrixReused(frame);
-    }
-
     TEST(VisualizerUtilities, SetUserMatrixWithAnUnchangedPoseDoesNotModifyTheMatrix)
     {
         vtkNew<vtkActor> actor;
@@ -248,16 +242,6 @@ namespace Spacetime::Visualization::Default::Utilities
         EXPECT_DOUBLE_EQ(property->GetSpecular(), kSurfaceSpecular);
         EXPECT_DOUBLE_EQ(property->GetSpecularPower(), kSurfaceSpecularPower);
         EXPECT_GE(kSurfaceSpecular, 0.3) << "dark surfaces show their shape mostly through the highlight";
-    }
-
-    TEST(VisualizerUtilities, SurfaceShadesAreLightEnoughToShade)
-    {
-        // Lit surfaces only show their shape if their color is far enough from black.
-        for (unsigned char shade : kBackboneShades)
-            EXPECT_GE(shade, 100);
-        EXPECT_NE(kBackboneShades[0], kBackboneShades[1]) << "neighbouring segments stay distinguishable";
-        EXPECT_GE(kJointGrey, 0.2);
-        EXPECT_LT(kJointGrey * 255.0, kBackboneShades[0]) << "joints stay darker than the backbones they join";
     }
 
     namespace

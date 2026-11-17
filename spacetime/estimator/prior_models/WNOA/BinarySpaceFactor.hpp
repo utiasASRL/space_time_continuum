@@ -1,5 +1,5 @@
-#ifndef BINARYSPACEFACTOR_HPP
-#define BINARYSPACEFACTOR_HPP
+#ifndef WNOA_BINARYSPACEFACTOR_HPP
+#define WNOA_BINARYSPACEFACTOR_HPP
 
 #include <Eigen/Dense>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
@@ -14,21 +14,24 @@
 #include <spacetime/estimator/prior_models/WNOA/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
 
-namespace Spacetime::Priors::WNOA::Legacy
+namespace Spacetime::Priors::WNOA
 {
-    /**
-     * @namespace Spacetime::Priors::WNOA::Legacy
-     * @brief The paper's GP prior factors, defined on the group (rather than the Lie
-     *        algebra), used by WNOA::Prior with FactorType::Legacy and FactorType::Paper.
-     *        Kept for comparison with the paper; rewritten in this codebase's T_ib,
-     *        [rotational, translational] conventions.
+    /*
+     * BinarySpaceFactor, BinaryTimeFactor and UnaryFactor are the paper's GP prior factors,
+     * defined on the group (rather than the Lie algebra), used by WNOA::Prior with
+     * FactorType::WNOA and FactorType::Legacy; rewritten in this codebase's T_ib,
+     * [rotational, translational] conventions. The Lie-algebra alternative
+     * (FactorType::Experimental) is in WNOA::Experimental.
      */
 
-    /// The paper's space factor between two arclength-adjacent WNOA nodes (FactorType::Legacy / FactorType::Paper).
+    /// The paper's space factor between two arclength-adjacent WNOA nodes (FactorType::WNOA / FactorType::Legacy).
     namespace BinarySpaceFactor
     {
 
-        /// Space factor on (pose, eps, varpi) of nodes 0 and 1, ds apart in arclength.
+        /**
+         * @brief Space factor on (pose, eps, varpi) of nodes 0 and 1, ds apart in arclength.
+         * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
+         */
         template <typename Pose>
         class Factor : public gtsam::NoiseModelFactorN<Pose, typename gtsam::traits<Pose>::TangentVector, typename gtsam::traits<Pose>::TangentVector, Pose, typename gtsam::traits<Pose>::TangentVector, typename gtsam::traits<Pose>::TangentVector>
         {
@@ -51,10 +54,13 @@ namespace Spacetime::Priors::WNOA::Legacy
             using ErrorJacobian = Eigen::Matrix<double, 3 * dim, dim>;
 
             /**
+             * @param key_pose0,key_epsilon0,key_varpi0 Node 0's pose, strain and velocity keys.
+             * @param key_pose1,key_epsilon1,key_varpi1 Node 1's pose, strain and velocity keys.
+             * @param noise_model Typically noiseModel(ds, Q2, Q4).
              * @param ds Arclength from node 0 to node 1.
              * @param strain_velocity_coupling Include the ad(eps0)*varpi0 term in the velocity row
              *        (the legacy code, FactorType::Legacy); without it, the factor is Eq. (20) of
-             *        the TRO paper (FactorType::Paper).
+             *        the TRO paper (FactorType::WNOA).
              */
             Factor(gtsam::Key key_pose0, gtsam::Key key_epsilon0, gtsam::Key key_varpi0, gtsam::Key key_pose1, gtsam::Key key_epsilon1, gtsam::Key key_varpi1, const gtsam::SharedNoiseModel &noise_model, double ds, bool strain_velocity_coupling = true) : Base(noise_model, key_pose0, key_epsilon0, key_varpi0, key_pose1, key_epsilon1, key_varpi1), m_ds(ds), m_coupling(strain_velocity_coupling) {}
             ~Factor() = default;
@@ -63,7 +69,7 @@ namespace Spacetime::Priors::WNOA::Legacy
             bool couplesStrainAndVelocity() const { return m_coupling; }
 
             /**
-             * @brief Paper space prior (on the group), expressed in the T_ib convention:
+             * @brief WNOA space prior (on the group), expressed in the T_ib convention:
              *        e = [Log(T0^-1 T1) - ds*eps0 ; eps1 - eps0 ; varpi1 - varpi0 (+ ds*ad(eps0)*varpi0)].
              *        The ad() term, present only with strain-velocity coupling, is the legacy
              *        code's -ds*eps0^curlywedge*varpi0 (T_bi convention), whose sign flips with
@@ -155,5 +161,5 @@ namespace Spacetime::Priors::WNOA::Legacy
         };
 
     }
-} // namespace Spacetime::Priors::WNOA::Legacy
-#endif // BINARYSPACEFACTOR_HPP
+} // namespace Spacetime::Priors::WNOA
+#endif // WNOA_BINARYSPACEFACTOR_HPP

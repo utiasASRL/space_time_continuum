@@ -12,7 +12,6 @@
 
 #include <spacetime/visualizer/BackendConcept.hpp>
 #include <spacetime/visualizer/VisualizerOptions.hpp>
-#include <spacetime/visualizer/utilities.hpp>
 
 #if defined(SPACETIME_VISUALIZER_BACKEND_DEFAULT)
 #include <spacetime/visualizer/default/Visualizer.hpp>
@@ -29,6 +28,7 @@ namespace Spacetime::Visualization
 
 namespace Spacetime::Visualization
 {
+    /// The selected backend's visualizer (see Visualization::Backend).
     using Visualizer = Backend::Visualizer;
     static_assert(VisualizerBackend<Visualizer>, "The selected visualizer backend does not satisfy Visualization::VisualizerBackend.");
 }

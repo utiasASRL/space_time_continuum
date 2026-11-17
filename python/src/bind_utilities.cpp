@@ -19,21 +19,25 @@ namespace SpacetimePython
         using Spacetime::Utilities::WindowHistory;
         using SensorList = std::vector<std::shared_ptr<Spacetime::Types::SensorBase>>;
 
-        py::enum_<Extraction>(m, "Extraction")
-            .value("Final", Extraction::Final, "Every estimate from the final window.")
-            .value("Back", Extraction::Back, "Each estimate from the window it last appeared in.");
-        m.def("parseExtraction", &Spacetime::Utilities::parseExtraction, py::arg("name"));
+        py::enum_<Extraction>(m, "Extraction", "Which estimate is exported once a run ends (config key \"estimator.extraction\").")
+            .value("Final", Extraction::Final, "The last window only (\"final\").")
+            .value("Back", Extraction::Back, "Every row as last estimated before leaving the window (\"back\").");
+        m.def("parseExtraction", &Spacetime::Utilities::parseExtraction, py::arg("name"), "Parses \"final\" or \"back\"; raises ValueError otherwise.");
 
         py::class_<ConfigLoader>(m, "ConfigLoader", "Loads estimator, prior, lock and data settings from JSON configuration files.")
             .def(py::init<>())
-            .def("loadConfig", &ConfigLoader::loadConfig, py::arg("filename"), "Merges a JSON file into the configuration; False if it cannot be read.")
-            .def("loadEstimatorOptions", &ConfigLoader::loadEstimatorOptions)
-            .def("loadExtraction", &ConfigLoader::loadExtraction)
+            .def("loadConfig", &ConfigLoader::loadConfig, py::arg("filename"), "Merges a JSON file's top-level sections into the configuration; False if it cannot be parsed. "
+                 "Raises RuntimeError if a top-level section is already loaded.")
+            .def("loadEstimatorOptions", &ConfigLoader::loadEstimatorOptions,
+                 "EstimatorOptions from the \"estimator\" section (missing entries keep the defaults); raises ValueError on an unknown "
+                 "smoother or lm_params.orderingType.")
+            .def("loadExtraction", &ConfigLoader::loadExtraction, "Extraction from \"estimator.extraction\" (default Final); raises ValueError on another value.")
 #ifdef SPACETIME_PYTHON_VISUALIZER // VisualizerOptions is bound by the visualizer module
             .def("loadVisualizerOptions", &ConfigLoader::loadVisualizerOptions,
                  "visualizer.VisualizerOptions from the \"visualizer\" section: \"cameras\" ({position, look_at, up}) and \"robot.radius\".")
 #endif
-            .def("loadPriorType", &ConfigLoader::loadPriorType)
+            .def("loadPriorType", &ConfigLoader::loadPriorType,
+                 "\"prior.type\": \"wnoa\", \"wnov\" or \"wnoa_quasi_static\" (\"wnoa\", with a warning, if missing); raises ValueError on another.")
             .def(
                 "loadWNOAPrior",
                 [](const ConfigLoader &self, double time_period)
@@ -47,7 +51,8 @@ namespace SpacetimePython
                 py::arg("time_period") = 0.1,
                 "(base_start_point, time_period, Q0, Q1, Q2, Q3, Q4): wnoa.Prior's arguments and the node spacing in time (prior.time_period), "
                 "defaulting to `time_period` and identities.")
-            .def("loadWNOAPriorOptions", &ConfigLoader::loadWNOAPriorOptions)
+            .def("loadWNOAPriorOptions", &ConfigLoader::loadWNOAPriorOptions,
+                 "wnoa.PriorOptions from \"prior.wnoa\" (missing entries keep the defaults); raises ValueError on an unknown factor_type.")
             .def(
                 "loadWNOVPrior",
                 [](const ConfigLoader &self, double time_period)
@@ -59,7 +64,7 @@ namespace SpacetimePython
                     return py::make_tuple(T0, epsilon0, time_period, Q0, Q1, Q2);
                 },
                 py::arg("time_period") = 0.1, "(T0, epsilon0, time_period, Q0, Q1, Q2): wnov.Prior's arguments and the node spacing in time.")
-            .def("loadWNOVPriorOptions", &ConfigLoader::loadWNOVPriorOptions)
+            .def("loadWNOVPriorOptions", &ConfigLoader::loadWNOVPriorOptions, "wnov.PriorOptions from \"prior.wnov\" (missing entries keep the defaults).")
             .def(
                 "loadWNOAQuasiStaticPrior",
                 [](const ConfigLoader &self, double time_period)
@@ -72,8 +77,11 @@ namespace SpacetimePython
                 },
                 py::arg("time_period") = 0.1,
                 "(base_start_point, time_period, Q0, Q2): wnoa_quasi_static.Prior's arguments (from the prior.wnoa section) and the node spacing in time.")
-            .def("loadWNOAQuasiStaticPriorOptions", &ConfigLoader::loadWNOAQuasiStaticPriorOptions)
-            .def("loadLocks", &ConfigLoader::loadLocks<WnoaNode>, py::arg("state"))
+            .def("loadWNOAQuasiStaticPriorOptions", &ConfigLoader::loadWNOAQuasiStaticPriorOptions,
+                 "wnoa_quasi_static.PriorOptions from \"prior.wnoa\" (missing entries keep the defaults).")
+            .def("loadLocks", &ConfigLoader::loadLocks<WnoaNode>, py::arg("state"),
+                 "Applies the locks of \"demo_data.locks\" to `state` (see ContinuumRobotState.lock); raises ValueError on a malformed "
+                 "entry or a variable the node type lacks.")
             .def("loadLocks", &ConfigLoader::loadLocks<WnovNode>, py::arg("state"))
             .def("loadLocks", &ConfigLoader::loadLocks<QuasiStaticNode>, py::arg("state"))
             .def(
@@ -83,7 +91,7 @@ namespace SpacetimePython
                     self.loadDemoTimeWindow(start_time, end_time);
                     return py::make_tuple(start_time, end_time);
                 },
-                py::arg("start_time") = 0.0, py::arg("end_time") = -1.0, "(start_time, end_time), defaulting to the arguments.")
+                py::arg("start_time") = 0.0, py::arg("end_time") = -1.0, "(start_time, end_time) from \"demo_data\", defaulting to the arguments.")
             .def(
                 "loadDemoMetadata",
                 [](const ConfigLoader &self)
@@ -93,7 +101,7 @@ namespace SpacetimePython
                     self.loadDemoMetadata(length, nodes);
                     return py::make_tuple(length, nodes);
                 },
-                "(length, number of nodes) of the demo robot.")
+                "(length [m], number of nodes) of the demo robot (\"demo_data.robot_length\", \"robot_N\"), to build its state and prior before loadDemoData.")
             .def(
                 "loadDemoData",
                 [](const ConfigLoader &self, const pStateful &prior)
@@ -109,12 +117,18 @@ namespace SpacetimePython
                         throw py::type_error("loadDemoData: the prior must be a wnoa.Prior, a wnov.Prior or a wnoa_quasi_static.Prior.");
                     return py::make_tuple(sensors, ground_truth);
                 },
-                py::arg("prior"), "(sensors, ground-truth sensors) of the configured demo data, on `prior`.");
+                py::arg("prior"),
+                "(sensors, ground-truth sensors) built from the CSV files of \"demo_data\", on `prior`, with their measurements queued. "
+                "Sensors the node type cannot support (e.g. a gyroscope under WNOV) are skipped with a warning.");
 
-        py::class_<WindowHistory>(m, "WindowHistory", "The posterior covariance of every estimator window, by time.")
+        py::class_<WindowHistory>(m, "WindowHistory",
+                                  "The estimate of each row at the last estimate() it was part of, and the posterior covariance recorded with it "
+                                  "(Python exposes only the posterior, for exportGroundTruthPredictions).")
             .def(py::init<>())
-            .def("record", &WindowHistory::record, py::arg("estimator"), "Stores the estimator's current window: call after each estimate.")
-            .def("posteriorAt", &WindowHistory::posteriorAt, py::arg("time"), py::return_value_policy::reference_internal);
+            .def("record", &WindowHistory::record, py::arg("estimator"), "Stores the estimator's current window: call after each estimate() (and finalize()).")
+            .def("posteriorAt", &WindowHistory::posteriorAt, py::arg("time"), py::return_value_policy::reference_internal,
+                 "The posterior recorded with the latest row at or before `time` (the one to query between it and the next row); "
+                 "None before the first row or if that estimate had no covariance.");
 
         const auto exportPredictions = [](const pStateful &prior, const gtsam::Values &values,
                                           const Spacetime::PosteriorCovariance *posterior, const SensorList &ground_truth, const std::string &logs_dir)
@@ -129,6 +143,8 @@ namespace SpacetimePython
         };
         m.def("exportGroundTruthPredictions", exportPredictions, py::arg("prior"), py::arg("values"), py::arg("posterior"), py::arg("ground_truth_sensors"),
               py::arg("logs_dir"),
-              "Writes the predictions at the ground-truth samples to logs_dir/error_pred.txt and error_pred_cov.txt; returns how many.");
+              "Writes the predictions at the ground-truth sensors' queued (time, arclength) samples (not drained) to logs_dir/error_pred.txt "
+              "and error_pred_cov.txt (logs_dir is created if missing); returns how many. `posterior` may be None. "
+              "Raises RuntimeError if the files cannot be opened.");
     }
 } // namespace SpacetimePython

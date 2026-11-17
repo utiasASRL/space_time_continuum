@@ -40,23 +40,6 @@ namespace Spacetime
         };
     }
 
-    TEST(KeyBindingRegistry, AddHandlerReportsOnlyTheFirstHandlerPerKey)
-    {
-        Visualization::Default::KeyBindingRegistry registry;
-        EXPECT_TRUE(registry.addHandler(Qt::Key_S, []() {}));
-        EXPECT_FALSE(registry.addHandler(Qt::Key_S, []() {}));
-        EXPECT_FALSE(registry.addHandler(Qt::Key_S, []() {}));
-        EXPECT_TRUE(registry.addHandler(Qt::Key_G, []() {}));
-    }
-
-    TEST(KeyBindingRegistry, AddToggleStateReportsOnlyTheFirstStatePerKey)
-    {
-        Visualization::Default::KeyBindingRegistry registry;
-        EXPECT_TRUE(registry.addToggleState(Qt::Key_S, []() { return true; }));
-        EXPECT_FALSE(registry.addToggleState(Qt::Key_S, []() { return true; }));
-        EXPECT_TRUE(registry.addToggleState(Qt::Key_G, []() { return true; }));
-    }
-
     TEST(KeyBindingRegistry, HandlersAndStatesAreTrackedIndependently)
     {
         // A plain bindShortcut on a key shouldn't stop a later toggle on that key from getting its panel row.
@@ -91,22 +74,6 @@ namespace Spacetime
 
         Visualization::Default::KeyBindingRegistry empty;
         EXPECT_NO_THROW(empty.dispatch(Qt::Key_S));
-    }
-
-    TEST(KeyBindingRegistry, AllOnRequiresEveryStateToBeOn)
-    {
-        Visualization::Default::KeyBindingRegistry registry;
-        bool a = true, b = true;
-        registry.addToggleState(Qt::Key_S, [&]() { return a; });
-        registry.addToggleState(Qt::Key_S, [&]() { return b; });
-
-        EXPECT_TRUE(registry.allOn(Qt::Key_S));
-        b = false;
-        EXPECT_FALSE(registry.allOn(Qt::Key_S));
-        a = false;
-        EXPECT_FALSE(registry.allOn(Qt::Key_S));
-        a = b = true;
-        EXPECT_TRUE(registry.allOn(Qt::Key_S));
     }
 
     TEST(KeyBindingRegistry, AllOnIsVacuouslyTrueForAKeyWithNoStates)

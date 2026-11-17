@@ -1,15 +1,13 @@
 """The Python joining demos reproduce their C++ counterparts' estimates."""
 
 import csv
+import math
 import subprocess
 import sys
 
 import pytest
 
 from conftest import REPO_ROOT
-
-sys.path.insert(0, str(REPO_ROOT / "tests" / "regression" / "common"))
-from compare import compare  # noqa: E402
 
 DEMOS = ["robot_joining", "robot_joining_parallel", "stewart_gough"]
 BUILD_EXAMPLES = REPO_ROOT / "build" / "examples"
@@ -27,6 +25,15 @@ def read_metrics(path, key_columns):
                 if column not in key_columns:
                     metrics[f"{key}/{column}"] = float(value)
     return metrics
+
+
+def compare(reference, candidate, rtol, atol):
+    """The metrics of `candidate` that differ from `reference` by more than atol + rtol * |reference|."""
+    return [
+        {"metric": key, "reference": value, "candidate": candidate[key]}
+        for key, value in reference.items()
+        if not math.isclose(candidate[key], value, rel_tol=rtol, abs_tol=atol)
+    ]
 
 
 def run_demo(command, output):
@@ -48,6 +55,5 @@ def test_python_demo_matches_cpp(demo, tmp_path):
         candidate = read_metrics(tmp_path / "python" / name, keys)
         assert reference, f"{name} is empty"
         assert set(reference) == set(candidate), f"{name}: different rows or columns"
-        rows, _ = compare(reference, candidate, rtol=RTOL, atol=ATOL)
-        failures = [row for row in rows if not row["ok"]]
+        failures = compare(reference, candidate, rtol=RTOL, atol=ATOL)
         assert not failures, failures[:10]

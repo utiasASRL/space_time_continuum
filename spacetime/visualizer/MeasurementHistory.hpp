@@ -1,3 +1,9 @@
+/**
+ * @file MeasurementHistory.hpp
+ * @brief Thread-safe, bounded history of a sensor's measurements for visualization.
+ * @author Spencer Teetaert
+ */
+
 #ifndef MEASUREMENTHISTORY_HPP
 #define MEASUREMENTHISTORY_HPP
 
@@ -21,11 +27,15 @@ namespace Spacetime::Visualization
      *        and for a sensor that's never attached to an estimator (e.g. a
      *        ground-truth sensor). Subscribing replays whatever the sensor still has
      *        queued, so construct this before the sensor's data is consumed.
+     *
+     *        Thread-safe: recording happens on whichever thread adds a measurement (e.g. a
+     *        dataloader thread), reads on any other; one mutex guards both. Reads scan
+     *        linearly. The subscription lives as long as the sensor, not this object.
      */
     class MeasurementHistory
     {
     public:
-        using pMeasurementType = Types::SensorBase::pMeasurementType;
+        using pMeasurementType = Types::SensorBase::pMeasurementType; ///< A shared measurement.
 
         /// Subscribes to `sensor`, replaying the measurements it still has queued. Keeps at most `capacity` entries, dropping the oldest.
         explicit MeasurementHistory(Types::SensorBase &sensor, std::size_t capacity = 10000)
@@ -77,9 +87,9 @@ namespace Spacetime::Visualization
                     measurements.pop_front();
             }
 
-            mutable std::mutex mutex;
-            std::deque<pMeasurementType> measurements;
-            std::size_t capacity = 0;
+            mutable std::mutex mutex;                  ///< Guards `measurements`.
+            std::deque<pMeasurementType> measurements; ///< In the order received.
+            std::size_t capacity = 0;                  ///< Maximum number of entries kept.
         };
         std::shared_ptr<State> m_state;
     };

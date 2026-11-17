@@ -14,14 +14,14 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 STRAIGHT = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0])  # [rot, trans] strain of a straight backbone
 
 
-def make_wnoa_robot(length=0.2, nodes=3, base=None, strain=STRAIGHT, lock_base=True):
+def make_wnoa_robot(length=0.2, nodes=3, base=None, strain=STRAIGHT, lock_base=True, options=None):
     """A WNOA robot of `length` with `nodes` nodes: its grid state, (optionally) locked at the base, and its prior."""
     base = gtsam.Pose3() if base is None else base
     state = wnoa.ContinuumRobotState(length, nodes)
     reference = wnoa.Values()
     reference.pose(base)
     reference.epsilon(strain)
-    prior = wnoa.Prior(state, reference)
+    prior = wnoa.Prior(state, reference) if options is None else wnoa.Prior(state, reference, options=options)
     if lock_base:
         state.lock("pose", 0.0, base)
     return state, prior

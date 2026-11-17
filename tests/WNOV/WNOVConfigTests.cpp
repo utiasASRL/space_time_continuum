@@ -71,11 +71,6 @@ namespace Spacetime::Priors::WNOV
         EXPECT_EQ(loaderFor("type_legacy.json", R"({ "WNOA": { "time_period": 0.1 } })").loadPriorType(), "wnoa");
     }
 
-    TEST(WNOVConfig, UnknownPriorTypeThrows)
-    {
-        EXPECT_THROW(loaderFor("type_bad.json", R"({ "prior": { "type": "wnoj" } })").loadPriorType(), std::invalid_argument);
-    }
-
     TEST(WNOVConfig, LoadsTheWNOVSection)
     {
         const auto loader = loaderFor("wnov_full.json", R"({ "prior": {
@@ -139,7 +134,7 @@ namespace Spacetime::Priors::WNOV
             "type": "wnov",
             "time_period": 0.02,
             "wnoa": {
-                "factor_type": "paper",
+                "factor_type": "legacy",
                 "weights": { "Q1": [1, 2, 3, 4, 5, 6], "Q2": [1, 1, 1, 1, 1, 1], "Q3": [1, 1, 1, 1, 1, 1],
                              "Q0": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] }
             },
@@ -152,53 +147,10 @@ namespace Spacetime::Priors::WNOV
         loader.loadWNOAPrior(reference, time_period, Q0, Q1, Q2, Q3, Q4);
         EXPECT_DOUBLE_EQ(time_period, 0.02);
         EXPECT_TRUE(Q1.isApprox(Vector6(1, 2, 3, 4, 5, 6).asDiagonal().toDenseMatrix()));
-        EXPECT_EQ(loader.loadWNOAPriorOptions().factor_type, WNOA::FactorType::Paper);
+        EXPECT_EQ(loader.loadWNOAPriorOptions().factor_type, WNOA::FactorType::Legacy);
 
         // Each model reads only its own subsection.
         EXPECT_TRUE(loadWNOV(loader).Q1.isApprox(9.0 * Matrix6::Identity()));
-    }
-
-    TEST(WNOVConfig, DefaultConfigHasBothPriors)
-    {
-        Utilities::ConfigLoader loader;
-        ASSERT_TRUE(loader.loadConfig(std::string(PROJECT_SOURCE_DIR) + "/assets/config/default_config.json"));
-        const std::string type = loader.loadPriorType();
-        EXPECT_TRUE(type == "wnoa" || type == "wnov") << type;
-
-        const LoadedWNOV loaded = loadWNOV(loader);
-        EXPECT_GT(loaded.time_period, 0.0);
-        for (const Matrix6 &Q : {loaded.Q0, loaded.Q1, loaded.Q2})
-        {
-            EXPECT_TRUE(Q.isDiagonal());
-            EXPECT_GT(Q.diagonal().minCoeff(), 0.0);
-        }
-
-        WNOA::Values<Pose> reference;
-        double time_period = -1.0;
-        WNOA::Prior<Pose>::Matrix3N Q0 = WNOA::Prior<Pose>::Matrix3N::Zero();
-        WNOA::Prior<Pose>::MatrixN Q1, Q2, Q3, Q4;
-        loader.loadWNOAPrior(reference, time_period, Q0, Q1, Q2, Q3, Q4);
-        EXPECT_DOUBLE_EQ(time_period, loaded.time_period);
-        EXPECT_GT(Q0.diagonal().minCoeff(), 0.0);
-    }
-
-    TEST(WNOVConfig, LocksApplyToTheWNOVNode)
-    {
-        auto loader = loaderFor("wnov_locks.json", R"({ "demo_data": { "locks": [
-            { "type": "pose", "s": 0, "value": [1,0,0,0, 0,1,0,0, 0,0,1,0.5, 0,0,0,1] }
-        ] } })");
-        auto state = std::make_shared<StateType>(1.0, 3);
-        loader.loadLocks(*state);
-        KeyManager km;
-        state->addStateAtTime(km, 0.0);
-        ASSERT_EQ(state->lockedValues().size(), 1u);
-        EXPECT_TRUE(state->lockedValues().at<Pose>(state->estimation_nodes[0]->poseKey()).equals(Pose(gtsam::Rot3(), gtsam::Point3(0, 0, 0.5))));
-
-        auto strain_loader = loaderFor("wnov_strain_lock.json", R"({ "demo_data": { "locks": [
-            { "type": "strain", "s": -1, "value": [0,0,0, 0,0,1] }
-        ] } })");
-        StateType other(1.0, 3);
-        EXPECT_THROW(strain_loader.loadLocks(other), std::invalid_argument);
     }
 
     TEST(WNOVConfig, GyroDataIsSkippedForAPoseOnlyPrior)

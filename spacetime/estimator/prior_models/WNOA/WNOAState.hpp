@@ -26,14 +26,16 @@ namespace Spacetime::Priors::WNOA
      * @brief Values of a WNOA node: pose T_ib, generalized strain epsilon and generalized
      *        velocity varpi, the latter two in GTSAM [rotational, translational] order.
      *        Stored in that order in Types::NodeValues::values (pose as its matrix).
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3, or gtsam::Pose2 in the plane).
      */
     template <typename Pose>
     struct Values : public Types::NodeValues
     {
         using Base = Types::NodeValues;
-        using TangentVector = typename gtsam::traits<Pose>::TangentVector;
+        using TangentVector = typename gtsam::traits<Pose>::TangentVector; ///< Strain/velocity type, [rot, trans].
         using PoseType = Pose;
-        using InterpolatedKeys = WNOA::InterpolatedKeys<Pose>;
+        using InterpolatedKeys = WNOA::InterpolatedKeys<Pose>; ///< This node type's interpolated-key layout.
+        /// Tangent dimension: pose + strain + velocity.
         static constexpr unsigned int dim = Pose::dimension + 2 * TangentVector::RowsAtCompileTime;
 
         /// Identity pose, zero strain and velocity.
@@ -110,12 +112,14 @@ namespace Spacetime::Priors::WNOA
     /**
      * @brief A WNOA node at (arclength, time): pose, strain and velocity variables, with
      *        tangent (and Jacobian) order [pose, strain, velocity].
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
     struct Node : public Types::NodeBase
     {
+        /// Tangent dimension: pose + strain + velocity.
         static constexpr unsigned int dim = gtsam::traits<Pose>::dimension * 3;
-        using ValuesType = Values<Pose>;
+        using ValuesType = Values<Pose>; ///< This node's values.
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
 
         // Node specific functions

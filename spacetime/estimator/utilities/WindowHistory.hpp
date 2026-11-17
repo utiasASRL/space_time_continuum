@@ -33,8 +33,8 @@ namespace Spacetime::Utilities
      */
     enum class Extraction
     {
-        Final,
-        Back
+        Final, ///< The last window only ("final").
+        Back   ///< Every row as last estimated before leaving the window ("back").
     };
 
     /// Parse "final" or "back". @throws std::invalid_argument otherwise.
@@ -97,7 +97,7 @@ namespace Spacetime::Utilities
         std::size_t numRows() const { return m_row_posterior.size(); }
 
     private:
-        gtsam::Values m_values;
+        gtsam::Values m_values; ///< Union of every recorded window, newer records overwriting older ones.
         std::map<double, std::shared_ptr<const PosteriorCovariance>> m_row_posterior; // keyed by row time
     };
 } // namespace Spacetime::Utilities

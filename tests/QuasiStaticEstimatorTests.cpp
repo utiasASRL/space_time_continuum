@@ -42,8 +42,8 @@ namespace Spacetime
         {
             std::shared_ptr<QSState> state = std::make_shared<QSState>(1.0, 3);
             std::shared_ptr<QSPrior> prior = std::make_shared<QSPrior>(state, QSValues(Pose(), epsilon0), 1e-6 * Matrix12::Identity(), 1e-2 * Matrix6::Identity());
-            std::shared_ptr<QSSensor> a = std::make_shared<QSSensor>(R, prior);
-            std::shared_ptr<QSSensor> b = std::make_shared<QSSensor>(R, prior);
+            std::shared_ptr<QSSensor> a = std::make_shared<QSSensor>(prior);
+            std::shared_ptr<QSSensor> b = std::make_shared<QSSensor>(prior);
             Estimator estimator;
 
             explicit Fixture(const EstimatorOptions &options = quasiStaticOptions(Estimator::BATCH_LAG)) : estimator(options)
@@ -191,7 +191,7 @@ namespace Spacetime
         using WNOAValues = Priors::WNOA::Values<Pose>;
         auto state = std::make_shared<Types::ContinuumRobotState<Priors::WNOA::Node<Pose>>>(1.0, 2);
         auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, WNOAValues());
-        auto sensor = std::make_shared<Sensors::PoseSensor<WNOAValues>>(R, prior);
+        auto sensor = std::make_shared<Sensors::PoseSensor<WNOAValues>>(prior);
         Estimator estimator(quasiStaticOptions(Estimator::BATCH_LAG));
         estimator.addPrior(prior);
         estimator.addSensor(sensor);

@@ -23,6 +23,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
      * @brief Values of a quasi-static node: pose T_ib and generalized strain epsilon (GTSAM
      *        [rotational, translational] order). The quasi-static prior has no time
      *        dimension, so no velocity is part of the state.
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
     struct Values : public Types::NodeValues
@@ -30,7 +31,8 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         using Base = Types::NodeValues;
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
         using PoseType = Pose;
-        using InterpolatedKeys = WNOAQuasiStatic::InterpolatedKeys<Pose>;
+        using InterpolatedKeys = WNOAQuasiStatic::InterpolatedKeys<Pose>; ///< This node type's interpolated-key layout.
+        /// Tangent dimension: pose + strain.
         static constexpr unsigned int dim = 2 * gtsam::traits<Pose>::dimension;
 
         /// Identity pose, zero strain.
@@ -95,12 +97,16 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         }
     };
 
-    /// A quasi-static node at (arclength, time): pose and strain variables, with tangent order [pose, strain].
+    /**
+     * @brief A quasi-static node at (arclength, time): pose and strain variables, with tangent order [pose, strain].
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
+     */
     template <typename Pose>
     struct Node : public Types::NodeBase
     {
+        /// Tangent dimension: pose + strain.
         static constexpr unsigned int dim = 2 * gtsam::traits<Pose>::dimension;
-        using ValuesType = Values<Pose>;
+        using ValuesType = Values<Pose>; ///< This node's values.
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
 
         /// Register this node's pose ('p') and strain ('s') variables with `km`.

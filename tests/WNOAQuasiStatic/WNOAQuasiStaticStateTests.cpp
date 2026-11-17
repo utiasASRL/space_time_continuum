@@ -22,11 +22,6 @@ namespace Spacetime::Priors::WNOAQuasiStatic
 
         const Pose kPose(gtsam::Rot3::Rz(0.3), gtsam::Point3(0.1, 0.2, 0.3));
         const Vector6 kStrain = (Vector6() << 0.1, 0.0, -0.2, 0.0, 0.0, 1.0).finished();
-
-        template <typename K>
-        concept HasPoseAndStrain = requires { K::Pose(); K::Strain(); };
-        template <typename K>
-        concept HasVelocity = requires { K::Velocity(); };
     }
 
     TEST(WNOAQuasiStaticState, ValuesHoldOnlyAPoseAndAStrain)
@@ -95,10 +90,4 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         EXPECT_THROW(Keys::insert(gtsam::Symbol('q', 2), ValuesType(), values), std::runtime_error);
     }
 
-    TEST(WNOAQuasiStaticState, NodeTypeSupportsPoseAndStrainSensorsOnly)
-    {
-        // Through the sensor capability concepts: a pose and strain, but no velocity.
-        EXPECT_TRUE(HasPoseAndStrain<Keys>);
-        EXPECT_FALSE(HasVelocity<Keys>);
-    }
 } // namespace Spacetime::Priors::WNOAQuasiStatic

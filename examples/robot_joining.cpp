@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 
     // Robot B's mid-point and tip, measured as it goes through the S.
     const Matrix6 covariance = (Vector6() << 1e-4, 1e-4, 1e-4, 1e-6, 1e-6, 1e-6).finished().asDiagonal();
-    auto sensor = std::make_shared<PoseSensor>(covariance, robots[1].prior);
+    auto sensor = std::make_shared<PoseSensor>(robots[1].prior);
     for (int k = 0; k * kPeriod <= kEndTime + 1e-9; k++)
     {
         const double t = k * kPeriod;

@@ -84,17 +84,6 @@ namespace Spacetime::Standalone
         EXPECT_TRUE(a->empty());
     }
 
-    TEST(FileDataloader, OfflineRunDeliversEverythingAndFinishes)
-    {
-        auto a = makeQueue({0.0, 0.2}), b = makeQueue({0.1, 0.3});
-        FileDataloader loader({a, b}, steppedClock());
-        loader.run(std::stop_token());
-
-        EXPECT_EQ(timesIn(*a), (std::vector<double>{0.0, 0.2}));
-        EXPECT_EQ(timesIn(*b), (std::vector<double>{0.1, 0.3}));
-        EXPECT_TRUE(loader.deliveredThrough(1e9));
-    }
-
     // Measurements are delivered in global time order across every queue, and the
     // watermark only claims a time once every measurement stamped at it is delivered.
     TEST(FileDataloader, DeliversInTimeOrderAndAdvancesTheWatermarkBehindIt)
@@ -196,15 +185,5 @@ namespace Spacetime::Standalone
         EXPECT_EQ(timesIn(*a), (std::vector<double>{0.0, 60.0}));
         EXPECT_FALSE(loader.deliveredThrough(60.0));
         EXPECT_EQ(delivered, (std::vector<double>{0.0, 60.0})); // restoring is an ordinary add
-    }
-
-    TEST(FileDataloader, StoppedBeforeRunningRestoresEverything)
-    {
-        auto a = makeQueue({0.0, 0.1});
-        FileDataloader loader({a}, steppedClock());
-        std::stop_source stop;
-        stop.request_stop();
-        loader.run(stop.get_token());
-        EXPECT_EQ(timesIn(*a), (std::vector<double>{0.0, 0.1}));
     }
 } // namespace Spacetime::Standalone

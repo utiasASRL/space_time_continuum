@@ -20,13 +20,18 @@ namespace Spacetime::Types
      */
     struct MeasurementQueue
     {
-        using pMeasurementType = std::shared_ptr<MeasurementBase>;
+        using pMeasurementType = std::shared_ptr<MeasurementBase>; ///< Shared pointer to a queued measurement.
         /// Observer of every measurement added to this queue (see addMeasurementCallback).
         using MeasurementCallback = std::function<void(const pMeasurementType &)>;
 
         virtual ~MeasurementQueue() = default;
 
-        /// Queues `measurement` (thread-safe) and notifies every registered callback.
+        /**
+         * @brief Queues `measurement` (thread-safe) and notifies every registered callback.
+         *        Measurements are expected in time order: drainUpTo stops at the first one
+         *        newer than its time, so an out-of-order one delays those queued after it.
+         * @tparam T The measurement's type, derived from MeasurementBase.
+         */
         template <MeasurementType T>
         void addMeasurement(const std::shared_ptr<T> measurement)
         {
@@ -127,6 +132,7 @@ namespace Spacetime::Types
         std::vector<MeasurementCallback> m_measurement_callbacks;
     };
 
+    /// Shared pointer to a MeasurementQueue.
     using pMeasurementQueueType = std::shared_ptr<MeasurementQueue>;
 } // namespace Spacetime::Types
 

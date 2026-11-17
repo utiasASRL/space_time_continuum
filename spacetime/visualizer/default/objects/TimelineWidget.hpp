@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include <QObject>
 #include <QVTKOpenGLNativeWidget.h>
@@ -31,21 +33,30 @@ namespace Spacetime::Visualization::Default
      * @brief Timeline overlay: a thin QSlider marking the current time, with
      *        labelled major/minor tick marks underneath and an optional highlighted
      *        window (e.g. the estimator's fixed-lag window) behind the slider.
+     *        Visualizer::update() sets the slider every frame, except while it is being
+     *        dragged. With a seek callback (see setSeekCallback; the visualizer sets one
+     *        offline only), dragging or clicking the slider seeks playback; without one
+     *        it ignores the mouse. It never takes keyboard focus, so it does not steal the
+     *        visualizer's arrow-key shortcuts. GUI thread only.
      */
     class TimelineWidget : public QWidget
     {
         Q_OBJECT
 
-        const static int _element_padding = 2;
-        const static int _font_px_size = 15;
-        const static int _tick_height = 10;
-        const static int _slider_height = 10;
-        const static int _handle_width = 1;
-        const static int _x_padding = _font_px_size;
+        // Layout [px].
+        const static int _element_padding = 2; ///< Gap between slider, ticks and labels.
+        const static int _font_px_size = 15;   ///< Tick label font size.
+        const static int _tick_height = 10;    ///< Major tick length (minor ticks are 4 px shorter).
+        const static int _slider_height = 10;  ///< Slider groove height.
+        const static int _handle_width = 1;    ///< Slider handle (current-time marker) width.
+        const static int _x_padding = _font_px_size; ///< Horizontal inset, so edge labels fit.
 
+        /// Top offset vertically centring the slider and ticks (see setGeometry).
         int m_y_padding = 0;
+        /// Time span [s] the slider range maps to (see setRange).
         double m_start_time = 0.0;
         double m_end_time = 10.0;
+        /// Highlighted window width [s], or negative for none (see setRange).
         double m_window_size = -1.0;
 
         /// Draws the ticks and labels below the slider; the major interval is the smallest preset giving <= 20 major ticks, with 10 minor ticks each.
@@ -137,21 +148,43 @@ namespace Spacetime::Visualization::Default
             }
         };
 
-        /// Fills the highlighted window starting at the slider position, or the whole slider if no window is set.
+        /// The slider handle's x position [px] in this widget.
+        int handleX() const
+        {
+            const int range = std::max(1, slider->maximum() - slider->minimum());
+            return static_cast<int>(std::lround(static_cast<double>(slider->sliderPosition() - slider->minimum()) * (slider->width() - _handle_width) / range)) + _x_padding;
+        }
+
+        /// Without a window, fills the whole slider. With one, fills the slider up to the
+        /// handle in a light shade and the window [handle time - window, handle time] (e.g.
+        /// the estimator's fixed-lag window, which the displayed, phase-delayed time lies in)
+        /// in the highlight color. Drawn here rather than by the slider's sub-page, which is
+        /// transparent while a window is set, as the slider paints over this widget.
         void paintWindow()
         {
-            double px_per_second = (slider->width() - _handle_width) / (m_end_time - m_start_time);
-            int window_pixels = (m_window_size < 0) ? slider->width() : m_window_size * px_per_second;
-
-            int current_x = (m_window_size < 0) ? _x_padding : slider->value() * (slider->width() - _handle_width) / (slider->maximum() - slider->minimum()) + _x_padding;
-            int current_y = m_y_padding;
-
-            QRect windowRect(current_x, current_y, window_pixels, _slider_height);
-
             QPainter painter(this);
             painter.setPen(QPen(Qt::black, 0));
-            painter.fillRect(windowRect, QColor(255, 120, 120));
+            if (m_window_size < 0)
+            {
+                painter.fillRect(QRect(_x_padding, m_y_padding, slider->width(), _slider_height), QColor(255, 120, 120));
+                return;
+            }
+            const double px_per_second = (slider->width() - _handle_width) / (m_end_time - m_start_time);
+            const int handle_x = handleX();
+            const int window_x = std::max(_x_padding, handle_x - static_cast<int>(std::lround(m_window_size * px_per_second)));
+            painter.fillRect(QRect(_x_padding, m_y_padding, handle_x - _x_padding, _slider_height), QColor(255, 201, 201));
+            painter.fillRect(QRect(window_x, m_y_padding, handle_x - window_x, _slider_height), QColor(255, 120, 120));
         };
+
+        /// The time [s] at slider position `position`.
+        double timeAt(int position) const
+        {
+            const int range = std::max(1, slider->maximum() - slider->minimum());
+            return m_start_time + (m_end_time - m_start_time) * static_cast<double>(position - slider->minimum()) / range;
+        }
+
+        /// Called with the time the user moved the slider to; empty if the slider is display only.
+        std::function<void(double)> m_on_seek;
 
         /// Repaints the slider, then the ticks and the window highlight.
         void paintEvent(QPaintEvent *event) override
@@ -169,6 +202,14 @@ namespace Spacetime::Visualization::Default
         TimelineWidget(QWidget *parent = nullptr) : QWidget(parent)
         {
             slider = new QSlider(Qt::Horizontal, this);
+            slider->setFocusPolicy(Qt::NoFocus);
+            slider->setAttribute(Qt::WA_TransparentForMouseEvents, true); // display only until setSeekCallback
+            // Every user action (drag, click on the groove): sliderPosition() already holds the new position.
+            QObject::connect(slider, &QAbstractSlider::actionTriggered, this, [this](int)
+                             {
+                                 if (m_on_seek)
+                                     m_on_seek(timeAt(slider->sliderPosition()));
+                                 update(); });
 
             this->setStyleSheet("background-color: transparent;");
         };
@@ -177,12 +218,29 @@ namespace Spacetime::Visualization::Default
         void setValue(int value)
         {
             slider->setValue(value);
+            update(); // the window highlight follows the handle
         };
+
+        /**
+         * @brief Lets the user seek: dragging or clicking the slider calls `on_seek` with the
+         *        time [s] it was moved to. An empty function makes the slider display only
+         *        again (it then ignores the mouse).
+         */
+        void setSeekCallback(std::function<void(double)> on_seek)
+        {
+            m_on_seek = std::move(on_seek);
+            slider->setAttribute(Qt::WA_TransparentForMouseEvents, !m_on_seek);
+        }
+
+        /// True while the user holds the slider handle (see Visualizer::update).
+        bool isDragging() const { return slider->isSliderDown(); }
         /**
          * @brief Sets the slider's integer range and the time span it represents.
          * @param min, max     Slider value range (mapped linearly to [start_time, end_time]).
-         * @param window_size  Width [s] of the highlighted window; negative, or not
-         *                     shorter than the span, highlights everything up to the slider.
+         * @param start_time, end_time Time span [s] labelled by the ticks.
+         * @param window_size  Width [s] of the highlighted window, ending at the slider's
+         *                     time; negative, or not shorter than the span, highlights the
+         *                     whole slider.
          */
         void setRange(int min, int max, double start_time, double end_time, double window_size = -1)
         {
@@ -192,7 +250,7 @@ namespace Spacetime::Visualization::Default
             m_end_time = end_time;
             m_window_size = (window_size < m_end_time - m_start_time) ? window_size : -1.0;
 
-            QString color = (m_window_size < 0) ? QString("rgb(255, 120, 120)") : QString("rgb(255, 201, 201)");
+            QString color = (m_window_size < 0) ? QString("rgb(255, 120, 120)") : QString("transparent"); // with a window, paintWindow draws it
             slider->setStyleSheet(
                 "QSlider::groove:horizontal {"
                 "height: " +

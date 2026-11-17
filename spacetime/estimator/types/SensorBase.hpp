@@ -29,11 +29,9 @@ namespace Spacetime::Types
     struct SensorBase : public Model, public MeasurementQueue // Expressed with T_ib frames
     {
     public:
-        using pMeasurementType = MeasurementQueue::pMeasurementType;
-        using pValuesType = std::shared_ptr<NodeValues>;
-        using pStatefulType = Types::pStatefulType;
-
-        int data_rows, data_cols; // Size of measurement value. Depends on sensor type
+        using pMeasurementType = MeasurementQueue::pMeasurementType; ///< Shared pointer to a queued measurement.
+        using pValuesType = std::shared_ptr<NodeValues>;             ///< Shared pointer to type-erased node values.
+        using pStatefulType = Types::pStatefulType;                  ///< Shared pointer to the measured stateful model.
 
         /**
          * @brief Construct a sensor measuring the state of `stateful`, which builds its outer
@@ -61,7 +59,12 @@ namespace Spacetime::Types
         /// The stateful model whose state this sensor measures (see SensorBase's constructor).
         const pStatefulType &stateful() const { return mp_stateful; }
 
-        /// Builds the factors of every queued measurement up to `current_time` (see getFactor).
+        /**
+         * @brief Phase 2: drains every queued measurement up to `current_time` and wraps
+         *        each one's getFactor in the stateful model's outer factor at the
+         *        measurement's (time, arclength). A measurement is dropped, with a warning,
+         *        when getFactor or StatefulModel::getOuterFactor returns nullptr.
+         */
         Factors getNewFactors(double current_time, gtsam::Values &new_values) override
         {
             (void)new_values;
@@ -99,7 +102,7 @@ namespace Spacetime::Types
         pStatefulType mp_stateful;
     };
 
-    /// Types derived from SensorBase.
+    /// Types derived from SensorBase. @tparam T The candidate sensor type.
     template <typename T>
     concept SensorType = std::derived_from<T, SensorBase>;
 }

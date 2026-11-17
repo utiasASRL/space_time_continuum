@@ -30,7 +30,7 @@ namespace Spacetime::Ros2
     {
         /// The TF edge measured: parent_frame -> child_frame (the sensor), e.g. "aurora_field" -> "aurora_sensor_0".
         std::string parent_frame;
-        std::string child_frame;
+        std::string child_frame; ///< The sensor's frame (see parent_frame).
         /// T_bs: the sensor's pose in the robot's frame at `arclength` (it is rigidly attached
         /// there). The measured robot pose is T_ib = T_is * T_bs^-1.
         gtsam::Pose3 offset;
@@ -60,6 +60,9 @@ namespace Spacetime::Ros2
     {
     public:
         /**
+         * @brief Validates `options`, then subscribes to `options.topic` (and advertises it, if a body frame is set).
+         * @param queue The queue measurements are added to; shared with the node.
+         * @param clock Converts stamps to estimation time; typically Session::clock().
          * @param name The node's name; derived from the child frame if empty.
          * @throws std::invalid_argument for a null queue or clock, an empty frame, a body
          *         frame equal to the edge's frames, or a covariance that is not symmetric
@@ -71,10 +74,12 @@ namespace Spacetime::Ros2
         /// T_ib = T_is * T_bs^-1: the robot's pose from the sensor's (T_is) and its offset (T_bs).
         static gtsam::Pose3 bodyPose(const gtsam::Pose3 &T_is, const gtsam::Pose3 &T_bs) { return T_is * T_bs.inverse(); }
 
+        /// The options the node was built with.
         const PoseSensorOptions &options() const { return m_options; }
+        /// The queue the node feeds.
         const Types::pMeasurementQueueType &queue() const { return mp_queue; }
 
-        /// TF messages received, matching or not.
+        /// TF messages received, matching or not. The counters are atomic: safe to read from any thread.
         std::size_t messagesReceived() const { return m_received.load(); }
         /// Measurements queued.
         std::size_t measurementsAdded() const { return m_added.load(); }
@@ -91,7 +96,9 @@ namespace Spacetime::Ros2
         std::optional<double> m_last_time;
         std::atomic<std::size_t> m_received{0}, m_added{0}, m_dropped{0};
 
+        /// Subscription callback: forwards each transform of the edge to onTransform.
         void onTransforms(const tf2_msgs::msg::TFMessage &message);
+        /// Queues (or drops) one transform of the edge, and broadcasts the body pose if configured.
         void onTransform(const geometry_msgs::msg::TransformStamped &transform);
     };
 } // namespace Spacetime::Ros2

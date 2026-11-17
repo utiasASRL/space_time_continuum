@@ -18,7 +18,7 @@ PYBIND11_MODULE(_spacetime, m)
     priors.def_submodule("wnoa_quasi_static", "The quasi-static prior (WNOA in arclength only), its nodes and grid states.");
     auto joints = m.def_submodule("joints", "Joints between robots, and end effectors.");
     auto sensors = m.def_submodule("sensors", "Built-in sensors and their factors.");
-    auto interface = m.def_submodule("interface", "Running the estimator: the standalone session.");
+    auto interface = m.def_submodule("interface", "Running the estimator: the standalone session, its options, and the snapshot history.");
     auto utilities = m.def_submodule("utilities", "Configuration loading and result export.");
 
     SpacetimePython::bindTypes(types);

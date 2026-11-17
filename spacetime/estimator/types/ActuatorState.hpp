@@ -37,7 +37,9 @@ namespace Spacetime::Types
             input(Eigen::VectorXd::Zero(dim));
         }
 
+        /// The input vector (stored as a column matrix).
         const Eigen::MatrixXd &input() const { return values[0]; }
+        /// Sets the input vector.
         void input(const Eigen::VectorXd &value) { values[0] = value; }
     };
 
@@ -50,11 +52,13 @@ namespace Spacetime::Types
             m_input_key = registerVariable<gtsam::Vector>(km, "input", symbol);
         }
 
+        /// Key of the input variable (a gtsam::Vector of dim() entries).
         gtsam::Key inputKey() const { return m_input_key; }
 
         /// Size of the input.
         unsigned int dim() const { return m_dim; }
 
+        /// The single pair (InputKeys::Input(), inputKey()).
         std::vector<std::pair<gtsam::Key, gtsam::Key>> interpolatedKeys() const override { return {{InputKeys::Input(), m_input_key}}; }
 
         /// The input read from `values`. @throws std::runtime_error if it is not dim() entries (gtsam's error if it is absent).
@@ -91,7 +95,7 @@ namespace Spacetime::Types
                 throw std::invalid_argument("An actuator's input needs at least one entry.");
         }
 
-        /// Adds an input at `time`, after any input at or before it, and returns it.
+        /// Adds an input at `time` (registering its key with `km`), after any input at or before it, and returns it.
         std::shared_ptr<InputNode> addInput(KeyManager &km, double time)
         {
             const auto position = std::upper_bound(m_times.begin(), m_times.end(), time);

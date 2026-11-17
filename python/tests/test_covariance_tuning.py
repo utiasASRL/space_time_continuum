@@ -16,11 +16,14 @@ LENGTH, NODES, PERIOD = 0.2, 3, 0.1
 
 @pytest.fixture(scope="module")
 def solved():
-    """A solved WNOA batch problem, base locked, with tip pose measurements between the node rows."""
-    state, prior = make_wnoa_robot(length=LENGTH, nodes=NODES)
+    """A solved WNOA batch problem, base locked, with tip pose measurements between the node rows.
+    Uses the experimental (GTSAM Lie-algebra) factors, whose types and noise models the tuning reads."""
+    options = wnoa.PriorOptions()
+    options.factor_type = wnoa.FactorType.Experimental
+    state, prior = make_wnoa_robot(length=LENGTH, nodes=NODES, options=options)
     estimator = batch_estimator()
     estimator.addModel(prior)
-    sensor = sensors.PoseSensor(POSE_COVARIANCE, prior)
+    sensor = sensors.PoseSensor(prior)
     tip = bent_tip(LENGTH, 2.0)
     for k in range(5):
         sensor.addMeasurement(pose_measurement(LENGTH, PERIOD * k + 0.05, tip, POSE_COVARIANCE))
@@ -51,13 +54,6 @@ def test_query_jacobians_on_a_node_is_the_identity(solved):
     stacked = np.hstack([jacobians[key] for key in sorted(jacobians, key=lambda k: gtsam.Symbol(k).chr())])
     assert stacked.shape == (18, 18)
     np.testing.assert_allclose(stacked @ stacked.T, np.eye(18), atol=1e-12)
-
-
-def test_query_jacobians_outside_the_extent_is_none_and_empty():
-    _, prior = make_wnoa_robot()
-    node, jacobians = prior.queryJacobians(0.0, 0.1, gtsam.Values())
-    assert node is None
-    assert jacobians == {}
 
 
 def test_every_grid_prior_has_query_jacobians():

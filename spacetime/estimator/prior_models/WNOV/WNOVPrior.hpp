@@ -48,6 +48,8 @@ namespace Spacetime::Priors::WNOV
      * Scaling the covariances by the node spacing is what makes the prior a Wiener
      * process, so that GP interpolation between nodes is exactly geodesic interpolation
      * (see WNOV::Interpolator).
+     *
+     * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
     class Prior : public GridPrior<Node<Pose>, Interpolator<Pose>>
@@ -63,8 +65,8 @@ namespace Spacetime::Priors::WNOV
         GTSAM_CONCEPT_ASSERT(gtsam::IsTestable<Pose>);
         GTSAM_CONCEPT_ASSERT(gtsam::IsLieGroup<Pose>);
 
-        static constexpr int dim = gtsam::traits<Pose>::dimension;
-        using MatrixN = Eigen::Matrix<double, dim, dim>;
+        static constexpr int dim = gtsam::traits<Pose>::dimension; ///< Pose tangent dimension.
+        using MatrixN = Eigen::Matrix<double, dim, dim>;            ///< Covariance / PSD block (Q0..Q2).
 
         /**
          * @param state The grid state this prior extends.

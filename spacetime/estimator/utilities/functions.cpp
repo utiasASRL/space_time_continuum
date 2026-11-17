@@ -1,4 +1,3 @@
-#include <gtest/gtest.h>
 #include <assert.h>
 #include <cmath>
 #include <algorithm>
@@ -9,7 +8,6 @@
 
 #include <Eigen/Eigenvalues>
 #include <unsupported/Eigen/MatrixFunctions>
-#include <lgmath.hpp>
 
 #include <spacetime/estimator/types/States.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
@@ -47,41 +45,3 @@ Eigen::SparseMatrix<double> getFullRankProjection(const Eigen::MatrixX<double> &
 
     return P;
 }
-
-// namespace lgmath::se3
-// {
-//     Eigen::Matrix<double, 6, 6> getdJdt(const Eigen::Matrix<double, 18, 1> &gamma, bool dt, int num_terms)
-//     {
-//         assert(num_terms >= 1);
-
-//         Eigen::Matrix<double, 6, 6> dJdt = ZERO(6), dx, x;
-//         x = curlyhat(gamma.block<6, 1>(0, 0));
-//         if (dt)
-//             dx = curlyhat(gamma.block<6, 1>(12, 0));
-//         else
-//             dx = curlyhat(gamma.block<6, 1>(6, 0));
-
-//         for (int n = 0; n < num_terms; ++n)
-//         {
-//             double factor = 1.0 / std::tgamma(n + 3); // std::tgamma(n + 3) is equivalent to (n + 2)!
-//             Eigen::Matrix<double, 6, 6> term = ZERO(6);
-//             for (int i = 0; i <= n; ++i)
-//             {
-//                 Eigen::Matrix<double, 6, 6> _term = EYE(6);
-//                 for (int j = 0; j < i; ++j)
-//                 {
-//                     _term = x * _term;
-//                 }
-//                 _term = dx * _term;
-//                 for (int j = i + 1; j <= n; ++j)
-//                 {
-//                     _term = x * _term;
-//                 }
-//                 term += _term;
-//             }
-//             dJdt += factor * term;
-//         }
-
-//         return dJdt;
-//     }
-// }

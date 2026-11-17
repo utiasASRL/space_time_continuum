@@ -38,9 +38,9 @@ namespace Spacetime::Priors
     class InterpolatedNode
     {
     public:
-        using NodeType = typename InterpolatorT::NodeType;
-        using ValuesType = typename InterpolatorT::ValuesType;
-        using InterpolatedKeysT = typename InterpolatorT::InterpolatedKeys;
+        using NodeType = typename InterpolatorT::NodeType;                   ///< Grid node type of the prior's state.
+        using ValuesType = typename InterpolatorT::ValuesType;               ///< Interpolated node values (e.g. pose, strain, velocity).
+        using InterpolatedKeysT = typename InterpolatorT::InterpolatedKeys; ///< Placeholder keys of the node's components.
         /// Placeholder key (one of InterpolatedKeysT::keys()) -> inner key.
         using KeyMap = std::unordered_map<gtsam::Key, gtsam::Key>;
         /// Bordering-node key -> node_dim x (that key's dim) Jacobian of the interpolated node.
@@ -49,6 +49,7 @@ namespace Spacetime::Priors
         static_assert(Types::InterpolatedKeyMap<InterpolatedKeysT, ValuesType>,
                       "InterpolatorT::InterpolatedKeys must satisfy Types::InterpolatedKeyMap.");
 
+        /// Tangent dimension of one interpolated node (sum of its components' dimensions).
         static constexpr int node_dim = InterpolatorT::node_dim;
 
         /**
@@ -100,7 +101,9 @@ namespace Spacetime::Priors
             m_corner_keys = gtsam::KeyVector(key_set.begin(), key_set.end());
         }
 
+        /// Query time t.
         double time() const { return m_time; }
+        /// Query arclength s.
         double arclength() const { return m_arclength; }
 
         /// Every key of the bordering nodes, each once.
@@ -157,6 +160,9 @@ namespace Spacetime::Priors
          * @brief Chain the inner factor's Jacobian `J_inner` w.r.t. inner key `inner` through
          *        the interpolation: adds J_inner * (its rows of each corner's Jacobian) to
          *        H[index_of(corner key)].
+         * @tparam IndexOf Callable mapping a corner key to its index in H.
+         * @param jacobians The corner Jacobians filled by evaluate().
+         * @param H Optional outer Jacobians, one per outer key; empty blocks are assigned, others accumulated.
          * @param G Optional error_dim x node_dim inner Jacobian w.r.t. the whole node; this key's columns are set.
          */
         template <typename IndexOf>

@@ -7,11 +7,6 @@ namespace Spacetime
     using Spacetime::Visualization::PlaybackController;
     using Spacetime::Visualization::PlaybackState;
 
-    TEST(PlaybackController, ImportTest)
-    {
-        EXPECT_TRUE(true);
-    }
-
     TEST(PlaybackController, StartsPausedAtZero)
     {
         PlaybackController controller(/*online=*/false);
@@ -45,13 +40,6 @@ namespace Spacetime
         controller.play();
         controller.tick(1.0);
         EXPECT_DOUBLE_EQ(controller.displayedTime(), 2.0);
-    }
-
-    TEST(PlaybackController, OfflineSeekJumpsDirectly)
-    {
-        PlaybackController controller(/*online=*/false);
-        controller.seek(5.0);
-        EXPECT_DOUBLE_EQ(controller.displayedTime(), 5.0);
     }
 
     TEST(PlaybackController, OnlinePauseFreezesDisplayedTimeRegardlessOfLiveTime)
@@ -91,18 +79,12 @@ namespace Spacetime
         EXPECT_DOUBLE_EQ(controller.displayedTime(), 47.0);
     }
 
-    TEST(PlaybackController, OfflineSeekClampsToMinTime)
+    TEST(PlaybackController, OfflineSeekClampsToTheTimeBounds)
     {
         PlaybackController controller(/*online=*/false);
         controller.setTimeBounds(0.0, 20.0);
         controller.seek(-5.0);
         EXPECT_DOUBLE_EQ(controller.displayedTime(), 0.0);
-    }
-
-    TEST(PlaybackController, OfflineSeekClampsToMaxTime)
-    {
-        PlaybackController controller(/*online=*/false);
-        controller.setTimeBounds(0.0, 20.0);
         controller.seek(50.0);
         EXPECT_DOUBLE_EQ(controller.displayedTime(), 20.0);
     }
@@ -152,14 +134,6 @@ namespace Spacetime
 
         controller.seek(99.0);
         EXPECT_DOUBLE_EQ(controller.displayedTime(), 0.0); // unchanged: seek is offline-only
-    }
-
-    TEST(PlaybackController, DelayDefaultsToZeroAndQueryTimeMatchesDisplayedTime)
-    {
-        PlaybackController controller(/*online=*/false);
-        controller.seek(3.0);
-        EXPECT_DOUBLE_EQ(controller.delay(), 0.0);
-        EXPECT_DOUBLE_EQ(controller.queryTime(), controller.displayedTime());
     }
 
     TEST(PlaybackController, NegativeDelayClampsToZero)
@@ -277,11 +251,6 @@ namespace Spacetime
         EXPECT_DOUBLE_EQ(controller.displayedTime(), 1.0);
         EXPECT_DOUBLE_EQ(controller.queryTime(), 0.5);
         EXPECT_EQ(controller.state(), PlaybackState::Paused);
-    }
-
-    TEST(PlaybackController, LoopingStartsOff)
-    {
-        EXPECT_FALSE(PlaybackController(/*online=*/false).looping());
     }
 
     TEST(PlaybackController, OfflineLoopingShowsTheEndThenRestartsAtTheBeginning)

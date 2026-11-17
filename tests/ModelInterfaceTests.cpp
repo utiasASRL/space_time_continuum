@@ -14,7 +14,6 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/types/MeasurementQueue.hpp>
 #include <spacetime/estimator/types/Model.hpp>
-#include <spacetime/estimator/sensor_models/PoseSensor.hpp>
 
 namespace Spacetime
 {
@@ -85,26 +84,6 @@ namespace Spacetime
             return std::make_shared<Types::MeasurementBase>(0.0, time, Eigen::Vector2d(1.0, 2.0), Eigen::Matrix2d::Identity());
         }
     } // namespace
-
-    TEST(ModelInterface, PriorsAndSensorsAreModels)
-    {
-        EXPECT_TRUE((std::derived_from<Priors::WNOA::Prior<Pose>, Types::Model>));
-        EXPECT_TRUE((std::derived_from<Types::SensorBase, Types::Model>));
-        EXPECT_TRUE((std::derived_from<Types::SensorBase, Types::MeasurementQueue>));
-    }
-
-    TEST(ModelInterface, DefaultModelAddsNothing)
-    {
-        Types::Model model;
-        KeyManager km;
-        gtsam::Values current, new_values;
-        EXPECT_TRUE(model.extendState(km, 0.0, current, new_values).empty());
-        EXPECT_TRUE(model.getNewFactors(0.0, new_values).empty());
-        EXPECT_TRUE(new_values.empty());
-        EXPECT_NO_THROW(model.onMarginalization(0.0, current));
-        EXPECT_TRUE(model.lockedValues().empty());
-        EXPECT_TRUE(model.covarianceKeyGroups(current).empty());
-    }
 
     namespace
     {
@@ -188,24 +167,6 @@ namespace Spacetime
 
         const std::vector<std::string> expected = {"extend:a", "extend:prior", "extend:b", "factors:a", "factors:prior", "factors:b"};
         EXPECT_EQ(log, expected);
-    }
-
-    TEST(ModelInterface, AddPriorAndAddSensorStillWork)
-    {
-        auto prior = makePrior();
-        auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(Eigen::Matrix<double, 6, 6>::Identity(), prior);
-        auto other = std::make_shared<Sensors::PoseSensor<ValueType>>(Eigen::Matrix<double, 6, 6>::Identity(), prior);
-
-        Estimator estimator;
-        estimator.addPrior(prior);
-        estimator.addSensor(sensor);
-        estimator.addModel(other);
-        ASSERT_EQ(estimator.getMeasurementQueues().size(), 2u);
-        EXPECT_EQ(estimator.getMeasurementQueues()[0], sensor);
-        EXPECT_EQ(estimator.getMeasurementQueues()[1], other);
-
-        estimator.estimate(0.0);
-        EXPECT_FALSE(estimator.getCurrentValues().empty()); // the prior added through addPrior was extended
     }
 
     TEST(ModelInterface, OnMarginalizationReachesEveryModel)

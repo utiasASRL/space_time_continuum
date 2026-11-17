@@ -193,7 +193,7 @@ int main(int argc, char *argv[])
     // The pushed vertex's position (e.g. a tracked probe pressing on it).
     const Matrix6 covariance = (Vector6() << 1e-4, 1e-4, 1e-4, 1e-6, 1e-6, 1e-6).finished().asDiagonal();
     const Eigen::MatrixXi position_only = (Eigen::MatrixXi(6, 1) << 0, 0, 0, 1, 1, 1).finished(); // [rot, trans]
-    auto sensor = std::make_shared<EndEffectorPoseSensor>(covariance, end_effectors[pushed]->endEffectorPrior());
+    auto sensor = std::make_shared<EndEffectorPoseSensor>(end_effectors[pushed]->endEffectorPrior());
     for (const auto &[t, drop] : pushProfile(kLeadIn, kPushDepth, kPushRamp, kPushHold, kPeriod))
     {
         const Pose measured = vertexPose(ball.vertices[pushed] + Eigen::Vector3d(0.0, 0.0, drop));

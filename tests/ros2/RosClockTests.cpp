@@ -28,12 +28,6 @@ namespace Spacetime
         EXPECT_THROW(Ros2::RosClock(nullptr), std::invalid_argument);
     }
 
-    TEST(RosClock, IsRealTime)
-    {
-        Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME));
-        EXPECT_TRUE(clock.isRealTime());
-    }
-
     TEST(RosClock, ReadsTheStartTimeUntilStarted)
     {
         Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), 5.0);

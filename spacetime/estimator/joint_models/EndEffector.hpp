@@ -38,11 +38,11 @@ namespace Spacetime::Joints
     class EndEffector : public Types::StatefulModel<Types::ContinuumRobotState<EndEffectorNode<Pose>>>
     {
     public:
-        using NodeType = EndEffectorNode<Pose>;
-        using PriorType = EndEffectorPrior<Pose>;
-        using StateType = Types::ContinuumRobotState<NodeType>;
-        using Factors = Types::Model::Factors;
-        using TangentVector = typename gtsam::traits<Pose>::TangentVector;
+        using NodeType = EndEffectorNode<Pose>;                            ///< Node: a pose and a body twist.
+        using PriorType = EndEffectorPrior<Pose>;                          ///< The prior extending its state.
+        using StateType = Types::ContinuumRobotState<NodeType>;            ///< Its zero-length grid state.
+        using Factors = Types::Model::Factors;                             ///< Factors returned by the phases.
+        using TangentVector = typename gtsam::traits<Pose>::TangentVector; ///< Tangent vector of Pose ([rot, trans]).
 
         /**
          * @param initial_pose Initial guess of the end effector's pose (T_ib).
@@ -55,6 +55,7 @@ namespace Spacetime::Joints
         /**
          * @brief Rigidly (or, per `options`, spherically) attach the point at arclength `s`
          *        of the robot extended by `robot_prior` to this end effector.
+         * @tparam RobotPriorT The attached robot's prior type (a Priors::GridPrior with Pose3 nodes).
          * @param offset_covariance See Joint (6x6 rigid, 3x3 spherical, positive-definite).
          * @param options See JointOptions; its offset is T_point_ee.
          * @return The new joint, which this end effector keeps (see joints()).
@@ -86,7 +87,7 @@ namespace Spacetime::Joints
             return m_prior->extendState(km, time, current_values, new_values);
         }
 
-        /// Phase 2: every attached joint's factors.
+        /// Phase 2: its prior's factors, then every attached joint's.
         Factors getNewFactors(double time, gtsam::Values &new_values) override
         {
             Factors factors = m_prior->getNewFactors(time, new_values);
@@ -98,6 +99,7 @@ namespace Spacetime::Joints
             return factors;
         }
 
+        /// Forwards to its prior and every attached joint.
         void onMarginalization(double cutoff, const gtsam::Values &current_values) override
         {
             m_prior->onMarginalization(cutoff, current_values);
@@ -105,6 +107,7 @@ namespace Spacetime::Joints
                 joint->onMarginalization(cutoff, current_values);
         }
 
+        /// Its prior's covariance key groups (the joints add none).
         std::vector<gtsam::KeyVector> covarianceKeyGroups(const gtsam::Values &values) const override { return m_prior->covarianceKeyGroups(values); }
 
         /// Its prior's outer factor (see StatefulModel::getOuterFactor).

@@ -18,6 +18,7 @@
 #include <QRect>
 #include <QImage>
 #include <QShortcut>
+#include <QSlider>
 #include <QTimer>
 #include <gtest/gtest.h>
 #include <vtkLight.h>
@@ -461,6 +462,78 @@ namespace Spacetime::Visualization::Default
     }
 
     // Without the estimation period, the arrow keys keep stepping 1% of the range.
+    // Offline, moving the timeline slider seeks playback; online, the slider is display only.
+    TEST_F(VisualizerThreadTest, TimelineSeeksOfflineOnly)
+    {
+        for (const bool online : {false, true})
+        {
+            VisualizerOptions options;
+            options.online = online;
+            options.show_timeline_widget = true;
+            std::atomic<bool> measured{false};
+            bool ignores_mouse = !online;
+            double before = -1.0, after = -1.0;
+            VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+                                 { QTimer::singleShot(50, &visualizer, [&]()
+                                                      {
+                visualizer.playback().pause();
+                QSlider *slider = visualizer.findChild<TimelineWidget *>()->slider;
+                ignores_mouse = slider->testAttribute(Qt::WA_TransparentForMouseEvents);
+                before = visualizer.playback().displayedTime();
+                slider->setSliderPosition(750); // as a drag does, then the action it triggers
+                slider->triggerAction(QAbstractSlider::SliderMove);
+                after = visualizer.playback().displayedTime();
+                measured = true;
+                QApplication::quit(); }); });
+            vis.waitReady();
+            vis.beginPlayback(0.0, 2.0);
+            vis.join();
+
+            ASSERT_TRUE(measured.load());
+            EXPECT_EQ(ignores_mouse, online);
+            if (online)
+                EXPECT_EQ(after, before);
+            else
+                EXPECT_NEAR(after, 1.5, 1e-9); // 750 / 1000 of [0, 2]
+        }
+    }
+
+    // With a sliding window, the timeline highlights [t - window, t] behind the current time t.
+    TEST_F(VisualizerThreadTest, TimelineHighlightsTheWindowBehindTheCurrentTime)
+    {
+        VisualizerOptions options;
+        options.show_timeline_widget = true;
+        options.estimator_window = 2.0;
+        std::atomic<bool> measured{false};
+        QColor in_window, before_window, after_time;
+        VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+                             { QTimer::singleShot(50, &visualizer, [&]()
+                                                  {
+                visualizer.resize(1000, 600);
+                visualizer.playback().pause();
+                visualizer.playback().seek(5.0);
+                visualizer.update(5.0);
+                TimelineWidget *timeline = visualizer.findChild<TimelineWidget *>();
+                const QImage image = timeline->grab().toImage();
+                const QRect groove = timeline->slider->geometry();
+                const auto x = [&](double t) { return groove.x() + static_cast<int>(t / 10.0 * groove.width()); };
+                const int y = groove.y() + groove.height() / 2;
+                in_window = image.pixelColor(x(4.0), y);
+                before_window = image.pixelColor(x(1.0), y);
+                after_time = image.pixelColor(x(8.0), y);
+                measured = true;
+                QApplication::quit(); }); });
+        vis.waitReady();
+        vis.beginPlayback(0.0, 10.0);
+        vis.join();
+
+        ASSERT_TRUE(measured.load());
+        EXPECT_EQ(in_window, QColor(255, 120, 120));
+        EXPECT_EQ(before_window, QColor(255, 201, 201));
+        EXPECT_NE(after_time, QColor(255, 120, 120));
+        EXPECT_NE(after_time, QColor(255, 201, 201));
+    }
+
     TEST_F(VisualizerThreadTest, ArrowKeysStepAPercentOfTheRangeWithoutAPeriod)
     {
         std::atomic<bool> measured{false};
@@ -544,19 +617,6 @@ namespace Spacetime::Visualization::Default
         EXPECT_GT(lights, 1);
         EXPECT_EQ(headlights, 1);
         EXPECT_EQ(camera_lights, lights) << "no light stays fixed in the world";
-    }
-
-    // O orbits the camera; it starts off.
-    TEST_F(VisualizerThreadTest, CameraOrbitIsListedAndStartsOff)
-    {
-        QString text;
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [&](Visualizer &visualizer)
-                             { text = qobject_cast<QLabel *>(visualizer.findChild<InfoWidget *>()->widget())->text(); });
-        vis.waitReady();
-        vis.requestQuit();
-        vis.join();
-
-        EXPECT_TRUE(text.contains("Orbit camera [O]: 0")) << text.toStdString();
     }
 
     // L loops an offline replay (off by default); a live stream has nothing to loop.

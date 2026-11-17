@@ -128,15 +128,6 @@ namespace Spacetime
     // ---------------------------------------------------------------------------------
     // Inner factors
 
-    TEST(JointFactors, RigidVelocityIsZeroForARigidlyAttachedPoint)
-    {
-        const Pose offset = someOffset();
-        const Vector6 varpi_a = someVelocity();
-        const Vector6 varpi_b = offset.inverse().AdjointMap() * varpi_a;
-        Joints::RigidVelocityFactor factor(0, 1, offset, gtsam::noiseModel::Isotropic::Sigma(6, 1.0));
-        EXPECT_TRUE(gtsam::assert_equal(gtsam::Vector(Vector6::Zero()), factor.evaluateError(varpi_a, varpi_b), 1e-12));
-    }
-
     TEST(JointFactors, RigidVelocityMatchesFiniteDifferencesOfTheAttachedPose)
     {
         // varpi_b = Ad(T_off^-1) varpi_a is the body twist of T_a(t) * T_off.
@@ -323,21 +314,6 @@ namespace Spacetime
         }
     }
 
-    TEST(Joint, SphericalJointAddsThreeDimensionalFactors)
-    {
-        WNOARobot a(Vector3::Zero()), b(Vector3(0.3, 0, 0));
-        Joints::JointOptions options;
-        options.type = Joints::JointType::Spherical;
-        JointType joint(a.prior, kLength, b.prior, 0.2, sphericalCovariance(), options);
-        KeyManager km;
-        gtsam::Values values;
-        extend(km, values, 0.0, {a.prior, b.prior});
-        const auto factors = joint.getNewFactors(0.0, values);
-        ASSERT_EQ(factors.size(), 2u);
-        for (const auto &factor : factors)
-            EXPECT_EQ(std::dynamic_pointer_cast<gtsam::NoiseModelFactor>(factor)->dim(), 3u);
-    }
-
     TEST(Joint, RobotWithoutVelocityGetsOnlyThePoseFactor)
     {
         WNOARobot a(Vector3::Zero());
@@ -469,7 +445,7 @@ namespace Spacetime
                 }
 
                 const Matrix6 covariance = Matrix6::Identity() * 1e-6;
-                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(covariance, a.prior);
+                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(a.prior);
                 const Pose measured = a.nominal(kLength / 2) * Pose(gtsam::Rot3(), gtsam::Point3(0, 0.03, 0));
                 for (int k = 0; k < ticks; k++)
                     sensor->addMeasurement(std::make_shared<Types::MeasurementBase>(kLength / 2, k * kPeriod, measured.matrix(), covariance,

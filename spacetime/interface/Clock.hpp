@@ -18,7 +18,7 @@ namespace Spacetime::Interface
     {
         virtual ~Clock() = default;
 
-        /// The current time.
+        /// The current time, in seconds.
         virtual double now() const = 0;
         /// True if time passes on its own (so estimation must not wait on data); false if only the interface advances it.
         virtual bool isRealTime() const = 0;

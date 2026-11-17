@@ -19,8 +19,10 @@ namespace Spacetime::Ros2
     /// The pose a pose message holds, its quaternion normalized. Throws std::invalid_argument for a zero quaternion.
     gtsam::Pose3 toPose3(const geometry_msgs::msg::Pose &pose);
 
+    /// A transform message holding `pose` (translation and unit quaternion).
     geometry_msgs::msg::Transform toTransformMsg(const gtsam::Pose3 &pose);
 
+    /// A pose message holding `pose` (position and unit quaternion).
     geometry_msgs::msg::Pose toPoseMsg(const gtsam::Pose3 &pose);
 } // namespace Spacetime::Ros2
 

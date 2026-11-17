@@ -32,8 +32,8 @@ namespace Spacetime::Types
     class NearestNodeFactor : public gtsam::NoiseModelFactor
     {
     public:
-        using Base = gtsam::NoiseModelFactor;
-        using This = NearestNodeFactor;
+        using Base = gtsam::NoiseModelFactor; ///< gtsam base class.
+        using This = NearestNodeFactor;       ///< This factor's type.
 
         using Base::error;
         using Base::unwhitenedError;

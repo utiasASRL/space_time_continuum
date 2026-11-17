@@ -66,7 +66,7 @@ def test_prior_extends_its_state():
 
 def test_robot_lists_its_models_for_the_estimator():
     state, prior = make_wnoa_robot()
-    sensor = sensors.PoseSensor(POSE_COVARIANCE, prior)
+    sensor = sensors.PoseSensor(prior)
     robot = types.Robot()
     robot.addModel(prior)
     robot.addModel(sensor)

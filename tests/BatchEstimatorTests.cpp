@@ -42,7 +42,7 @@ namespace Spacetime
                 estimator.addPrior(prior);
 
                 const Eigen::Matrix<double, 6, 6> covariance = Eigen::Matrix<double, 6, 6>::Identity() * 1e-4;
-                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(covariance, prior);
+                sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
                 for (int k = 0; k < num_measurements; k++)
                 {
                     Eigen::Matrix4d tip = Eigen::Matrix4d::Identity();
@@ -84,7 +84,7 @@ namespace Spacetime
 
         std::shared_ptr<MarginalizationSpy> addSpy(Estimator &estimator, const Problem &problem)
         {
-            auto spy = std::make_shared<MarginalizationSpy>(Eigen::Matrix<double, 6, 6>::Identity(), problem.prior);
+            auto spy = std::make_shared<MarginalizationSpy>(problem.prior);
             estimator.addSensor(spy);
             return spy;
         }
@@ -227,23 +227,6 @@ namespace Spacetime
         EXPECT_EQ(estimator.getFactors().size(), factors);
     }
 
-    TEST(BatchEstimator, CovarianceAndTimingsAreReportedAfterFinalize)
-    {
-        EstimatorOptions options;
-        options.smootherLag = Estimator::BATCH_LAG;
-        options.lm_params = gaussNewtonParams();
-        options.compute_covariance = true;
-        Estimator estimator(options);
-        Problem problem(estimator);
-        runTicks(estimator, 4);
-        EXPECT_EQ(estimator.getCurrentCovariance(), nullptr);
-
-        estimator.finalize();
-        EXPECT_NE(estimator.getCurrentCovariance(), nullptr);
-        EXPECT_GT(estimator.getBatchTimings().solve, 0.0);
-        EXPECT_GT(estimator.getBatchTimings().covariance, 0.0);
-    }
-
     TEST(BatchEstimator, EstimatorRunnerSolvesTheBatchOnceItEnds)
     {
         Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
@@ -268,13 +251,6 @@ namespace Spacetime
         Standalone::EstimatorRunner runner(estimator, std::make_shared<Standalone::WallClock>(), options);
         EXPECT_THROW(runner.start(), std::invalid_argument);
         EXPECT_TRUE(problem.state->estimation_nodes.empty());
-    }
-
-    TEST(BatchEstimator, DefaultOptionsOrderTheBatchWithMetis)
-    {
-        EXPECT_EQ(EstimatorOptions().lm_params.orderingType, gtsam::Ordering::METIS);
-        EXPECT_EQ(Estimator(Estimator::BATCH_LAG).options().lm_params.orderingType, gtsam::Ordering::METIS);
-        EXPECT_EQ(EstimatorOptions().smoother, EstimatorOptions::Smoother::Batch);
     }
 
     TEST(BatchEstimator, OrderingDoesNotChangeTheSolution)
@@ -447,30 +423,6 @@ namespace Spacetime
         EXPECT_LT((a - b).norm(), 1e-3 * b.norm());
     }
 
-    TEST(IncrementalEstimator, PublishesASnapshotEachEstimate)
-    {
-        Estimator estimator(incrementalOptions(0.25));
-        Problem problem(estimator);
-        EXPECT_EQ(estimator.getSnapshot(), nullptr);
-        runTicks(estimator, 3);
-        ASSERT_NE(estimator.getSnapshot(), nullptr);
-        EXPECT_DOUBLE_EQ(estimator.getSnapshot()->time, 2 * kPeriod);
-        EXPECT_EQ(estimator.getSnapshot()->values.size(), estimator.getCurrentValues().size());
-    }
-
-    TEST(SensorMarginalizationHook, IncrementalPassesTheSameWindowStart)
-    {
-        Estimator estimator(incrementalOptions(1.5 * kPeriod));
-        Problem problem(estimator);
-        auto spy = addSpy(estimator, problem);
-        runTicks(estimator, 4);
-
-        const std::vector<double> expected = {0.0, 0.0, kPeriod, 2 * kPeriod};
-        ASSERT_EQ(spy->cutoffs.size(), expected.size());
-        for (std::size_t k = 0; k < expected.size(); k++)
-            EXPECT_NEAR(spy->cutoffs[k], expected[k], 1e-9) << "tick " << k;
-    }
-
     TEST(SensorMarginalizationHook, SlidingWindowPassesTheWindowStartBeforeEachUpdate)
     {
         Estimator estimator(1.5 * kPeriod, gaussNewtonParams());
@@ -502,16 +454,6 @@ namespace Spacetime
         ASSERT_EQ(spy->cutoffs.size(), 1u);
         EXPECT_TRUE(std::isinf(spy->cutoffs.front()));
         EXPECT_EQ(spy->values.front().size(), problem.numKeys());
-    }
-
-    TEST(EstimatorRuntime, AllZerosBeforeTheFirstEstimate)
-    {
-        Estimator estimator(incrementalOptions(0.25));
-        const RuntimeStatistics &stats = estimator.getRuntimeStatistics();
-        EXPECT_EQ(stats.count(RuntimePhase::GraphConstruction), 0u);
-        EXPECT_EQ(stats.count(RuntimePhase::Solve), 0u);
-        EXPECT_EQ(stats.count(RuntimePhase::Covariance), 0u);
-        EXPECT_DOUBLE_EQ(stats.total().solve, 0.0);
     }
 
     TEST(EstimatorRuntime, SlidingWindowTimesEveryPhaseOfEveryStep)

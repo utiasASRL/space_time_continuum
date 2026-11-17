@@ -29,7 +29,10 @@ namespace Spacetime::Sensors
     /**
      * @brief 3DoF gyroscope sensor (the paper's eqs. (30)-(32)): measures the angular
      *        velocity of the robot at a given arclength and time, expressed in the body
-     *        frame. Measurement values are 3x1 angular velocities, covariances 3x3.
+     *        frame. Measurement values are 3x1 angular velocities [rad/s], covariances 3x3.
+     * @tparam ValuesT The measured prior's node-values type (e.g. WNOA::Values<gtsam::Pose3>),
+     *         providing a body twist varpi() and an interpolated Velocity() key; its pose must
+     *         be 3D.
      */
     template <GyroSensorValuesType ValuesT>
     class GyroSensor : public Types::SensorBase
@@ -46,7 +49,7 @@ namespace Spacetime::Sensors
     public:
         /**
          * @brief Measurement factor built by GyroSensor::getFactor. varpi is the body-frame
-         *        twist of T_ib (see Priors::WNOA::Legacy::BinaryTimeFactor::Factor), so the modelled angular velocity
+         *        twist of T_ib (see Priors::WNOA::BinaryTimeFactor::Factor), so the modelled angular velocity
          *        is its rotational block and the error is e = w_meas - varpi.head<3>(),
          *        referencing only ValuesT::InterpolatedKeys::Velocity() -- evaluated as the
          *        inner factor of a Priors::InterpolationFactor.
@@ -54,9 +57,9 @@ namespace Spacetime::Sensors
         class Factor : public gtsam::NoiseModelFactorN<TangentVector>
         {
         public:
-            using Base = gtsam::NoiseModelFactorN<TangentVector>;
+            using Base = gtsam::NoiseModelFactorN<TangentVector>; ///< gtsam base class.
 
-            /// `mask` is 3 x 1; a 0 entry ignores that component.
+            /// `measured` is the body-frame angular velocity [rad/s]; `mask` is 3 x 1; a 0 entry ignores that component.
             Factor(const gtsam::SharedNoiseModel &noise_model, const ErrorVector &measured, const Eigen::MatrixXi &mask)
                 : Base(noise_model, ValuesT::InterpolatedKeys::Velocity()), m_measured(measured), m_mask(mask) {}
 

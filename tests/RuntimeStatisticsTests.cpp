@@ -27,18 +27,6 @@ namespace Spacetime
         EXPECT_EQ(stats.count(RuntimePhase::Covariance), 0u);
     }
 
-    TEST(RuntimeStatistics, SingleStep)
-    {
-        RuntimeStatistics stats;
-        stats.record(RuntimePhase::GraphConstruction, 0.001);
-        stats.record(RuntimePhase::Solve, 0.004);
-        stats.record(RuntimePhase::Covariance, 0.002);
-        expectTimings(stats.last(), 0.001, 0.004, 0.002);
-        expectTimings(stats.average(), 0.001, 0.004, 0.002);
-        expectTimings(stats.total(), 0.001, 0.004, 0.002);
-        EXPECT_EQ(stats.count(RuntimePhase::Solve), 1u);
-    }
-
     TEST(RuntimeStatistics, SeveralStepsAccumulate)
     {
         RuntimeStatistics stats;

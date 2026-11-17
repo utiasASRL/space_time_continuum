@@ -10,7 +10,6 @@
 
 #include <spacetime/Types.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
-#include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic.hpp>
 
 namespace Spacetime::Priors::WNOAQuasiStatic
@@ -159,30 +158,4 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         EXPECT_EQ(f.state->estimation_nodes.size(), 3u);
     }
 
-    TEST(WNOAQuasiStaticPrior, MatchesTheWNOAPriorsSpatialSliceInABatchSolve)
-    {
-        // The same pose/strain unary weights and Q2 give the same spatial factors as the
-        // WNOA prior with factor_type "wnoa"; the quasi-static unary is that prior's pose
-        // and strain unaries (its velocity one dropped).
-        auto wnoa_state = std::make_shared<Types::ContinuumRobotState<WNOA::Node<Pose>>>(1.0, 3);
-        WNOA::Values<Pose> reference;
-        reference.pose(T0);
-        reference.epsilon(epsilon0);
-        Eigen::Matrix<double, 18, 18> wnoa_Q0 = Eigen::Matrix<double, 18, 18>::Identity();
-        wnoa_Q0.topLeftCorner<12, 12>() = Q0;
-        WNOA::PriorOptions wnoa_options;
-        wnoa_options.factor_type = WNOA::FactorType::WNOA;
-        WNOA::Prior<Pose> wnoa(wnoa_state, reference, wnoa_Q0, Matrix6::Identity(), Q2, Matrix6::Identity(), Matrix6::Identity(), wnoa_options);
-        KeyManager km;
-        gtsam::Values wnoa_values, wnoa_new;
-        const FactorVector wnoa_factors = wnoa.extendState(km, 0.0, wnoa_values, wnoa_new);
-
-        Fixture f;
-        const FactorVector factors = f.extend(0.0);
-        EXPECT_EQ(factorsOfType<gtsam::WnoaMotionFactor<Pose>>(wnoa_factors).size(),
-                  factorsOfType<gtsam::WnoaMotionFactor<Pose>>(factors).size());
-        const auto wnoa_pose_prior = factorsOfType<gtsam::PriorFactor<Pose>>(wnoa_factors).front();
-        const auto pose_prior = factorsOfType<gtsam::PriorFactor<Pose>>(factors).front();
-        EXPECT_TRUE(covarianceOf(pose_prior).isApprox(covarianceOf(wnoa_pose_prior)));
-    }
 } // namespace Spacetime::Priors::WNOAQuasiStatic

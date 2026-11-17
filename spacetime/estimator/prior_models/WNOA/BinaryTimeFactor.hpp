@@ -1,5 +1,5 @@
-#ifndef BINARYTIMEFACTOR_HPP
-#define BINARYTIMEFACTOR_HPP
+#ifndef WNOA_BINARYTIMEFACTOR_HPP
+#define WNOA_BINARYTIMEFACTOR_HPP
 
 #include <Eigen/Dense>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
@@ -14,12 +14,15 @@
 #include <spacetime/estimator/prior_models/WNOA/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
 
-namespace Spacetime::Priors::WNOA::Legacy
+namespace Spacetime::Priors::WNOA
 {
-    /// The paper's time factor between two temporally adjacent WNOA nodes (FactorType::Legacy and FactorType::Paper); see Legacy.
+    /// The paper's time factor between two temporally adjacent WNOA nodes (FactorType::WNOA and FactorType::Legacy); see BinarySpaceFactor.
     namespace BinaryTimeFactor
     {
-        /// Time factor on (pose, eps, varpi) of nodes 0 and 1, dt apart in time.
+        /**
+         * @brief Time factor on (pose, eps, varpi) of nodes 0 and 1, dt apart in time.
+         * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
+         */
         template <typename Pose>
         class Factor : public gtsam::NoiseModelFactorN<Pose, typename gtsam::traits<Pose>::TangentVector, typename gtsam::traits<Pose>::TangentVector, Pose, typename gtsam::traits<Pose>::TangentVector, typename gtsam::traits<Pose>::TangentVector>
         {
@@ -41,11 +44,16 @@ namespace Spacetime::Priors::WNOA::Legacy
             using ErrorVector = Eigen::Vector<double, 3 * dim>;
             using ErrorJacobian = Eigen::Matrix<double, 3 * dim, dim>;
 
-            /// @param dt Time from node 0 to node 1.
+            /**
+             * @param key_pose0,key_epsilon0,key_varpi0 Node 0's pose, strain and velocity keys.
+             * @param key_pose1,key_epsilon1,key_varpi1 Node 1's pose, strain and velocity keys.
+             * @param noise_model Typically noiseModel(dt, Q1, Q3).
+             * @param dt Time from node 0 to node 1.
+             */
             Factor(gtsam::Key key_pose0, gtsam::Key key_epsilon0, gtsam::Key key_varpi0, gtsam::Key key_pose1, gtsam::Key key_epsilon1, gtsam::Key key_varpi1, const gtsam::SharedNoiseModel &noise_model, double dt) : Base(noise_model, key_pose0, key_epsilon0, key_varpi0, key_pose1, key_epsilon1, key_varpi1), m_dt(dt) {}
             ~Factor() = default;
 
-            /// Paper time prior (on the group), T_ib convention:
+            /// WNOA time prior (on the group), T_ib convention:
             /// e = [Log(T0^-1 T1) - dt*varpi0 ; eps1 - eps0 ; varpi1 - varpi0], with its exact Jacobian.
             gtsam::Vector evaluateError(const Pose &pose0, const TangentVector &epsilon0, const TangentVector &varpi0, const Pose &pose1, const TangentVector &epsilon1, const TangentVector &varpi1, gtsam::OptionalMatrixType H_pose0 = gtsam::OptionalMatrixType(), gtsam::OptionalMatrixType H_epsilon0 = gtsam::OptionalMatrixType(), gtsam::OptionalMatrixType H_varpi0 = gtsam::OptionalMatrixType(), gtsam::OptionalMatrixType H_pose1 = gtsam::OptionalMatrixType(), gtsam::OptionalMatrixType H_epsilon1 = gtsam::OptionalMatrixType(), gtsam::OptionalMatrixType H_varpi1 = gtsam::OptionalMatrixType()) const override
             {
@@ -117,5 +125,5 @@ namespace Spacetime::Priors::WNOA::Legacy
         };
 
     }
-} // namespace Spacetime::Priors::WNOA::Legacy
-#endif // BINARYTIMEFACTOR_HPP
+} // namespace Spacetime::Priors::WNOA
+#endif // WNOA_BINARYTIMEFACTOR_HPP

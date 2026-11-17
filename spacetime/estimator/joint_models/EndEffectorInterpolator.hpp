@@ -40,45 +40,50 @@ namespace Spacetime::Joints
         using Base = Priors::GridInterpolator<EndEffectorInterpolator<Pose>, EndEffectorNode<Pose>, EndEffectorKeys<Pose>, EndEffectorAxisPlan>;
 
     public:
-        using NodeType = EndEffectorNode<Pose>;
-        using ValuesType = typename NodeType::ValuesType;
-        using TangentVector = typename gtsam::traits<Pose>::TangentVector;
-        using InterpolatedKeys = EndEffectorKeys<Pose>;
+        using NodeType = EndEffectorNode<Pose>;                            ///< The interpolated node.
+        using ValuesType = typename NodeType::ValuesType;                  ///< The node's values.
+        using TangentVector = typename gtsam::traits<Pose>::TangentVector; ///< Tangent vector of Pose ([rot, trans]).
+        using InterpolatedKeys = EndEffectorKeys<Pose>;                    ///< Placeholder keys of an interpolated node.
 
-        static constexpr int dim = gtsam::traits<Pose>::dimension;
-        static constexpr int node_dim = NodeType::dim;
+        static constexpr int dim = gtsam::traits<Pose>::dimension; ///< Tangent dimension of the pose.
+        static constexpr int node_dim = NodeType::dim;             ///< Tangent dimension of the node (2 dim).
 
-        using MatrixN = Eigen::Matrix<double, dim, dim>;
-        using MatrixNode = typename Base::MatrixNode;
-        using AxisJacobian = typename Base::AxisJacobian;
+        using MatrixN = Eigen::Matrix<double, dim, dim>;   ///< dim x dim matrix.
+        using MatrixNode = typename Base::MatrixNode;     ///< node_dim x node_dim matrix.
+        using AxisJacobian = typename Base::AxisJacobian; ///< Jacobian of one axis step w.r.t. its bordering nodes.
 
         /// @param q_psd_diag Diagonal of the WNOA power spectral density (as gtsam::WnoaMotionFactor's).
         explicit EndEffectorInterpolator(const TangentVector &q_psd_diag) : m_q_psd_diag(q_psd_diag), m_gtsam(q_psd_diag) {}
 
+        /// Diagonal of the WNOA power spectral density.
         const TangentVector &qPsdDiagonal() const { return m_q_psd_diag; }
 
     private:
         friend Base;
         using TimestampedPoseVel = gtsam::TimestampedPoseVelocity<Pose>;
 
+        /// @throws std::logic_error if asked to interpolate along arclength.
         static void rejectSpace(bool space)
         {
             if (space)
                 throw std::logic_error("EndEffectorInterpolator: an end effector has no length to interpolate along.");
         }
 
+        /// GridInterpolator hook: plan a time interpolation (space is rejected).
         EndEffectorAxisPlan planInterpolate(bool space, double delta_i, double delta) const
         {
             rejectSpace(space);
             return EndEffectorAxisPlan{delta_i, delta};
         }
 
+        /// GridInterpolator hook: plan a time extrapolation past the last node (space is rejected).
         EndEffectorAxisPlan planExtrapolate(bool space, double delta_i) const
         {
             rejectSpace(space);
             return EndEffectorAxisPlan{delta_i, 0.0};
         }
 
+        /// GridInterpolator hook: WNOA interpolation between n0 (at 0) and n1 (at plan.delta), at plan.delta_i.
         ValuesType resolveInterpolate(const EndEffectorAxisPlan &plan, const ValuesType &n0, const ValuesType &n1, AxisJacobian *jac, MatrixNode *cov) const
         {
             const TimestampedPoseVel k(n0.pose(), n0.varpi(), 0.0), kp1(n1.pose(), n1.varpi(), plan.delta);
@@ -93,6 +98,7 @@ namespace Spacetime::Joints
             return ValuesType(interpolated.pose, interpolated.vel);
         }
 
+        /// GridInterpolator hook: constant-velocity extrapolation from n0 by plan.delta_i.
         ValuesType resolveExtrapolate(const EndEffectorAxisPlan &plan, const ValuesType &n0, AxisJacobian *jac, MatrixNode *cov) const
         {
             const double dt = plan.delta_i;

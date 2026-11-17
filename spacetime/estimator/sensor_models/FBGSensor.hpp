@@ -31,6 +31,8 @@ namespace Spacetime::Sensors
      *        and time. Measurement values are strains in GTSAM's [rotational, translational]
      *        layout (the loader reorders the data's [translational, rotational] rows), with
      *        covariances of the same size.
+     * @tparam ValuesT The measured prior's node-values type (e.g. WNOA::Values<gtsam::Pose3>),
+     *         providing a strain epsilon() and an interpolated Strain() key.
      */
     template <FBGSensorValuesType ValuesT>
     class FBGSensor : public Types::SensorBase
@@ -48,9 +50,9 @@ namespace Spacetime::Sensors
         class Factor : public gtsam::NoiseModelFactorN<TangentVector>
         {
         public:
-            using Base = gtsam::NoiseModelFactorN<TangentVector>;
+            using Base = gtsam::NoiseModelFactorN<TangentVector>; ///< gtsam base class.
 
-            /// `mask` is dim x 1; a 0 entry ignores that component.
+            /// `measured` is the strain in [rotational, translational] order; `mask` is dim x 1; a 0 entry ignores that component.
             Factor(const gtsam::SharedNoiseModel &noise_model, const TangentVector &measured, const Eigen::MatrixXi &mask)
                 : Base(noise_model, ValuesT::InterpolatedKeys::Strain()), m_measured(measured), m_mask(mask) {}
 

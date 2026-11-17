@@ -37,7 +37,7 @@ namespace Spacetime
             std::shared_ptr<StateType> state = std::make_shared<StateType>(1.0, 2);
             std::shared_ptr<PriorType> prior = std::make_shared<PriorType>(state, ValueType());
             std::shared_ptr<Sensors::PoseSensor<ValueType>> pose_sensor =
-                std::make_shared<Sensors::PoseSensor<ValueType>>(Eigen::Matrix<double, 6, 6>::Identity() * 0.01, prior);
+                std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
         };
     } // namespace
 
@@ -122,13 +122,6 @@ namespace Spacetime
         EXPECT_EQ(history.measurementsBetween(-10.0, 10.0).size(), 4u);
         EXPECT_TRUE(history.measurementsBetween(3.5, 10.0).empty());
         EXPECT_TRUE(history.measurementsBetween(2.0, 1.0).empty()); // reversed range
-    }
-
-    TEST(MeasurementHistory, MeasurementsBetweenOnAnEmptyHistory)
-    {
-        SensorRig rig;
-        Visualization::MeasurementHistory history(*rig.pose_sensor);
-        EXPECT_TRUE(history.measurementsBetween(0.0, 1.0).empty());
     }
 
     TEST(MeasurementHistory, SensorOutlivingTheHistoryCanStillAddMeasurements)

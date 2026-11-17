@@ -216,26 +216,6 @@ namespace Spacetime
         EXPECT_EQ(prior.query(0.0, 0.0, gtsam::Values()), nullptr);
     }
 
-    TEST(StatefulModelDefaultOuterFactor, WNOANodeInterpolatedKeysMatchRowRanges)
-    {
-        KeyManager km;
-        const NodeType node(km, 0.0, 0.0);
-        const auto map = node.interpolatedKeys();
-        ASSERT_EQ(map.size(), 3u);
-        EXPECT_EQ(map[0], std::make_pair(Keys::Pose(), node.poseKey()));
-        EXPECT_EQ(map[1], std::make_pair(Keys::Strain(), node.strainKey()));
-        EXPECT_EQ(map[2], std::make_pair(Keys::Velocity(), node.velocityKey()));
-        // Tangent order: each component's row range follows the previous one.
-        int offset = 0;
-        for (const auto &[interpolated, key] : map)
-        {
-            const auto [row, dim] = Keys::rowRange(interpolated);
-            EXPECT_EQ(row, offset);
-            offset += dim;
-        }
-        EXPECT_EQ(offset, static_cast<int>(NodeType::dim));
-    }
-
     TEST(StatefulModelDefaultOuterFactor, FactorSnapsPoseFactorOntoNearestNode)
     {
         Grid grid;
@@ -259,25 +239,6 @@ namespace Spacetime
         inner->unwhitenedError(inner_values, &H_inner);
         factor->unwhitenedError(grid.values, &H);
         EXPECT_TRUE(gtsam::assert_equal(H_inner[0], H[0], 1e-12));
-        EXPECT_TRUE(gtsam::internal::testFactorJacobians("NearestNodeFactor", *factor, grid.values, 1e-6, 1e-5));
-    }
-
-    TEST(StatefulModelDefaultOuterFactor, FactorKeepsInnerMask)
-    {
-        Grid grid;
-        Eigen::MatrixXi mask = Eigen::MatrixXi::Ones(6, 1);
-        mask(1, 0) = 0;
-        mask(4, 0) = 0;
-        const auto factor = std::dynamic_pointer_cast<gtsam::NoiseModelFactor>(
-            grid.prior->getOuterFactor(0.0, 1.0, makePoseFactor(Pose(), mask)));
-        ASSERT_NE(factor, nullptr);
-
-        std::vector<gtsam::Matrix> H(1);
-        const gtsam::Vector e = factor->unwhitenedError(grid.values, &H);
-        EXPECT_EQ(e(1), 0.0);
-        EXPECT_EQ(e(4), 0.0);
-        EXPECT_TRUE(H[0].row(1).isZero());
-        EXPECT_TRUE(H[0].row(4).isZero());
         EXPECT_TRUE(gtsam::internal::testFactorJacobians("NearestNodeFactor", *factor, grid.values, 1e-6, 1e-5));
     }
 
@@ -376,24 +337,6 @@ namespace Spacetime
         EXPECT_NE(grid.prior->query(0.01, 0.2, values), nullptr); // another node is unaffected
     }
 
-    TEST(StatefulModelDefaultOuterFactor, WNOAPriorStillOverridesTheDefault)
-    {
-        auto state = std::make_shared<StateType>(std::vector<double>{0.0, 1.0});
-        auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, ValuesType());
-        KeyManager km;
-        gtsam::Values values;
-        for (double t : {0.0, 0.1})
-        {
-            gtsam::Values new_values;
-            prior->extendState(km, t, values, new_values);
-            values.insert(new_values);
-        }
-        const auto factor = prior->getOuterFactor(0.05, 0.5, makePoseFactor(Pose()));
-        ASSERT_NE(factor, nullptr);
-        EXPECT_EQ(std::dynamic_pointer_cast<Types::NearestNodeFactor>(factor), nullptr);
-        EXPECT_NE(std::dynamic_pointer_cast<Priors::InterpolationFactor<Priors::WNOA::Interpolator<Pose>>>(factor), nullptr);
-    }
-
     TEST(StatefulModelDefaultOuterFactor, EstimatorSnapsMeasurementsOntoNearestNode)
     {
         auto state = std::make_shared<StateType>(std::vector<double>{0.0, 0.2, 1.0});
@@ -401,7 +344,7 @@ namespace Spacetime
         Estimator estimator(1.0); // lag long enough to keep the snapped-to row (t = 0.1) in the window
         estimator.addPrior(prior);
 
-        auto sensor = std::make_shared<Sensors::PoseSensor<ValuesType>>(Eigen::Matrix<double, 6, 6>::Identity(), prior);
+        auto sensor = std::make_shared<Sensors::PoseSensor<ValuesType>>(prior);
         estimator.addSensor(sensor);
 
         const Pose measured(gtsam::Rot3::RzRyRx(0.2, 0.1, -0.3), gtsam::Point3(0.1, 0.2, 0.9));

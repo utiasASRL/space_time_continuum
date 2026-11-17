@@ -1,8 +1,19 @@
+/**
+ * @file functions.hpp
+ * @brief Small global-namespace helpers: matrix checks and inverses, CSV and JSON
+ *        reading/writing (used by Utilities::ConfigLoader and the dataloaders), and
+ *        debugging printouts.
+ */
+
 #ifndef UTILITY_FUNCTIONS_H
 #define UTILITY_FUNCTIONS_H
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include <Eigen/Core>
 #include <Eigen/SparseCore>
@@ -12,7 +23,9 @@
 
 #include <spacetime/estimator/utilities/logger.hpp>
 
+/// Millidegrees to radians (pi / 180000).
 #define MDEG2RAD 0.0000174532925
+/// Library-wide tolerance on time and arclength offsets: two times (or arclengths) closer than this are the same.
 #define TOLERANCE 1e-8
 
 /// A rows x rows zero matrix.
@@ -21,7 +34,8 @@ inline Eigen::MatrixXd ZERO(int rows) { return Eigen::MatrixXd::Zero(rows, rows)
 inline Eigen::MatrixXd EYE(int rows) { return Eigen::MatrixXd::Identity(rows, rows); }
 
 /**
- * @brief Assert (debug builds only) that the 3x3 matrix C is orthonormal, to 1e-5.
+ * @brief Assert (when NDEBUG is not defined) that the 3x3 matrix C is orthonormal, to 1e-5
+ *        in every entry of C^T C - I. The determinant's sign is not checked.
  *        From Barfoot and Furgale, "Associating Uncertainty with Three-Dimensional Poses
  *        for use in Estimation Problems", DOI: 10.1109/TRO.2014.2298059.
  */
@@ -39,7 +53,7 @@ void validateRotationMatrix(const Eigen::MatrixBase<Derived> &C)
     assert((error < 1e-5) && "C must be a valid rotation matrix");
 }
 
-/// Assert (debug builds only) that the 4x4 matrix T is in SE(3) (same source as validateRotationMatrix).
+/// Assert (when NDEBUG is not defined) that the 4x4 matrix T is in SE(3): an orthonormal top-left block (see validateRotationMatrix) and a bottom row [0 0 0 1] to 1e-10.
 template <typename Derived>
 void validateTransformationMatrix(const Eigen::MatrixBase<Derived> &T)
 {
@@ -58,10 +72,7 @@ void validateTransformationMatrix(const Eigen::MatrixBase<Derived> &T)
     assert((error < 1e-10) && "T must be a valid transformation matrix");
 }
 
-/// Declared but never defined; see the template overload below.
-void validateDiagonalMatrix(const Eigen::MatrixXd &matrix);
-
-/// Inverse of an SE(3) matrix, [C^T, -C^T r; 0, 1].
+/// Inverse of the SE(3) matrix T = [C, r; 0, 1], i.e. [C^T, -C^T r; 0, 1] (asserts T is in SE(3), see validateTransformationMatrix).
 template <typename Derived>
 Eigen::Matrix<typename Derived::Scalar, 4, 4> invertTransformation(const Eigen::MatrixBase<Derived> &mat)
 {
@@ -76,7 +87,7 @@ Eigen::Matrix<typename Derived::Scalar, 4, 4> invertTransformation(const Eigen::
     return inv_T;
 }
 
-/// Assert (debug builds only) that `matrix` is square and diagonal, to 1e-10.
+/// Assert (when NDEBUG is not defined) that `matrix` is square and diagonal, to 1e-10.
 template <typename Derived>
 void validateDiagonalMatrix(const Eigen::MatrixBase<Derived> &matrix)
 {
@@ -97,7 +108,7 @@ void validateDiagonalMatrix(const Eigen::MatrixBase<Derived> &matrix)
     assert(is_diagonal && "Matrix can only have non-zero entries on diagonal");
 }
 
-/// Inverse of a diagonal matrix (element-wise reciprocal of the diagonal).
+/// Inverse of a diagonal matrix (element-wise reciprocal of the diagonal; asserts it is diagonal, see validateDiagonalMatrix). A zero diagonal entry gives inf.
 template <typename Derived>
 Eigen::MatrixX<typename Derived::Scalar> invertDiagonal(const Eigen::MatrixBase<Derived> &matrix)
 {
@@ -113,87 +124,132 @@ Eigen::MatrixX<typename Derived::Scalar> invertDiagonal(const Eigen::MatrixBase<
     return matrix_inv;
 }
 
-/// Read a comma-separated numeric file into a matrix of type M, one file line per row.
+/**
+ * @brief Read a comma-separated numeric file into a matrix of type M, one non-blank file line per row.
+ * @tparam M An Eigen matrix type. If it has a fixed size, the file must match it.
+ * @throws std::runtime_error if the file cannot be opened, has no rows, has rows of different
+ *         lengths, or does not match a fixed-size M.
+ * @throws std::invalid_argument (from std::stod) for a non-numeric cell.
+ */
 template <typename M>
 M loadCsv(const std::string &path)
 {
-    std::ifstream indata;
-    indata.open(path);
+    std::ifstream indata(path);
+    if (!indata.is_open())
+        throw std::runtime_error("loadCsv: cannot open '" + path + "'.");
     std::string line;
     std::vector<double> values;
-    uint rows = 0;
+    std::size_t rows = 0, cols = 0;
     while (std::getline(indata, line))
     {
+        if (line.find_first_not_of(" \t\r") == std::string::npos)
+            continue; // blank line (e.g. a trailing newline)
         std::stringstream lineStream(line);
         std::string cell;
+        std::size_t row_cols = 0;
         while (std::getline(lineStream, cell, ','))
         {
             values.push_back(std::stod(cell));
+            ++row_cols;
         }
+        if (rows == 0)
+            cols = row_cols;
+        else if (row_cols != cols)
+            throw std::runtime_error("loadCsv: '" + path + "' line " + std::to_string(rows + 1) + " has " + std::to_string(row_cols) +
+                                     " cells, the first has " + std::to_string(cols) + ".");
         ++rows;
     }
-    return Eigen::Map<const Eigen::Matrix<typename M::Scalar, M::RowsAtCompileTime, M::ColsAtCompileTime, Eigen::RowMajor>>(values.data(), rows, values.size() / rows);
+    if (rows == 0)
+        throw std::runtime_error("loadCsv: '" + path + "' has no rows.");
+    if ((M::RowsAtCompileTime != Eigen::Dynamic && static_cast<std::size_t>(M::RowsAtCompileTime) != rows) ||
+        (M::ColsAtCompileTime != Eigen::Dynamic && static_cast<std::size_t>(M::ColsAtCompileTime) != cols))
+        throw std::runtime_error("loadCsv: '" + path + "' is " + std::to_string(rows) + " x " + std::to_string(cols) +
+                                 ", which does not fit the fixed-size matrix type.");
+    return Eigen::Map<const Eigen::Matrix<typename M::Scalar, M::RowsAtCompileTime, M::ColsAtCompileTime, Eigen::RowMajor>>(values.data(), rows, cols);
+}
+
+/// The numbers of the JSON array `value` (named `key` in errors).
+/// @throws std::invalid_argument if `value` is not an array, or holds a non-numeric entry.
+template <typename Scalar>
+std::vector<Scalar> readNumericArray(const Json::Value &value, const std::string &key)
+{
+    if (!value.isArray())
+        throw std::invalid_argument("Key '" + key + "' must be a JSON array of numbers.");
+    std::vector<Scalar> data;
+    data.reserve(value.size());
+    for (Json::ArrayIndex i = 0; i < value.size(); i++)
+    {
+        if (!value[i].isNumeric())
+            throw std::invalid_argument("Key '" + key + "' entry " + std::to_string(i) + " is not a number.");
+        data.push_back(static_cast<Scalar>(value[i].asDouble()));
+    }
+    return data;
 }
 
 /**
- * @brief Read the numeric array `root[key]` into `out` (resized if dynamic).
- * @return false, leaving `out` unchanged, if the key is absent.
- * @warning For a fixed-size `out`, the array's length is not checked: a shorter one is
- *          read out of bounds.
+ * @brief Read the numeric array `root[key]` into `out`, in Eigen's storage order of `Derived`.
+ *        A fixed-size `out` must match the array's length. A dynamic one is resized: a vector
+ *        to the array's length, a matrix with one fixed dimension to fit it, and a fully
+ *        dynamic matrix to a column.
+ * @return false, leaving `out` unchanged (and logging a warning), if the key is absent.
+ * @throws std::invalid_argument if `root[key]` is not a numeric array, or its length does not fit `out`.
  */
 template <typename Derived>
 bool loadArrayData(Json::Value &root, const std::string &key, Derived &out)
 {
-    if (root.isMember(key))
-    {
-        std::vector<typename Derived::Scalar> data;
-        for (unsigned int i = 0; i < root[key].size(); i++)
-        {
-            double value = root[key][i].asDouble();
-            data.push_back(static_cast<typename Derived::Scalar>(value));
-        }
-        if (Derived::RowsAtCompileTime == Eigen::Dynamic || Derived::ColsAtCompileTime == Eigen::Dynamic)
-        {
-            out.resize(root[key].size(), 1);
-        }
-        out = Eigen::Map<Derived>(data.data(), out.rows(), out.cols());
-        info() << "Loaded array data with key: " << key;
-        return true;
-    }
-    else
+    if (!root.isMember(key))
     {
         warning() << "Key '" << key << "' not found in JSON. Using default value: " << out;
         return false;
     }
+    std::vector<typename Derived::Scalar> data = readNumericArray<typename Derived::Scalar>(root[key], key);
+    const Eigen::Index n = static_cast<Eigen::Index>(data.size());
+    constexpr int kRows = Derived::RowsAtCompileTime, kCols = Derived::ColsAtCompileTime;
+
+    Eigen::Index rows = n, cols = 1;
+    if constexpr (kRows != Eigen::Dynamic && kCols != Eigen::Dynamic)
+        rows = kRows, cols = kCols;
+    else if constexpr (kRows == 1)
+        rows = 1, cols = n;
+    else if constexpr (kRows != Eigen::Dynamic)
+        rows = kRows, cols = n / kRows;
+    else if constexpr (kCols != Eigen::Dynamic)
+        rows = n / kCols, cols = kCols;
+    if (rows * cols != n)
+        throw std::invalid_argument("Key '" + key + "' has " + std::to_string(n) + " entries, which do not fit a " +
+                                    (kRows == Eigen::Dynamic ? std::string("N") : std::to_string(kRows)) + " x " +
+                                    (kCols == Eigen::Dynamic ? std::string("N") : std::to_string(kCols)) + " matrix.");
+
+    out.resize(rows, cols);
+    out = Eigen::Map<Derived>(data.data(), rows, cols);
+    info() << "Loaded array data with key: " << key;
+    return true;
 }
 
 /**
  * @brief Read `root[key]`, a 4x4 matrix as 16 numbers in row-major order, into `out`.
+ * @tparam Derived A fixed-size, column-major 4x4 Eigen matrix (e.g. Eigen::Matrix4d).
  * @return false, leaving `out` unchanged, if the key is absent.
+ * @throws std::invalid_argument if `root[key]` is not an array of exactly 16 numbers.
  */
 template <typename Derived>
 bool loadMatrix4Data(Json::Value &root, const std::string &key, Derived &out)
 {
-    if (root.isMember(key))
-    {
-        std::vector<typename Derived::Scalar> data;
-        for (unsigned int i = 0; i < root[key].size(); i++)
-        {
-            double value = root[key][i].asDouble();
-            data.push_back(static_cast<typename Derived::Scalar>(value));
-        }
-        out = Eigen::Map<Derived>(data.data()).transpose();
-        info() << "Loaded 4x4 array data with key: " << key;
-        return true;
-    }
-    else
+    static_assert(Derived::RowsAtCompileTime == 4 && Derived::ColsAtCompileTime == 4, "loadMatrix4Data reads a fixed-size 4x4 matrix.");
+    if (!root.isMember(key))
     {
         warning() << "Key '" << key << "' not found in JSON. Using default value: " << out;
         return false;
     }
+    std::vector<typename Derived::Scalar> data = readNumericArray<typename Derived::Scalar>(root[key], key);
+    if (data.size() != 16)
+        throw std::invalid_argument("Key '" + key + "' must hold 16 numbers (a row-major 4x4 matrix), not " + std::to_string(data.size()) + ".");
+    out = Eigen::Map<Derived>(data.data()).transpose();
+    info() << "Loaded 4x4 array data with key: " << key;
+    return true;
 }
 
-/// Write `in` to `out` as a JSON array (replacing its contents).
+/// Write `in` to `out` as a JSON array (replacing its contents). `T` is unused.
 template <typename T = double>
 void saveArrayData(Json::Value &out, const Eigen::VectorXd &in)
 {
@@ -221,7 +277,12 @@ void saveMatrix4dData(Json::Value &out, const Eigen::Matrix4d &in)
     }
 }
 
-/// Convert a string to T (int, float, double, the long types or std::string). @throws std::runtime_error otherwise.
+/**
+ * @brief Convert a string to T (int, float, double, long, unsigned long, long long,
+ *        unsigned long long, or std::string, returned as is).
+ * @throws std::runtime_error for any other T; std::invalid_argument or std::out_of_range
+ *         (from std::sto*) for a string that does not parse.
+ */
 template <typename T>
 T stoX(std::string value)
 {
@@ -246,7 +307,7 @@ T stoX(std::string value)
     return T();
 }
 
-/// Sequential reader of comma-separated files, by cell or by line.
+/// Sequential reader of comma-separated files, by cell or by line. A file that fails to open is not reported: every read then returns false.
 class CSVReader
 {
 public:
@@ -257,7 +318,8 @@ public:
     bool burnLine();
 
     /**
-     * @brief Read the rest of the current line as cells of type T.
+     * @brief Read the rest of the current line as cells of type T (see stoX), replacing
+     *        `values`. A trailing comma or whitespace-only last cell is ignored.
      * @return false if it holds no cell (e.g. at end of file).
      */
     template <typename T = double>
@@ -309,7 +371,7 @@ private:
     std::ifstream m_stream;
 };
 
-/// Print A's block sparsity pattern ('X' nonzero, '-' zero, 'N' NaN), in row_size x col_size blocks.
+/// Print A's block sparsity pattern to stdout ('X' nonzero, '-' zero, 'N' any NaN), in row_size x col_size blocks; trailing partial blocks are not printed.
 template <typename Derived>
 void printSparsity(const Eigen::MatrixBase<Derived> &A, std::string label, int row_size, int col_size)
 {
@@ -354,15 +416,12 @@ void printSparsity(const Eigen::MatrixBase<Derived> &A, std::string label = "-",
  */
 Eigen::SparseMatrix<double> getFullRankProjection(const Eigen::MatrixX<double> &A);
 
-// namespace lgmath::se3
-// {
-//     Eigen::Matrix<double, 6, 6> getdJdt(const Eigen::Matrix<double, 18, 1> &gamma, bool dt = true, int num_terms = 10);
-// }
-
 
 /**
  * @brief Read `root[key]` into `out` (a sub-object if T is Json::Value), logging the result.
- * @return false, leaving `out` unchanged, if the key is absent.
+ * @tparam T Json::Value, or any type Json::Value::as<T>() supports that can be streamed.
+ * @return false, leaving `out` unchanged (and logging a warning), if the key is absent.
+ * @throws Json::LogicError if the value cannot be converted to T.
  */
 template <typename T>
 bool safeRead(const Json::Value &root, const std::string &key, T &out)

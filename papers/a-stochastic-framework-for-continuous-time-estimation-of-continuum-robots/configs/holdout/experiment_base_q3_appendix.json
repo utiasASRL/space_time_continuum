@@ -23,7 +23,7 @@
         "type": "wnoa",
         "time_period": 0.033333333333333333,
         "wnoa": {
-            "factor_type": "paper",
+            "factor_type": "wnoa",
             "fixed_noise_model": false,
             "cache_noise_model": true,
             "remove_unary": false,

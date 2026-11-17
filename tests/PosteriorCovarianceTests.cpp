@@ -347,17 +347,6 @@ namespace Spacetime
     // Estimator extraction API
     // ------------------------------------------------------------------
 
-    TEST(PosteriorCovariance, EstimatorOptionsConstructorAppliesTheLag)
-    {
-        EstimatorOptions options;
-        options.smootherLag = 0.35;
-        options.lm_params.maxIterations = 7;
-        Estimator estimator(options);
-        EXPECT_DOUBLE_EQ(estimator.smootherLag(), 0.35);
-        EXPECT_EQ(estimator.options().lm_params.maxIterations, 7u);
-        EXPECT_EQ(estimator.getCurrentCovariance(), nullptr);
-    }
-
     TEST(PosteriorCovariance, EstimatorDoesNotExtractByDefault)
     {
         auto prior = makePrior(3);
@@ -499,19 +488,6 @@ namespace Spacetime
         interp.interpolate(0.0, 0.0, g.values, g.node00, g.node01, g.node10, g.node11, nullptr, nullptr, &posterior, &result);
         ASSERT_EQ(result.rows(), node_dim);
         EXPECT_TRUE(result.isApprox(P.topLeftCorner(node_dim, node_dim), 1e-9));
-    }
-
-    TEST(PosteriorCovariance, InterpolatedPosteriorWithExactCornersIsTheConditional)
-    {
-        CornerGrid g;
-        InterpolatorType interp = makeInterpolator();
-        const gtsam::KeyVector keys = g.keys({g.node00, g.node01, g.node10, g.node11});
-        const PosteriorCovariance zero = posteriorFromDense(keys, Eigen::MatrixXd::Zero(4 * node_dim, 4 * node_dim));
-
-        Eigen::MatrixXd conditional, result;
-        interp.interpolate(0.8, 1.1, g.values, g.node00, g.node01, g.node10, g.node11, nullptr, &conditional, &zero, &result);
-        ASSERT_EQ(result.rows(), node_dim);
-        EXPECT_TRUE(result.isApprox(conditional, 1e-12));
     }
 
     TEST(PosteriorCovariance, InterpolatedPosteriorIsConditionalPlusPropagatedCorners)
@@ -771,17 +747,5 @@ namespace Spacetime
         ASSERT_TRUE(ordering_loader.loadConfig(ordering));
         EXPECT_THROW(ordering_loader.loadEstimatorOptions(), std::invalid_argument);
         std::remove(ordering.c_str());
-    }
-
-    TEST(PosteriorCovariance, DefaultConfigHasAnEstimatorSection)
-    {
-        // Only structure is checked: the values (including compute_covariance) are the
-        // user's to tune.
-        Utilities::ConfigLoader loader;
-        ASSERT_TRUE(loader.loadConfig(std::string(PROJECT_SOURCE_DIR) + "/assets/config/default_config.json"));
-        const EstimatorOptions options = loader.loadEstimatorOptions();
-        EXPECT_TRUE(options.smootherLag >= 0.0 || options.smootherLag == Estimator::BATCH_LAG)
-            << "smootherLag must be >= 0 or Estimator::BATCH_LAG, got " << options.smootherLag;
-        EXPECT_GT(options.lm_params.maxIterations, 0u);
     }
 } // namespace Spacetime

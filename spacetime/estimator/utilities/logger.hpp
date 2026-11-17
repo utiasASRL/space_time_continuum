@@ -1,3 +1,17 @@
+/**
+ * @file logger.hpp
+ * @brief Minimal colored logging to stdout, used throughout the library.
+ *
+ * Two styles: stream-style (`info() << "x = " << x;`, one line printed when the
+ * temporary Logger is destroyed) and function-style (`info("message")`). DEBUG messages
+ * are compiled out unless SPACETIME_ENABLE_DEBUG_LOG is nonzero, which CMake sets
+ * (publicly, on the estimator target) for `-DDebug=ON` builds. The *Start()/logReset()
+ * pair captures raw std::cout output under one level label.
+ *
+ * Everything here is in the global namespace and is not thread-safe beyond what
+ * std::cout itself guarantees (lines from different threads may interleave).
+ */
+
 #ifndef LOGGER_H
 #define LOGGER_H
 
@@ -15,16 +29,17 @@
 #define COLOR_RESET "\033[0m"
 
 #ifndef SPACETIME_ENABLE_DEBUG_LOG
+/// Nonzero to print DEBUG messages; 0 (the default here) compiles them out. Set by CMake from the `Debug` option.
 #define SPACETIME_ENABLE_DEBUG_LOG 0
 #endif
 
 /// Severity of a log message.
 enum class LogLevel
 {
-    ERROR,
-    WARNING,
-    DEBUG,
-    INFO
+    ERROR,   ///< Printed in red as "[ERROR]".
+    WARNING, ///< Printed in orange as "[WARNING]".
+    DEBUG,   ///< Printed in yellow as "[DEBUG]"; dropped unless SPACETIME_ENABLE_DEBUG_LOG.
+    INFO     ///< Printed in white as "[INFO]".
 };
 
 /// ANSI color code for `level` ("" for DEBUG when debug logging is compiled out).
@@ -158,7 +173,11 @@ inline void debug(const std::string &msg) { logMessage(LogLevel::DEBUG, msg); }
 inline void info(const std::string &msg) { logMessage(LogLevel::INFO, msg); }
 
 // --- Redirected stream mode ---
-/// Captures everything written to std::cout until logReset(), then prints it under one level label.
+/**
+ * @brief Captures everything written to std::cout until logReset(), then prints it under
+ *        one level label. Unlike Logger, a DEBUG RedirectLogger is not silenced (it only
+ *        loses its color and label); use debugStart() to get the compiled-out behavior.
+ */
 class RedirectLogger
 {
 public:
@@ -169,35 +188,30 @@ public:
         std::cout << levelColor(level_) << levelLabel(level_) << std::endl;
     }
 
-    /// Restore std::cout and print the captured output.
+    RedirectLogger(const RedirectLogger &) = delete;
+    RedirectLogger &operator=(const RedirectLogger &) = delete;
+
+    /// As logReset(), if it has not been called: std::cout never outlives the buffer it is redirected to.
+    ~RedirectLogger() { logReset(); }
+
+    /// Restore std::cout and print the captured output. Only the first call does anything.
     void logReset()
     {
+        if (!old_buf_)
+            return;
         std::cout.rdbuf(old_buf_);
+        old_buf_ = nullptr;
         std::cout << buffer_.str() << COLOR_RESET << std::endl;
     }
 
 private:
     LogLevel level_;
     std::ostringstream buffer_;
-    std::streambuf *old_buf_;
+    std::streambuf *old_buf_; ///< std::cout's buffer before the capture, or nullptr once restored.
 };
 
-// global redirector instance
+/// The capture started by the latest *Start() call, if any (one at a time, process-wide).
 inline std::unique_ptr<RedirectLogger> redirectInstance;
-
-/// Start capturing std::cout at ERROR level (see RedirectLogger); end with logReset() before starting another.
-inline void errorStart() { redirectInstance = std::make_unique<RedirectLogger>(LogLevel::ERROR); }
-/// As errorStart, at WARNING level.
-inline void warningStart() { redirectInstance = std::make_unique<RedirectLogger>(LogLevel::WARNING); }
-/// As errorStart, at DEBUG level (no-op unless SPACETIME_ENABLE_DEBUG_LOG).
-inline void debugStart()
-{
-#if SPACETIME_ENABLE_DEBUG_LOG
-    redirectInstance = std::make_unique<RedirectLogger>(LogLevel::DEBUG);
-#endif
-}
-/// As errorStart, at INFO level.
-inline void infoStart() { redirectInstance = std::make_unique<RedirectLogger>(LogLevel::INFO); }
 
 /// End the capture started by an *Start() call, printing it. No-op if none is active.
 inline void logReset()
@@ -208,4 +222,25 @@ inline void logReset()
         redirectInstance.reset();
     }
 }
+
+/// Start capturing std::cout at `level` (see RedirectLogger), first ending (and printing) any active capture.
+inline void startCapture(LogLevel level)
+{
+    logReset();
+    redirectInstance = std::make_unique<RedirectLogger>(level);
+}
+
+/// Start capturing std::cout at ERROR level (see RedirectLogger) until logReset(). An active capture is ended first.
+inline void errorStart() { startCapture(LogLevel::ERROR); }
+/// As errorStart, at WARNING level.
+inline void warningStart() { startCapture(LogLevel::WARNING); }
+/// As errorStart, at DEBUG level (no-op unless SPACETIME_ENABLE_DEBUG_LOG).
+inline void debugStart()
+{
+#if SPACETIME_ENABLE_DEBUG_LOG
+    startCapture(LogLevel::DEBUG);
+#endif
+}
+/// As errorStart, at INFO level.
+inline void infoStart() { startCapture(LogLevel::INFO); }
 #endif // LOGGER_H

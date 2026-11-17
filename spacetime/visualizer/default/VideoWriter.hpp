@@ -16,6 +16,8 @@ namespace Spacetime::Visualization::Default
      *        process (which must be on PATH: VTK's own movie writers are not built here).
      *        The video's size is fixed at construction; frames of another size (e.g. after
      *        a window resize) are scaled to it. Not copyable; finished on destruction.
+     *        write() and finish() block until the encoder has taken the data (up to 30 s
+     *        per frame, 120 s to finish). Not thread-safe; use it from one thread.
      */
     class VideoWriter
     {

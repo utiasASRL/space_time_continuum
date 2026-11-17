@@ -95,17 +95,6 @@ namespace Spacetime
         }
     }
 
-    TEST(FBGSensor, FactorReferencesOnlyTheInterpolatedStrainKey)
-    {
-        std::shared_ptr<StateType> state;
-        auto sensor = std::make_shared<Sensor>(makePrior(state));
-        auto inner = sensor->getFactor(makeStrainMeasurement(0.5, 0.0, kMeasured));
-        ASSERT_NE(inner, nullptr);
-        ASSERT_EQ(inner->keys().size(), 1u);
-        EXPECT_EQ(inner->keys().front(), ValueType::InterpolatedKeys::Strain());
-        EXPECT_EQ(inner->dim(), 6u);
-    }
-
     TEST(FBGSensor, InterpolatedFactorJacobiansMatchNumerical)
     {
         std::shared_ptr<StateType> state;

@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
 
     // The end effector's pose, measured directly (e.g. a tracker on the platform).
     const Matrix6 covariance = (Vector6() << 1e-4, 1e-4, 1e-4, 1e-6, 1e-6, 1e-6).finished().asDiagonal();
-    auto sensor = std::make_shared<EndEffectorPoseSensor>(covariance, platform_ee->endEffectorPrior());
+    auto sensor = std::make_shared<EndEffectorPoseSensor>(platform_ee->endEffectorPrior());
     for (int k = 0; k * kPeriod <= kEndTime + 1e-9; k++)
     {
         const double t = k * kPeriod;

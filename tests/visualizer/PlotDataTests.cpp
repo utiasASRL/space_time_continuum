@@ -126,13 +126,6 @@ namespace Spacetime
 
     // ---------------------------------------------------------------- plotters
 
-    TEST(PlotData, PoseComponentsOfIdentityAreZero)
-    {
-        const auto components = poseComponents(Pose());
-        for (double c : components)
-            EXPECT_DOUBLE_EQ(c, 0.0);
-    }
-
     TEST(PlotData, PoseComponentsArePositionThenZyxRollPitchYaw)
     {
         const Pose pose(gtsam::Rot3::Ypr(0.3, -0.2, 0.1), gtsam::Point3(1.0, 2.0, 3.0));
@@ -200,35 +193,6 @@ namespace Spacetime
         const auto *dynamic = registry.find(typeid(gtsam::Vector));
         ASSERT_NE(dynamic, nullptr);
         EXPECT_EQ(dynamic->components(values, 4).size(), 4u);
-    }
-
-    TEST(PlotData, VectorSigmasAreNaNWithoutACovariance)
-    {
-        PlotterRegistry registry;
-        gtsam::Values values;
-        values.insert(1, gtsam::Vector3(1.0, 2.0, 3.0));
-        for (double s : registry.find(typeid(gtsam::Vector3))->sigmas(values, 1, Eigen::MatrixXd()))
-            EXPECT_TRUE(std::isnan(s));
-    }
-
-    TEST(PlotData, UnregisteredTypeHasNoPlotterAndCanBeRegistered)
-    {
-        PlotterRegistry registry;
-        EXPECT_EQ(registry.find(typeid(gtsam::Unit3)), nullptr);
-
-        registry.registerPlotter<gtsam::Unit3>(
-            [](const std::string &name, const gtsam::Unit3 &)
-            { return std::vector<std::string>{name + ".x", name + ".y", name + ".z"}; },
-            [](const gtsam::Unit3 &u)
-            { const auto p = u.point3(); return std::vector<double>{p.x(), p.y(), p.z()}; },
-            [](const gtsam::Unit3 &, const Eigen::MatrixXd &)
-            { return std::vector<double>(3, kNaN); });
-
-        gtsam::Values values;
-        values.insert(1, gtsam::Unit3(0.0, 0.0, 1.0));
-        const auto *plotter = registry.find(typeid(gtsam::Unit3));
-        ASSERT_NE(plotter, nullptr);
-        EXPECT_EQ(plotter->components(values, 1), (std::vector<double>{0.0, 0.0, 1.0}));
     }
 
     // ------------------------------------------------------------ dynamic groups

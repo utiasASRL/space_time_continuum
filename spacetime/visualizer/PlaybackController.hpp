@@ -1,3 +1,9 @@
+/**
+ * @file PlaybackController.hpp
+ * @brief Backend-agnostic play/pause/seek state machine for a visualizer.
+ * @author Spencer Teetaert
+ */
+
 #ifndef PLAYBACKCONTROLLER_HPP
 #define PLAYBACKCONTROLLER_HPP
 
@@ -11,8 +17,8 @@ namespace Spacetime::Visualization
     /// Whether PlaybackController::tick() advances the displayed time.
     enum class PlaybackState
     {
-        Paused,
-        Playing
+        Paused, ///< tick() leaves the displayed time unchanged.
+        Playing ///< tick() advances (offline) or tracks the live time (online).
     };
 
     /**
@@ -29,6 +35,9 @@ namespace Spacetime::Visualization
      *        displayedTime() to the live time source's current value rather
      *        than resuming from the paused value -- "pause holds position,
      *        play jumps to now."
+     *
+     *        Not thread-safe: use from one thread (the backend's GUI thread). Times are in
+     *        seconds of estimation time.
      */
     class PlaybackController
     {

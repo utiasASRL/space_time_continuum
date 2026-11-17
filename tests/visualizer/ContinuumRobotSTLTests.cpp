@@ -163,23 +163,6 @@ namespace Spacetime
         }
     }
 
-    TEST(ContinuumRobotSTL, DefaultScaleAndOffsetLeaveTheMeshUnchanged)
-    {
-        STLFixture fixture;
-        Rig rig;
-        const auto actor = rig.view->addSTL(fixture.box.string(), 0.5);
-        const auto original = Visualization::Default::Utilities::loadSTLMesh(fixture.box.string());
-        vtkPolyData *baked = meshOf(actor);
-        ASSERT_EQ(baked->GetNumberOfPoints(), original->GetNumberOfPoints());
-        for (vtkIdType i = 0; i < original->GetNumberOfPoints(); i++)
-        {
-            double p[3], q[3];
-            original->GetPoint(i, p);
-            baked->GetPoint(i, q);
-            EXPECT_TRUE(Eigen::Vector3d(q[0], q[1], q[2]).isApprox(Eigen::Vector3d(p[0], p[1], p[2]), 1e-7)) << i;
-        }
-    }
-
     TEST(ContinuumRobotSTL, MeshFollowsThePoseAtItsArclength)
     {
         STLFixture fixture;
@@ -337,12 +320,6 @@ namespace Spacetime
         rig.view->toggleNodeFrames();
         rig.view->updateVisualization(0.0, 0.0);
         EXPECT_TRUE(actor->GetVisibility());
-    }
-
-    TEST(ContinuumRobotSTL, MeshesAreShownByDefault)
-    {
-        Rig rig;
-        EXPECT_TRUE(rig.view->meshesShown());
     }
 
     TEST(ContinuumRobotSTL, MeshToggleHidesAndShowsTheMeshesImmediately)

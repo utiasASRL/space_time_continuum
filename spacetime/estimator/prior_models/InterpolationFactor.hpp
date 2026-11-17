@@ -55,16 +55,17 @@ namespace Spacetime::Priors
     class InterpolationFactor : public gtsam::NoiseModelFactor
     {
     public:
-        using NodeType = typename InterpolatorT::NodeType;
-        using ValuesType = typename InterpolatorT::ValuesType;
-        using InterpolatedKeysT = typename InterpolatorT::InterpolatedKeys;
+        using NodeType = typename InterpolatorT::NodeType;                   ///< Grid node type of the prior's state.
+        using ValuesType = typename InterpolatorT::ValuesType;               ///< Interpolated node values.
+        using InterpolatedKeysT = typename InterpolatorT::InterpolatedKeys; ///< Placeholder keys the inner factor is defined on.
         using Base = gtsam::NoiseModelFactor;
         using This = InterpolationFactor<InterpolatorT>;
-        using Node = InterpolatedNode<InterpolatorT>;
+        using Node = InterpolatedNode<InterpolatorT>; ///< The interpolated query point.
 
         static_assert(Types::InterpolatedKeyMap<InterpolatedKeysT, ValuesType>,
                       "InterpolatorT::InterpolatedKeys must satisfy Types::InterpolatedKeyMap.");
 
+        /// Tangent dimension of the interpolated node.
         static constexpr int node_dim = InterpolatorT::node_dim;
 
         // Tell the compiler to import the base class's version of error (see
@@ -97,7 +98,10 @@ namespace Spacetime::Priors
          *        reuses the augmented noise model built by the latest linearize() instead
          *        of rebuilding it -- which needs the interpolation Jacobians -- at every
          *        evaluation. The noise model then follows the estimate one linearization
-         *        behind, and an error() before any linearize() still builds it.
+         *        behind, and an error() before any linearize() still builds it. Ignored
+         *        when fixed_noise_model is set.
+         * @throws std::runtime_error for a null inner_factor or node00, or corners that
+         *         cannot bracket the query (see GridInterpolator::makePlan).
          */
         InterpolationFactor(
             const gtsam::NoiseModelFactor::shared_ptr &inner_factor,
@@ -150,13 +154,20 @@ namespace Spacetime::Priors
         }
 
         using Base::unwhitenedError;
-        /// The inner factor's unwhitened error at the interpolated node, with Jacobians w.r.t. this factor's keys.
+        /**
+         * @brief The inner factor's unwhitened error at the interpolated node, with Jacobians w.r.t. this factor's keys.
+         * @throws std::runtime_error if the inner factor references a pass-through key absent from `values`.
+         */
         gtsam::Vector unwhitenedError(const gtsam::Values &values, gtsam::OptionalMatrixVecType H = nullptr) const override
         {
             return computeInterpolatedError(values, H, nullptr);
         }
 
-        /// Linearize, whitening with the (possibly augmented) noise model and caching it when cache_noise_model is set.
+        /**
+         * @brief Linearize, whitening with the (possibly augmented) noise model and caching it when cache_noise_model is set.
+         * @throws std::runtime_error if the noise model must be augmented and the inner
+         *         one is not a noiseModel::Gaussian (optionally inside a noiseModel::Robust).
+         */
         std::shared_ptr<gtsam::GaussianFactor> linearize(const gtsam::Values &x) const override
         {
             if (!active(x))

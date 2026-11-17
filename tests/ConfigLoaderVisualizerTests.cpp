@@ -80,13 +80,6 @@ namespace Spacetime
         EXPECT_TRUE(options.cameras[0].view_up.isApprox(defaults.view_up));
     }
 
-    TEST(ConfigLoaderVisualizer, EmptyCameraListGivesTheDefaultView)
-    {
-        Json::Value visualizer(Json::objectValue);
-        visualizer["cameras"] = Json::Value(Json::arrayValue);
-        EXPECT_TRUE(loaderWith(visualizer).loadVisualizerOptions().cameras.empty());
-    }
-
     TEST(ConfigLoaderVisualizer, MalformedCamerasAreRejected)
     {
         Json::Value not_a_list(Json::objectValue);

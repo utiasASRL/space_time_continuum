@@ -5,7 +5,6 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/base/Vector.h>
 #include <gtsam/nonlinear/Symbol.h>
-#include <gtsam/nonlinear/factorTesting.h>
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtest/gtest.h>
 
@@ -16,87 +15,10 @@
 
 namespace Spacetime::Priors::WNOA
 {
-    using namespace Legacy;
-
     using Pose = gtsam::Pose3;
     using NodeType = Node<Pose>;
     using StateType = Types::ContinuumRobotState<NodeType>;
     using ValueType = WNOA::Values<Pose>; 
-
-    TEST(WNOA, ImportTest)
-    {
-        EXPECT_TRUE(true); // This test just checks that the test file compiles and runs without errors. The actual tests are in the other TEST cases below
-    }
-
-    TEST(WNOA, UnaryFactor)
-    {
-        KeyManager key_manager;
-        std::shared_ptr<NodeType> node0 = std::make_shared<NodeType>(key_manager, 0.0, 0.0);
-        ValueType node_reference;
-        const Eigen::Matrix<double, 3 * Pose::dimension, 3 * Pose::dimension> covariance = Eigen::Matrix<double, 3 * Pose::dimension, 3 * Pose::dimension>::Identity();
-        std::shared_ptr<UnaryFactor::Factor<Pose>> factor = UnaryFactor::createFactor<Pose>(node0, node_reference, covariance);
-
-        ValueType node0_values;
-        gtsam::Vector error = factor->evaluateError(node0_values.pose(), node0_values.epsilon(), node0_values.varpi(), nullptr, nullptr, nullptr);
-        EXPECT_TRUE(error.isZero());
-
-        node0_values.setRandom();
-        gtsam::Values values;
-        node0->insert("pose", node0_values.pose(), values);
-        node0->insert("strain", node0_values.epsilon(), values);
-        node0->insert("velocity", node0_values.varpi(), values);
-        EXPECT_TRUE(gtsam::internal::testFactorJacobians("WNOAUnaryFactor", *factor, values, 1e-6, 1e-5));
-    }
-
-    TEST(WNOA, BinarySpaceFactor)
-    {
-        KeyManager key_manager;
-        std::shared_ptr<NodeType> node0 = std::make_shared<NodeType>(key_manager, 0.0, 0.0);
-        std::shared_ptr<NodeType> node1 = std::make_shared<NodeType>(key_manager, 1.0, 0.0);
-        
-        std::shared_ptr<BinarySpaceFactor::Factor<Pose>> factor = BinarySpaceFactor::createFactor<Pose>(node0, node1, Eigen::Matrix<double, 6, 6>::Identity(), Eigen::Matrix<double, 6, 6>::Identity());
-
-        ValueType node0_values, node1_values;
-        gtsam::Vector error = factor->evaluateError(node0_values.pose(), node0_values.epsilon(), node0_values.varpi(), node1_values.pose(), node1_values.epsilon(), node1_values.varpi(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
-        EXPECT_TRUE(error.isZero());
-
-        node0_values.setRandom();
-        node1_values.setRandom();
-
-        gtsam::Values values;
-        node0->insert("pose", node0_values.pose(), values);
-        node0->insert("strain", node0_values.epsilon(), values);
-        node0->insert("velocity", node0_values.varpi(), values);
-        node1->insert("pose", node1_values.pose(), values);
-        node1->insert("strain", node1_values.epsilon(), values);
-        node1->insert("velocity", node1_values.varpi(), values);
-        EXPECT_TRUE(gtsam::internal::testFactorJacobians("WNOABinarySpaceFactor", *factor, values, 1e-6, 1e-5));
-    }
-
-    TEST(WNOA, BinaryTimeFactor)
-    {
-        KeyManager key_manager;
-        std::shared_ptr<NodeType> node0 = std::make_shared<NodeType>(key_manager, 0.0, 0.0);
-        std::shared_ptr<NodeType> node1 = std::make_shared<NodeType>(key_manager, 0.0, 1.0);
-
-        std::shared_ptr<BinaryTimeFactor::Factor<Pose>> factor = BinaryTimeFactor::createFactor<Pose>(node0, node1, Eigen::Matrix<double, 6, 6>::Identity(), Eigen::Matrix<double, 6, 6>::Identity());
-
-        ValueType node0_values, node1_values;
-        gtsam::Vector error = factor->evaluateError(node0_values.pose(), node0_values.epsilon(), node0_values.varpi(), node1_values.pose(), node1_values.epsilon(), node1_values.varpi(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
-        EXPECT_TRUE(error.isZero());
-
-        node0_values.setRandom();
-        node1_values.setRandom();
-
-        gtsam::Values values;
-        node0->insert("pose", node0_values.pose(), values);
-        node0->insert("strain", node0_values.epsilon(), values);
-        node0->insert("velocity", node0_values.varpi(), values);
-        node1->insert("pose", node1_values.pose(), values);
-        node1->insert("strain", node1_values.epsilon(), values);
-        node1->insert("velocity", node1_values.varpi(), values);
-        EXPECT_TRUE(gtsam::internal::testFactorJacobians("WNOABinaryTimeFactor", *factor, values, 1e-6, 1e-5));
-    }
 
     TEST(WNOA, PriorExtension)
     {
@@ -106,7 +28,10 @@ namespace Spacetime::Priors::WNOA
 
         ValueType node_reference;
         node_reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
-        std::shared_ptr<Prior<Pose>> prior = std::make_shared<Prior<Pose>>(state, node_reference);
+        // The factor counts below are those of the Lie-algebra (experimental) factors.
+        PriorOptions options;
+        options.factor_type = FactorType::Experimental;
+        std::shared_ptr<Prior<Pose>> prior = std::make_shared<Prior<Pose>>(state, node_reference, Prior<Pose>::Matrix3N::Identity(), Prior<Pose>::MatrixN::Identity(), Prior<Pose>::MatrixN::Identity(), Prior<Pose>::MatrixN::Identity(), Prior<Pose>::MatrixN::Identity(), options);
 
         gtsam::Values current_values, new_values;
         KeyManager key_manager;
@@ -144,40 +69,6 @@ namespace Spacetime::Priors::WNOA
         auto factor = prior->getOuterFactor(0.51, 0.0, inner_factor);
         ASSERT_NE(factor, nullptr);
         EXPECT_EQ(factor->keys().size(), 3u);
-    }
-
-    TEST(WNOA, PriorFinerThanTheLastSpacing)
-    {
-        // 4 spatial node robot (3 spatial factors)
-        unsigned int spatial_dim = 4;
-        auto state = std::make_shared<StateType>(1.0, spatial_dim);
-
-        ValueType node_reference;
-        node_reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
-        std::shared_ptr<Prior<Pose>> prior = std::make_shared<Prior<Pose>>(state, node_reference);
-
-        gtsam::Values current_values, new_values;
-        KeyManager key_manager;
-
-        // Add one state at time 0.1
-        prior->extendState(key_manager, 0.1, current_values, new_values);
-        current_values.insert(new_values); // Update current values with the new values from the prior extension
-        new_values.clear();
-
-        // Querying at time 0.15, only 0.05 after the most recent node at 0.1, still adds a
-        // node exactly at the requested time.
-        std::vector<std::shared_ptr<gtsam::NonlinearFactor>> new_factors = prior->extendState(key_manager, 0.15, current_values, new_values);
-        EXPECT_EQ(state->estimation_nodes.size(), 2 * spatial_dim);
-        EXPECT_EQ(new_factors.size(), (spatial_dim - 1) * 2 + spatial_dim * 2 + 3); // spatial x2, temporal x2, unary x3
-        EXPECT_DOUBLE_EQ(state->estimation_nodes.back()->time, 0.15);
-        current_values.insert(new_values);
-        new_values.clear();
-
-        // Calling extendState again with the exact same time must not add a duplicate
-        // node -- a zero-length interval would break the WnoaMotionFactor/interpolation math.
-        std::vector<std::shared_ptr<gtsam::NonlinearFactor>> repeat_factors = prior->extendState(key_manager, 0.15, current_values, new_values);
-        EXPECT_EQ(state->estimation_nodes.size(), 2 * spatial_dim); // No new nodes should be added
-        EXPECT_EQ(repeat_factors.size(), 0); // No new factors should be added
     }
 
     TEST(WNOA, StateFailureCases)

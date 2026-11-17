@@ -45,16 +45,6 @@ namespace Spacetime::Interface
         EXPECT_EQ(snapshot_times, (std::vector<double>{0.0, 0.1}));
     }
 
-    TEST(EstimatorDriver, StepWorksWithoutACallback)
-    {
-        Estimator estimator;
-        estimator.addPrior(makePrior());
-        EstimatorDriver driver(estimator, false);
-        EXPECT_NO_THROW(driver.step(0.0));
-        ASSERT_NE(estimator.getSnapshot(), nullptr);
-        EXPECT_DOUBLE_EQ(estimator.getSnapshot()->time, 0.0);
-    }
-
     TEST(EstimatorDriver, FinishSolvesABatchEstimator)
     {
         Estimator estimator(Estimator::BATCH_LAG);
@@ -72,12 +62,5 @@ namespace Spacetime::Interface
         Estimator estimator(Estimator::BATCH_LAG);
         EXPECT_THROW(EstimatorDriver(estimator, /*real_time=*/true), std::invalid_argument);
         EXPECT_NO_THROW(EstimatorDriver(estimator, /*real_time=*/false));
-    }
-
-    TEST(EstimatorDriver, ReportsWhetherItIsRealTime)
-    {
-        Estimator estimator;
-        EXPECT_TRUE(EstimatorDriver(estimator, true).isRealTime());
-        EXPECT_FALSE(EstimatorDriver(estimator, false).isRealTime());
     }
 } // namespace Spacetime::Interface

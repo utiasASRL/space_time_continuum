@@ -1,3 +1,9 @@
+/**
+ * @file VisualizerOptions.hpp
+ * @brief Backend-agnostic visualizer options.
+ * @author Spencer Teetaert
+ */
+
 #ifndef VISUALIZEROPTIONS_HPP
 #define VISUALIZEROPTIONS_HPP
 
@@ -13,10 +19,11 @@ namespace Spacetime::Visualization
         /// A camera viewpoint (world frame). The first configured camera is the interactive view; the rest are only used for extra recorded screenshots.
         struct CameraOptions
         {
-            Eigen::Vector3d position = Eigen::Vector3d(0, -1, 0.5);
-            Eigen::Vector3d focal_point = Eigen::Vector3d(0, 0, 0);
-            Eigen::Vector3d view_up = Eigen::Vector3d(0, 0, 1);
+            Eigen::Vector3d position = Eigen::Vector3d(0, -1, 0.5); ///< Camera position [m].
+            Eigen::Vector3d focal_point = Eigen::Vector3d(0, 0, 0); ///< Point looked at [m].
+            Eigen::Vector3d view_up = Eigen::Vector3d(0, 0, 1);     ///< Up direction.
         };
+        /// Configured viewpoints; if empty, the default backend fits the camera to the scene.
         std::vector<CameraOptions> cameras;
 
         /// How the robot views are drawn. Programs copy these onto each robot view (e.g. Default::ContinuumRobot::radius).
@@ -25,13 +32,13 @@ namespace Spacetime::Visualization
             /// Backbone tube radius [m]; also scales the node frames.
             double radius = 0.01;
         };
-        RobotOptions robot;
+        RobotOptions robot; ///< See RobotOptions.
 
-        bool show_floor = true;
-        bool show_world_frame = true;
-        bool show_info_label = false;
-        bool show_diagnostics_label = false;
-        bool show_timeline_widget = false;
+        bool show_floor = true;              ///< Draw a ground plane.
+        bool show_world_frame = true;        ///< Draw the world coordinate frame.
+        bool show_info_label = false;        ///< Currently unused by the default backend (its message label is shown on demand).
+        bool show_diagnostics_label = false; ///< Show the diagnostics overlay at startup.
+        bool show_timeline_widget = false;   ///< Show the timeline (scrubber) at startup.
 
         /// Seconds since a non-static Visualizable's last data before it's hidden entirely; static objects are always shown.
         double stale_timeout = 0.2;
@@ -40,7 +47,7 @@ namespace Spacetime::Visualization
         /// Online: PlaybackController tracks wall-clock time and each visualizable reads live estimator state.
         bool online = false;
 
-        /// Estimator fixed-lag window [s]; the phase delay is clamped to [0, estimator_window]. <= 0 means unknown: delay is only floored at 0. (The delay step is currently a fixed 0.01 s, see Default::Visualizer::delayStep.)
+        /// Estimator fixed-lag window [s]: the phase delay is clamped to [0, estimator_window], and the timeline highlights it behind the current time. <= 0 means unknown (e.g. batch): delay is only floored at 0, and the timeline highlights its whole span. (The delay step is currently a fixed 0.01 s, see Default::Visualizer::delayStep.)
         double estimator_window = -1.0;
 
         /// Estimator tick period [s] (the session's period): offline, the arrow keys step between ticks and video export (V) renders one frame per tick, at 1 / period fps. <= 0 means unknown: the arrows step 1% of the range and video export is disabled.

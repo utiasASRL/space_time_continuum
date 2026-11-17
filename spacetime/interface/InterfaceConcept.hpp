@@ -63,7 +63,10 @@ namespace Spacetime::Interface
         bool real_time = false;     ///< Follow a real-time clock, rather than estimate as fast as possible.
     };
 
-    /// An interface bundle: a `name` and a `Session` with the hooks listed in the file comment.
+    /**
+     * @brief An interface bundle: a `name` and a `Session` with the hooks listed in the file comment.
+     * @tparam I The bundle type, e.g. Spacetime::Interfaces::Standalone.
+     */
     template <typename I>
     concept InterfaceType =
         requires {

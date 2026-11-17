@@ -67,16 +67,6 @@ namespace Spacetime
         EXPECT_EQ(queue.size(), 1u); // not consumed
     }
 
-    TEST(MeasurementQueueAccessors, PeekAllCopiesWithoutConsuming)
-    {
-        Types::MeasurementQueue queue;
-        for (double t : {0.0, 0.1})
-            queue.addMeasurement(makeMeasurement(t));
-
-        EXPECT_EQ(timesOf(queue.peekAll()), (std::vector<double>{0.0, 0.1}));
-        EXPECT_EQ(queue.size(), 2u);
-    }
-
     TEST(MeasurementQueueAccessors, TakeAllEmptiesTheQueueInOrder)
     {
         Types::MeasurementQueue queue;

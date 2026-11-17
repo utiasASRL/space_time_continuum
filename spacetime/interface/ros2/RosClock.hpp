@@ -30,7 +30,7 @@ namespace Spacetime::Ros2
     class RosClock : public Interface::Clock
     {
     public:
-        /// Throws std::invalid_argument if `clock` is null.
+        /// Unstarted, reading `start_time` (seconds) until tryStart() succeeds. Throws std::invalid_argument if `clock` is null.
         explicit RosClock(rclcpp::Clock::SharedPtr clock, double start_time = 0.0);
 
         /// Sets the origin to the clock's current reading, unless it reads zero (sim time
@@ -55,8 +55,10 @@ namespace Spacetime::Ros2
         /// The ROS time the start time corresponds to. Throws std::logic_error before started.
         rclcpp::Time origin() const;
 
+        /// The estimation time of the origin, in seconds.
         double startTime() const { return m_start_time; }
 
+        /// The underlying ROS clock.
         const rclcpp::Clock::SharedPtr &rosClock() const { return mp_clock; }
 
     private:
@@ -67,6 +69,7 @@ namespace Spacetime::Ros2
         std::atomic<int64_t> m_origin_ns{0};
         std::atomic<bool> m_started{false};
 
+        /// Throws std::logic_error naming `caller` if not started.
         void requireStarted(const char *caller) const;
     };
 } // namespace Spacetime::Ros2

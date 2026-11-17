@@ -1,6 +1,5 @@
 """The ROS2 interface: rclcpp init, the ROS2 session, pose sensor nodes and the ROS clock."""
 
-import math
 import os
 import threading
 import time
@@ -55,24 +54,6 @@ def test_ok_after_init():
     assert ros2.ok()
 
 
-def test_options_defaults_match_cpp():
-    options = ros2.PoseSensorOptions()
-    assert options.parent_frame == ""
-    assert options.child_frame == ""
-    assert options.offset.equals(gtsam.Pose3(), 1e-15)
-    assert options.arclength == 0.0
-    np.testing.assert_array_equal(options.covariance, np.eye(6) * 1e-4)
-    np.testing.assert_array_equal(options.mask, np.ones(6))
-    assert options.body_frame == ""
-    assert options.topic == "/tf"
-
-    ros_options = ros2.SessionRosOptions()
-    assert ros_options.node_prefix == "spacetime"
-    assert ros_options.nice_delta == 10
-    assert ros_options.realtime_estimator is False
-    assert ros_options.use_sim_time is False
-
-
 def test_pose_sensor_options_are_editable():
     options = ros2.PoseSensorOptions()
     options.offset = gtsam.Pose3(gtsam.Rot3.Rz(0.5), np.array([0.0, 0.0, 0.01]))
@@ -88,16 +69,6 @@ def test_body_pose_applies_the_offset():
     T_bs = gtsam.Pose3(gtsam.Rot3.Ry(0.4), np.array([0.0, 0.01, 0.02]))
     T_ib = ros2.PoseSensorNode.bodyPose(T_is, T_bs)
     assert T_ib.compose(T_bs).equals(T_is, 1e-12)
-
-
-def test_session_is_real_time_and_live_by_default():
-    _, prior = make_wnoa_robot(lock_base=False)
-    estimator = sliding_estimator()
-    estimator.addModel(prior)
-    session = ros2.Session(estimator, session_options(-1.0), ros_options())
-    assert session.isRealTime() is True
-    assert math.isinf(session.endTime())
-    assert session.clock().started() is False
 
 
 def test_batch_estimator_cannot_start():
@@ -166,7 +137,7 @@ def test_unfed_queues_are_reported():
     _, prior = make_wnoa_robot(lock_base=False)
     estimator = sliding_estimator()
     estimator.addModel(prior)
-    sensor = sensors.PoseSensor(np.eye(6), prior)
+    sensor = sensors.PoseSensor(prior)
     estimator.addSensor(sensor)
     session = ros2.Session(estimator, session_options(-1.0), ros_options())
     session.addMeasurementQueues(estimator.getMeasurementQueues())
@@ -186,7 +157,7 @@ def test_invalid_pose_sensor_options_raise():
     _, prior = make_wnoa_robot(lock_base=False)
     estimator = sliding_estimator()
     estimator.addModel(prior)
-    sensor = sensors.PoseSensor(np.eye(6), prior)
+    sensor = sensors.PoseSensor(prior)
     session = ros2.Session(estimator, session_options(-1.0), ros_options())
     with pytest.raises(ValueError):
         session.addPoseSensor(sensor, ros2.PoseSensorOptions())  # no frames
@@ -245,8 +216,8 @@ def test_estimates_a_robot_from_transforms(rclpy_node):
     estimator = sliding_estimator()
     estimator.addModel(prior)
     covariance = np.eye(6) * 1e-6
-    base_sensor = sensors.PoseSensor(covariance, prior)
-    tip_sensor = sensors.PoseSensor(covariance, prior)
+    base_sensor = sensors.PoseSensor(prior)
+    tip_sensor = sensors.PoseSensor(prior)
     estimator.addSensor(base_sensor)
     estimator.addSensor(tip_sensor)
 

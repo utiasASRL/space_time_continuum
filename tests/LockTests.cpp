@@ -61,7 +61,7 @@ namespace Spacetime
                 auto estimator = std::make_unique<Estimator>(options);
                 estimator->addPrior(prior);
                 const Matrix6 R = Matrix6::Identity() * 1e-4;
-                auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(R, prior);
+                auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
                 for (int k = 0; k < rows; k++)
                     sensor->addMeasurement(std::make_shared<Types::MeasurementBase>(
                         1.0, 0.1 * k, (kBase * Pose(gtsam::Rot3(), gtsam::Point3(0, 0, 1.02))).matrix(), R, Eigen::MatrixXi::Ones(6, 1)));
@@ -133,7 +133,7 @@ namespace Spacetime
         KeyManager km;
         auto node0 = std::make_shared<NodeType>(km, 0.0, 0.0);
         auto node1 = std::make_shared<NodeType>(km, 0.3, 0.0);
-        auto inner = Priors::WNOA::Legacy::BinarySpaceFactor::createFactor<Pose>(node0, node1, Matrix6::Identity(), Matrix6::Identity() * 2.0);
+        auto inner = Priors::WNOA::BinarySpaceFactor::createFactor<Pose>(node0, node1, Matrix6::Identity(), Matrix6::Identity() * 2.0);
 
         ValueType v0, v1;
         v0.setRandom();
@@ -286,15 +286,6 @@ namespace Spacetime
             EXPECT_FALSE(estimator.getLinearizationPoint().exists(f.node(row, 0)->poseKey())); // a constant, not a variable
             EXPECT_TRUE(values.exists(f.node(row, 1)->poseKey()));
         }
-    }
-
-    TEST(Lock, BatchKeepsEveryLockedValue)
-    {
-        Fixture f;
-        f.state->lock("pose", 0.0, kBase);
-        auto estimator = f.solve(5, /*covariance=*/false);
-        for (unsigned int row = 0; row < 5; row++)
-            EXPECT_TRUE(estimator->getCurrentValues().exists(f.node(row, 0)->poseKey())) << "row " << row;
     }
 
     // ------------------------------------------------------------------

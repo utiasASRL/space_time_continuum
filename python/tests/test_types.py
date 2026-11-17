@@ -19,12 +19,6 @@ def test_measurement_fields():
     assert m.time == 3.0
 
 
-def test_measurement_without_mask_and_default():
-    m = types.MeasurementBase(0.0, 1.0, np.eye(4), np.eye(6))
-    assert m.time == 1.0
-    types.MeasurementBase()
-
-
 def test_queue_add_drain_and_last_time():
     queue = types.MeasurementQueue()
     assert queue.empty()

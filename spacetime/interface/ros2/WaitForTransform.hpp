@@ -19,7 +19,10 @@ namespace Spacetime::Ros2
     /**
      * @brief The latest pose of `child` in `parent` from TF (/tf and /tf_static), waiting up
      *        to `timeout` for it on a temporary node of its own (so call it before the
-     *        session starts). nullopt on timeout or rclcpp shutdown.
+     *        session starts). Unlike PoseSensorNode, chains of transforms are resolved.
+     *        Blocks the calling thread; `timeout` is measured on the wall (steady) clock, even
+     *        with use_sim_time. nullopt on timeout or rclcpp shutdown.
+     * @throws std::invalid_argument if the found transform's quaternion is zero.
      */
     std::optional<gtsam::Pose3> waitForTransform(const std::string &parent, const std::string &child, std::chrono::nanoseconds timeout,
                                                  const rclcpp::NodeOptions &node_options = rclcpp::NodeOptions());

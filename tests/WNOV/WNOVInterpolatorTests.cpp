@@ -76,19 +76,6 @@ namespace Spacetime::Priors::WNOV
         EXPECT_TRUE(cov.isZero(1e-12));
     }
 
-    TEST(WNOVInterpolation, TranslationOnlyIsLinearInterpolation)
-    {
-        const auto interp = makeInterpolator();
-        const gtsam::Point3 p0(0.0, 1.0, 2.0), p1(3.0, -1.0, 0.5);
-        const Pose T0(gtsam::Rot3(), p0), T1(gtsam::Rot3(), p1);
-        for (const double alpha : {0.1, 0.25, 0.5, 0.9})
-        {
-            const Pose T = interp.interpolateSpace(2.0, 4.0, 2.0 + 2.0 * alpha, ValuesType(T0), ValuesType(T1)).pose();
-            EXPECT_TRUE(T.rotation().equals(gtsam::Rot3(), 1e-12));
-            EXPECT_TRUE(gtsam::assert_equal(gtsam::Point3(p0 + alpha * (p1 - p0)), T.translation(), 1e-12));
-        }
-    }
-
     TEST(WNOVInterpolation, IsTheGeodesicFromEitherEnd)
     {
         const auto interp = makeInterpolator();

@@ -23,7 +23,6 @@ namespace SpacetimePython
         using FBGSensor = Spacetime::Sensors::FBGSensor<ValuesT>;
         template <typename ValuesT>
         using GyroSensor = Spacetime::Sensors::GyroSensor<ValuesT>;
-        using Matrix6 = Eigen::Matrix<double, 6, 6>;
 
         /// Binds sensor class SensorT, subclassable in Python, constructed from `CtorArgs...`.
         template <typename SensorT, typename... CtorArgs, typename... Names>
@@ -56,32 +55,30 @@ namespace SpacetimePython
 
     void bindSensors(py::module_ &m)
     {
-        bindSensor<PoseSensor<WnoaValues>, Matrix6, pPrior>(m, "PoseSensorWNOA", "A 6-DoF pose sensor on a WNOA robot.", py::arg("weight"), py::arg("prior_model"));
-        bindSensor<PoseSensor<WnovValues>, Matrix6, pPrior>(m, "PoseSensorWNOV", "A 6-DoF pose sensor on a WNOV robot.", py::arg("weight"), py::arg("prior_model"));
-        bindSensor<PoseSensor<QuasiStaticValues>, Matrix6, pPrior>(m, "PoseSensorQuasiStatic", "A 6-DoF pose sensor on a quasi-static robot.", py::arg("weight"),
-                                                  py::arg("prior_model"));
-        bindSensor<PoseSensor<EndEffectorValues>, Matrix6, pPrior>(m, "PoseSensorEndEffector", "A 6-DoF pose sensor on an end effector.", py::arg("weight"),
-                                                  py::arg("prior_model"));
+        bindSensor<PoseSensor<WnoaValues>, pPrior>(m, "PoseSensorWNOA", "A 6-DoF pose sensor (T_ib) on a WNOA robot (each measurement carries its covariance).", py::arg("prior_model"));
+        bindSensor<PoseSensor<WnovValues>, pPrior>(m, "PoseSensorWNOV", "A 6-DoF pose sensor (T_ib) on a WNOV robot (each measurement carries its covariance).", py::arg("prior_model"));
+        bindSensor<PoseSensor<QuasiStaticValues>, pPrior>(m, "PoseSensorQuasiStatic", "A 6-DoF pose sensor (T_ib) on a quasi-static robot (each measurement carries its covariance).", py::arg("prior_model"));
+        bindSensor<PoseSensor<EndEffectorValues>, pPrior>(m, "PoseSensorEndEffector", "A 6-DoF pose sensor (T_ib) on an end effector (each measurement carries its covariance).", py::arg("prior_model"));
         bindSensor<FBGSensor<WnoaValues>, pPrior>(m, "FBGSensorWNOA", "A strain sensor (e.g. FBGs) on a WNOA robot.", py::arg("prior_model"));
         bindSensor<FBGSensor<QuasiStaticValues>, pPrior>(m, "FBGSensorQuasiStatic", "A strain sensor (e.g. FBGs) on a quasi-static robot.", py::arg("prior_model"));
         bindSensor<GyroSensor<WnoaValues>, pPrior>(m, "GyroSensorWNOA", "An angular velocity sensor on a WNOA robot.", py::arg("prior_model"));
         bindSensor<GyroSensor<EndEffectorValues>, pPrior>(m, "GyroSensorEndEffector", "An angular velocity sensor on an end effector.", py::arg("prior_model"));
 
         // The factors, on the interpolated keys (shared by WNOA, WNOV and end effectors for the pose).
-        bindFactor<PoseSensor<WnoaValues>::Factor, Pose>(m, "PoseFactor", "The masked error Log(T^-1 T_meas) on the interpolated pose.");
-        bindFactor<FBGSensor<WnoaValues>::Factor, Vector6>(m, "StrainFactor", "The masked error epsilon - epsilon_meas on a WNOA interpolated strain.");
+        bindFactor<PoseSensor<WnoaValues>::Factor, Pose>(m, "PoseFactor", "The masked error Log(T^-1 T_meas) on the interpolated pose; `measured` is T_ib, `mask` 6 x 1 (0 ignores a component).");
+        bindFactor<FBGSensor<WnoaValues>::Factor, Vector6>(m, "StrainFactor", "The masked error epsilon - epsilon_meas on a WNOA interpolated strain ([rot, trans]); `mask` 6 x 1.");
         bindFactor<GyroSensor<WnoaValues>::Factor, Eigen::Vector3d>(m, "GyroFactor",
-                                                                    "The masked error w_meas - varpi[:3] on a WNOA interpolated velocity.");
+                                                                    "The masked error w_meas - varpi[:3] on a WNOA interpolated velocity; `measured` is the body-frame angular velocity [rad/s], `mask` 3 x 1.");
 
         // The factories: the sensor class for the prior's node values.
         m.def(
             "PoseSensor",
-            [](const Matrix6 &weight, const pPrior &prior)
+            [](const pPrior &prior)
             {
                 return dispatchOnPrior<WnoaPrior, WnovPrior, QuasiStaticPrior, EndEffectorPrior>(prior, "PoseSensor", [&](auto *tag)
-                                                                               { return py::cast(std::make_shared<PoseSensor<std::remove_pointer_t<decltype(tag)>>>(weight, prior)); });
+                                                                               { return py::cast(std::make_shared<PoseSensor<std::remove_pointer_t<decltype(tag)>>>(prior)); });
             },
-            py::arg("weight"), py::arg("prior_model"), "A pose sensor on the robot (WNOA, WNOV, quasi-static) or end effector of `prior_model`.");
+            py::arg("prior_model"), "A pose sensor on the robot (WNOA, WNOV, quasi-static) or end effector of `prior_model`; TypeError for another prior.");
         m.def(
             "FBGSensor",
             [](const pPrior &prior)
@@ -89,7 +86,7 @@ namespace SpacetimePython
                 return dispatchOnPrior<WnoaPrior, QuasiStaticPrior>(prior, "FBGSensor", [&](auto *tag)
                                                   { return py::cast(std::make_shared<FBGSensor<std::remove_pointer_t<decltype(tag)>>>(prior)); });
             },
-            py::arg("prior_model"), "A strain sensor on the WNOA or quasi-static robot of `prior_model`.");
+            py::arg("prior_model"), "A strain sensor on the WNOA or quasi-static robot of `prior_model`; TypeError for another prior.");
         m.def(
             "GyroSensor",
             [](const pPrior &prior)
@@ -97,6 +94,6 @@ namespace SpacetimePython
                 return dispatchOnPrior<WnoaPrior, EndEffectorPrior>(prior, "GyroSensor", [&](auto *tag)
                                                                     { return py::cast(std::make_shared<GyroSensor<std::remove_pointer_t<decltype(tag)>>>(prior)); });
             },
-            py::arg("prior_model"), "An angular velocity sensor on the WNOA robot or end effector of `prior_model`.");
+            py::arg("prior_model"), "An angular velocity sensor on the WNOA robot or end effector of `prior_model`; TypeError for another prior.");
     }
 } // namespace SpacetimePython

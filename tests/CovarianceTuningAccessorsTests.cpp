@@ -126,17 +126,6 @@ namespace Spacetime
         EXPECT_TRUE(stacked.isApprox(Eigen::MatrixXd::Identity(18, 18), 1e-12));
     }
 
-    TEST(GridPriorQueryJacobians, AgreeWithQuery)
-    {
-        Rig rig;
-        Jacobians jacobians;
-        Eigen::MatrixXd pcheck_query;
-        auto a = std::dynamic_pointer_cast<ValueType>(rig.prior->query(0.05, 0.4, rig.x, &pcheck_query));
-        auto b = std::dynamic_pointer_cast<ValueType>(rig.prior->queryJacobians(0.05, 0.4, rig.x, jacobians));
-        ASSERT_TRUE(a && b);
-        EXPECT_TRUE(a->pose().equals(b->pose(), 1e-12));
-    }
-
     TEST(GridPriorQueryJacobians, UnavailableQueriesReturnNullAndNoJacobians)
     {
         Rig rig;

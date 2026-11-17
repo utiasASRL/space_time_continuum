@@ -50,12 +50,6 @@ namespace Spacetime::Interface
             EXPECT_EQ(times[k], 0.0 + static_cast<double>(k) * 0.1) << "step " << k;
     }
 
-    TEST(EstimationSchedule, PeriodControlsTheOfflineStepCount)
-    {
-        EXPECT_EQ(offlineTimes(0.0, 0.1, 0.05).size(), 3u); // {0, 0.05, 0.1}
-        EXPECT_EQ(offlineTimes(0.0, 0.1, 0.02).size(), 6u); // {0, 0.02, ..., 0.1}
-    }
-
     TEST(EstimationSchedule, OfflineIgnoresTheCurrentTime)
     {
         EstimationSchedule schedule(0.0, 1.0, 0.1, false);

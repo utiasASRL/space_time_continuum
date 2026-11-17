@@ -20,12 +20,15 @@
 namespace Spacetime::Interface
 {
     /// Snapshots in time order, written by one thread (typically the estimator's tick callback) and read by any.
+    /// Every method takes one internal mutex; snapshots are shared and immutable, so returned pointers stay valid.
+    /// Grows without bound: every recorded snapshot is kept for the history's lifetime.
     class SnapshotHistory
     {
     public:
-        using pSnapshot = std::shared_ptr<const EstimatorSnapshot>;
+        using pSnapshot = std::shared_ptr<const EstimatorSnapshot>; ///< A shared, immutable snapshot.
 
-        /// Appends `snapshot` (ignored if null). Snapshots must be recorded in non-decreasing time order.
+        /// Appends `snapshot` (ignored if null). Snapshots must be recorded in non-decreasing time order
+        /// (not checked; at() assumes it).
         void record(pSnapshot snapshot)
         {
             if (!snapshot)

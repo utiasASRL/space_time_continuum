@@ -34,6 +34,11 @@ namespace Spacetime::Utilities
      *        afterwards, so a newer row may not be in the snapshot yet. Every query takes
      *        the nodes as a ContinuumRobotState::snapshotEstimationNodes() copy, so it is
      *        safe while the estimator extends the state.
+     *
+     *        Every query's `nodes` argument is that copy: row-major (row r, spatial node i
+     *        at nodes[r * spatial_dim + i]), rows in increasing time, nodes base to tip.
+     * @tparam NodeT The state's node type (e.g. Priors::WNOA::Node<gtsam::Pose3>); its
+     *         ValuesType must provide pose().
      */
     template <Types::NodeType NodeT>
     class RobotShape
@@ -51,7 +56,7 @@ namespace Spacetime::Utilities
         /// One resolved point along the backbone.
         struct Point
         {
-            double arclength;
+            double arclength; ///< Arclength s of the point along the backbone.
             /// world_T_point.
             Eigen::Matrix4d pose;
             /// Posterior covariance whose leading 6 x 6 block is the pose's ([rot, trans], body
@@ -70,7 +75,7 @@ namespace Spacetime::Utilities
             std::vector<Point> points;
         };
 
-        /// Throws std::invalid_argument if `state` is null.
+        /// @throws std::invalid_argument if `state` is null.
         explicit RobotShape(std::shared_ptr<const Types::ContinuumRobotState<NodeT>> state)
             : mp_state(std::move(state)), m_spatial_dim(mp_state ? mp_state->spatial_dim : 0)
         {
@@ -103,6 +108,7 @@ namespace Spacetime::Utilities
                                                                         nullptr, nullptr, posterior, posteriorCovariance); });
         }
 
+        /// Whether an interpolator is bound (see bindInterpolator, bindPriorInterpolator).
         bool hasInterpolator() const { return static_cast<bool>(m_interpolate); }
 
         /**
@@ -261,7 +267,7 @@ namespace Spacetime::Utilities
 
     private:
         std::shared_ptr<const Types::ContinuumRobotState<NodeT>> mp_state;
-        /// Spatial nodes per temporal row.
+        /// Spatial nodes per temporal row (the state's spatial_dim).
         unsigned int m_spatial_dim;
         InterpolateFn m_interpolate;
 

@@ -44,15 +44,15 @@ namespace Spacetime::Types
             return *this;
         }
     };
-    /// NodeValues types that declare a static `dim`.
+    /// NodeValues types that declare a static `dim` (the node's tangent dimension). @tparam T The candidate values type.
     template <typename T>
     concept ValuesType = std::derived_from<T, NodeValues> && requires(T n) { T::dim; };
 
     /// A registered variable: its key and C++ type.
     struct VariableInfo
     {
-        gtsam::Key key;
-        std::type_index type;
+        gtsam::Key key;        ///< The variable's key.
+        std::type_index type;  ///< C++ type of the variable's value (e.g. gtsam::Pose3).
 
         /// Same key and type.
         bool operator==(const VariableInfo &other) const
@@ -68,7 +68,12 @@ namespace Spacetime::Types
         }
     };
 
-    /// Base of a node: a set of named variables estimated at one (arclength, time).
+    /**
+     * @brief Base of a node: a set of named variables estimated at one (arclength, time).
+     *        Derived node types register their variables in their constructor (see
+     *        registerVariable) and, to support sensors and queries, override
+     *        interpolatedKeys and getValuesBase.
+     */
     struct NodeBase
     {
         /// Derived types register their variables with `km` (see registerVariable); unused here.
@@ -112,6 +117,7 @@ namespace Spacetime::Types
 
         /**
          * @brief Inserts `value` into `values` at the key of the variable `name`.
+         * @tparam T The variable's value type; must match the registered one.
          * @throws std::out_of_range for an unknown name; std::runtime_error if T is not its type.
          */
         template <typename T>
@@ -213,7 +219,11 @@ namespace Spacetime::Types
         }
 
     protected:
-        /// Adds (or replaces) the variable `name` of type T, with a new `chr` key at this node's time.
+        /**
+         * @brief Adds (or replaces) the variable `name` of type T, with a new `chr` key from
+         *        `km` timestamped at this node's time, and returns that key.
+         * @tparam T The variable's value type (e.g. gtsam::Pose3, gtsam::Vector).
+         */
         template <typename T>
         gtsam::Key registerVariable(KeyManager &km, const std::string &name, unsigned char chr)
         {
@@ -229,7 +239,7 @@ namespace Spacetime::Types
     private:
         std::map<std::string, VariableInfo> variables_;
     };
-    /// Types derived from NodeBase.
+    /// Types derived from NodeBase. @tparam T The candidate node type.
     template <typename T>
     concept NodeType = std::derived_from<T, NodeBase>;
 
@@ -241,7 +251,7 @@ namespace Spacetime::Types
     {
         virtual ~State() = default;
 
-        /// Adds the state's nodes at `time` (e.g. a node row). Does nothing by default.
+        /// Adds the state's nodes at `time` (e.g. a node row), registering their keys with `km`. Does nothing by default.
         virtual void addStateAtTime(KeyManager &km, double time) {};
 
         /**
@@ -271,19 +281,19 @@ namespace Spacetime::Types
         const gtsam::Values &lockedValues() const { return locked_values_; }
 
     protected:
-        gtsam::Values locked_values_;
+        gtsam::Values locked_values_; ///< Locked variables by key; filled by derived states (see lockedValues).
     };
-    /// Types derived from State.
+    /// Types derived from State. @tparam T The candidate state type.
     template <typename T>
     concept StateType = std::derived_from<T, State>;
 } // namespace Spacetime::Types
 
-/**
- * @brief Hash `NodeBase` by its variable keys (consistent with operator==, since equal
- *        nodes have the same variables).
- */
 namespace std
 {
+    /**
+     * @brief Hash `NodeBase` by its variable keys (consistent with operator==, since equal
+     *        nodes have the same variables).
+     */
     template <>
     struct hash<Spacetime::Types::NodeBase>
     {

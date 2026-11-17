@@ -24,8 +24,8 @@ from spacetime import joints, sensors
 
 from joint_demo import StrainPrior, make_robot, measure, parse_arguments, run
 
-PERIOD = 0.1
-END_TIME = 8.0
+PERIOD = 1.0 / 30.0
+END_TIME = 2.0
 LENGTH_A = 0.4
 NODES = 5
 LINK = 0.03
@@ -87,7 +87,7 @@ def main():
 
     # Robot B's mid-point and tip, measured as it goes through the S.
     covariance = np.diag([1e-4, 1e-4, 1e-4, 1e-6, 1e-6, 1e-6])
-    sensor = sensors.PoseSensor(covariance, robots[1].prior)
+    sensor = sensors.PoseSensor(robots[1].prior)
     k = 0
     while k * PERIOD <= END_TIME + 1e-9:
         t = k * PERIOD

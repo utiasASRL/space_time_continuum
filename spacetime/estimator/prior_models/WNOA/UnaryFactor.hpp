@@ -1,5 +1,5 @@
-#ifndef UNARYFACTOR_HPP
-#define UNARYFACTOR_HPP
+#ifndef WNOA_UNARYFACTOR_HPP
+#define WNOA_UNARYFACTOR_HPP
 
 #include <Eigen/Dense>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
@@ -14,12 +14,15 @@
 #include <spacetime/estimator/prior_models/WNOA/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
 
-namespace Spacetime::Priors::WNOA::Legacy
+namespace Spacetime::Priors::WNOA
 {
-    /// The paper's unary (boundary) factor on a WNOA node (FactorType::Legacy and FactorType::Paper); see Legacy.
+    /// The paper's unary (boundary) factor on a WNOA node (FactorType::WNOA and FactorType::Legacy); see BinarySpaceFactor.
     namespace UnaryFactor
     {
-        /// Unary factor tying a node's (pose, eps, varpi) to reference values.
+        /**
+         * @brief Unary factor tying a node's (pose, eps, varpi) to reference values.
+         * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
+         */
         template <typename Pose>
         // using Pose = gtsam::Pose3; // For now, we will only support Pose3, but this can be templatized in the future if needed
         class Factor : public gtsam::NoiseModelFactorN<Pose, typename gtsam::traits<Pose>::TangentVector, typename gtsam::traits<Pose>::TangentVector>
@@ -42,7 +45,11 @@ namespace Spacetime::Priors::WNOA::Legacy
             using ErrorVector = Eigen::Vector<double, 3 * dim>;
             using ErrorJacobian = Eigen::Matrix<double, 3 * dim, dim>;
 
-            /// @param node0 Reference values the node is tied to.
+            /**
+             * @param key_pose,key_epsilon,key_varpi The node's pose, strain and velocity keys.
+             * @param noise_model Covariance over [pose, eps, varpi].
+             * @param node0 Reference values the node is tied to.
+             */
             Factor(gtsam::Key key_pose, gtsam::Key key_epsilon, gtsam::Key key_varpi, const gtsam::SharedNoiseModel &noise_model, const Values<Pose> &node0) : Base(noise_model, key_pose, key_epsilon, key_varpi), m_reference_values(node0) {};
             ~Factor() = default;
 
@@ -92,6 +99,6 @@ namespace Spacetime::Priors::WNOA::Legacy
             return std::make_shared<Factor<Pose>>(node->poseKey(), node->strainKey(), node->velocityKey(), gtsam::noiseModel::Gaussian::Covariance(covariance), node_reference);
         };
     }
-} // namespace Spacetime::Priors::WNOA::Legacy
+} // namespace Spacetime::Priors::WNOA
 
-#endif // UNARYFACTOR_HPP
+#endif // WNOA_UNARYFACTOR_HPP

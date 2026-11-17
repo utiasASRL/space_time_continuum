@@ -40,14 +40,15 @@ namespace Spacetime::Visualization::Default
         /// What is plotted (see renderPlot).
         struct Content
         {
-            PlotSeries series;
-            std::vector<double> gt_x, gt_y;
-            QString title;
-            QColor color = Qt::black;
-            QSize size;
-            double marker_x = std::numeric_limits<double>::quiet_NaN();
+            PlotSeries series;              ///< Mean and +/- 3 sigma bounds.
+            std::vector<double> gt_x, gt_y; ///< Ground-truth samples (drawn as dots); may be empty.
+            QString title;                  ///< Drawn above the axes.
+            QColor color = Qt::black;       ///< Colour of the mean and bounds.
+            QSize size;                     ///< Rendered size [px]; at least 100 x 60.
+            double marker_x = std::numeric_limits<double>::quiet_NaN(); ///< x of the dashed vertical marker; NaN for none.
         };
 
+        /// An empty plot (until setContent()).
         explicit PlotView(QWidget *parent = nullptr) : QWidget(parent) {}
 
         /// Replaces what is plotted, keeping the current view, and re-renders.
@@ -74,6 +75,7 @@ namespace Spacetime::Visualization::Default
         const QImage &image() const { return m_image; }
 
     protected:
+        /// Draws the last rendered image.
         void paintEvent(QPaintEvent *) override
         {
             QPainter painter(this);
@@ -100,6 +102,7 @@ namespace Spacetime::Visualization::Default
             event->accept();
         }
 
+        /// A left press on the axes or an axis strip starts a pan (see mouseMoveEvent); other presses are ignored.
         void mousePressEvent(QMouseEvent *event) override
         {
             const QPoint position = event->position().toPoint();
@@ -133,6 +136,7 @@ namespace Spacetime::Visualization::Default
             event->accept();
         }
 
+        /// Ends a pan, keeping the panned view.
         void mouseReleaseEvent(QMouseEvent *event) override
         {
             if (!m_drag || event->button() != Qt::LeftButton)
@@ -149,13 +153,15 @@ namespace Spacetime::Visualization::Default
         /// An in-progress drag: where it started and the range shown then.
         struct Drag
         {
-            QPoint start;
-            PlotRange start_range;
-            PlotRegion region;
+            QPoint start;          ///< Press position [px].
+            PlotRange start_range; ///< Range shown at the press.
+            PlotRegion region;     ///< Region pressed, which decides the axes panned.
         };
 
+        /// Span scale per wheel notch (< 1 zooms in on wheel up).
         static constexpr double kZoomPerNotch = 0.8;
 
+        /// Content::size clamped as renderPlot clamps it.
         QSize renderedSize() const { return m_content.size.expandedTo(QSize(100, 60)); }
 
         /// The range currently drawn: the user's view, or the fit (nullopt without data).
@@ -170,6 +176,7 @@ namespace Spacetime::Visualization::Default
             return {x, y};
         }
 
+        /// Re-renders m_image for the current content and view, and schedules a repaint.
         void render()
         {
             m_image = renderPlot(m_content.series, m_content.gt_x, m_content.gt_y, m_content.title, m_content.color,
@@ -179,7 +186,9 @@ namespace Spacetime::Visualization::Default
 
         Content m_content;
         QImage m_image;
+        /// The user's panned/zoomed range, or nullopt to fit the data.
         std::optional<PlotRange> m_view;
+        /// The pan in progress, if any.
         std::optional<Drag> m_drag;
     };
 
@@ -187,7 +196,7 @@ namespace Spacetime::Visualization::Default
      * @brief The scrollable overlay a PlotWidget draws into: a mode button, a line
      *        saying where the plots are sliced, then per plotted variable a header and
      *        one PlotView per component. Holds no data of its own: setGroups() lays it out
-     *        and setPlot() fills it.
+     *        and setPlot() fills it. Child widgets are owned by Qt. GUI thread only.
      */
     class PlotPanel : public QScrollArea
     {
@@ -195,8 +204,8 @@ namespace Spacetime::Visualization::Default
         /// Header and plot count of one variable group. `count` is 0 for a group with nothing to plot.
         struct GroupLayout
         {
-            QString header;
-            int count = 0;
+            QString header; ///< Header text (rich text allowed).
+            int count = 0;  ///< Number of component plots.
         };
 
         /// Creates the (hidden) panel; `on_mode_clicked` runs when the mode button is pressed.
@@ -231,9 +240,11 @@ namespace Spacetime::Visualization::Default
             setVisible(false);
         }
 
+        /// Sets the mode button's label.
         void setModeButtonText(const QString &text) { m_mode_button->setText(text); }
         /// Shows or hides the mode button (e.g. for plots with a single mode).
         void setModeButtonVisible(bool visible) { m_mode_button->setVisible(visible); }
+        /// Sets the line under the mode button saying where the plots are sliced.
         void setFilterText(const QString &text) { m_filter_label->setText(text); }
 
         /// Lays the panel out for `groups`, rebuilding the plots only if their counts changed (headers are always updated).
@@ -288,7 +299,9 @@ namespace Spacetime::Visualization::Default
 
         /// Consumes clicks and drags not used by a plot, for the same reason (they would rotate the camera).
         void mousePressEvent(QMouseEvent *event) override { event->accept(); }
+        /// See mousePressEvent.
         void mouseMoveEvent(QMouseEvent *event) override { event->accept(); }
+        /// See mousePressEvent.
         void mouseReleaseEvent(QMouseEvent *event) override { event->accept(); }
 
     private:
@@ -321,7 +334,9 @@ namespace Spacetime::Visualization::Default
             }
         }
 
+        /// Margin around the plots [px].
         static constexpr int kPadding = 20;
+        /// Minimum height of a group header [px].
         static constexpr int kHeaderHeight = 30;
 
         QVBoxLayout *m_layout;
@@ -329,7 +344,9 @@ namespace Spacetime::Visualization::Default
         QLabel *m_filter_label;
         QWidget *m_groups_container;
         QVBoxLayout *m_groups_layout;
+        /// One header per group.
         std::vector<QLabel *> m_headers;
+        /// Per group, one plot per component.
         std::vector<std::vector<PlotView *>> m_plots;
     };
 } // namespace Spacetime::Visualization::Default

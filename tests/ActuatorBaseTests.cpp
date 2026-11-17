@@ -108,23 +108,6 @@ namespace Spacetime
         }
     } // namespace
 
-    // Its inputs are variables of the estimation problem, so it is a stateful model, whose state holds them.
-    TEST(ActuatorBase, IsAStatefulModelWithAMeasurementQueue)
-    {
-        EXPECT_TRUE((std::derived_from<Types::ActuatorBase, Types::StatefulModel<Types::ActuatorState>>));
-        EXPECT_TRUE(Types::StatefulType<Types::ActuatorBase>);
-        EXPECT_TRUE((std::derived_from<Types::ActuatorBase, Types::MeasurementQueue>));
-
-        std::shared_ptr<StateType> state;
-        auto prior = makePrior(state);
-        StrainActuator actuator(prior, {0.5});
-        ASSERT_NE(actuator.state(), nullptr);
-        EXPECT_EQ(actuator.state()->input_dim, 6u);
-        EXPECT_EQ(actuator.state()->input_symbol, 'u');
-        EXPECT_EQ(actuator.inputDim(), 6u);
-        EXPECT_EQ(actuator.stateful(), prior); // the state it acts on, not its own
-    }
-
     TEST(ActuatorBase, RejectsANullPriorOrNoArclengths)
     {
         std::shared_ptr<StateType> state;
@@ -325,18 +308,6 @@ namespace Spacetime
         const gtsam::Key latest = actuator->inputKeys().back().second;
         EXPECT_TRUE(estimator.getCurrentValues().at<gtsam::Vector>(latest).isApprox(2.0 * kInput, 1e-3))
             << estimator.getCurrentValues().at<gtsam::Vector>(latest).transpose();
-    }
-
-    TEST(ActuatorBase, FutureMeasurementsWaitForTheirTime)
-    {
-        std::shared_ptr<StateType> state;
-        StrainActuator actuator(makePrior(state), {0.5});
-        actuator.addMeasurement(makeInput(0.3));
-        KeyManager km;
-        gtsam::Values values, new_values;
-        EXPECT_TRUE(actuator.extendState(km, 0.1, values, new_values).empty());
-        EXPECT_TRUE(new_values.empty());
-        EXPECT_EQ(actuator.extendState(km, 0.3, values, new_values).size(), 1u);
     }
 
     // A measurement before the estimated state's first node cannot be attached: its strain

@@ -30,6 +30,7 @@ namespace Spacetime::Types
      */
     struct Model
     {
+        /// The factors a model returns from a phase.
         using Factors = std::vector<std::shared_ptr<gtsam::NonlinearFactor>>;
 
         virtual ~Model() = default;
@@ -86,10 +87,11 @@ namespace Spacetime::Types
         }
     };
 
-    /// Types derived from Model.
+    /// Types derived from Model. @tparam T The candidate model type.
     template <typename T>
     concept ModelType = std::derived_from<T, Model>;
 
+    /// Shared pointer to a Model.
     using pModelType = std::shared_ptr<Model>;
 } // namespace Spacetime::Types
 

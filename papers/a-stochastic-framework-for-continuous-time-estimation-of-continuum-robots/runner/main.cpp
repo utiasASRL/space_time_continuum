@@ -110,7 +110,7 @@ void exportAt(const std::shared_ptr<PriorT> &prior, const Spacetime::Estimator &
               const std::vector<std::pair<double, double>> &points, const std::string &directory)
 {
     const Eigen::Matrix<double, 6, 6> unused_noise = Eigen::Matrix<double, 6, 6>::Identity();
-    auto points_sensor = std::make_shared<Spacetime::Sensors::PoseSensor<typename PriorT::ValuesType>>(unused_noise, prior);
+    auto points_sensor = std::make_shared<Spacetime::Sensors::PoseSensor<typename PriorT::ValuesType>>(prior);
     for (const auto &[time, arclength] : points)
         points_sensor->addMeasurement(std::make_shared<Spacetime::Types::MeasurementBase>(
             arclength, time, Eigen::Matrix4d::Identity(), unused_noise, Eigen::MatrixXi::Ones(6, 1)));

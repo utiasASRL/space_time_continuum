@@ -21,30 +21,6 @@ namespace Spacetime
     using StateType = Types::ContinuumRobotState<NodeType>;
     using ValueType = Priors::WNOA::Values<Pose>;
 
-    TEST(Estimator, ImportTest)
-    {
-        EXPECT_TRUE(true); // This test just checks that the test file compiles and runs without errors. The actual tests are in the other TEST cases below
-    }
-
-    TEST(Estimator, EstimationLoop)
-    {
-        // 4 spatial node robot (3 spatial factors)
-        unsigned int spatial_dim = 4;
-        std::shared_ptr<StateType> state = std::make_shared<StateType>(1.0, spatial_dim);
-
-        ValueType node_reference;
-        node_reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
-        std::shared_ptr<Priors::WNOA::Prior<Pose>> prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
-
-        Estimator estimator_pass = Estimator();
-        EXPECT_NO_THROW({ estimator_pass.estimate(0.0); });
-
-        Estimator estimator_fail = Estimator();
-        estimator_fail.addPrior(prior);
-
-        EXPECT_NO_THROW({ estimator_fail.estimate(0.0); });
-    }
-
     TEST(Estimator, NonZeroStrainInitialization)
     {
         // 4 spatial node robot (3 spatial factors)

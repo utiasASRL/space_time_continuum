@@ -128,29 +128,6 @@ namespace Spacetime
                    (Vector6() << 0, 0.3, 0, 0, 0, 1).finished()));
     }
 
-    TEST(InterpolationPlan, PlansRecordEachAxisMode)
-    {
-        using Interp = Priors::WNOA::Interpolator<Pose>;
-        const Interp interp(Matrix6::Identity(), Matrix6::Identity(), Matrix6::Identity(), Matrix6::Identity());
-        Grid<Priors::WNOA::Node<Pose>> grid;
-        using Mode = Interp::AxisMode;
-
-        const auto both = interp.makePlan(0.4, 0.7, grid.n00, grid.n01, grid.n10, grid.n11);
-        EXPECT_EQ(both.space_mode, Mode::Interpolate);
-        EXPECT_EQ(both.time_mode, Mode::Interpolate);
-        EXPECT_EQ(both.space0.mode, Mode::Interpolate);
-        EXPECT_EQ(both.space1.mode, Mode::Interpolate);
-        EXPECT_EQ(both.time.mode, Mode::Interpolate);
-
-        const auto extrapolated = interp.makePlan(0.4, 0.3, grid.n00, nullptr, nullptr, nullptr);
-        EXPECT_EQ(extrapolated.space_mode, Mode::Extrapolate);
-        EXPECT_EQ(extrapolated.time_mode, Mode::Extrapolate);
-
-        const auto coincide = interp.makePlan(0.0, 0.0, grid.n00, grid.n01, grid.n10, grid.n11);
-        EXPECT_EQ(coincide.space_mode, Mode::Coincide);
-        EXPECT_EQ(coincide.time_mode, Mode::Coincide);
-    }
-
     TEST(InterpolationPlan, InvalidQueriesAreRejectedWhenPlanned)
     {
         using Interp = Priors::WNOA::Interpolator<Pose>;

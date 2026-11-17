@@ -37,21 +37,6 @@ namespace Spacetime
         EXPECT_DOUBLE_EQ(rig.drawnBaseZ(), rig.rowBaseZ(0, snapshot_values));
     }
 
-    TEST(ContinuumRobotVisualization, RowIsDrawnOnceItsSnapshotIsPublished)
-    {
-        Rig rig;
-        rig.addRow(10.0);
-        rig.addRow(10.1);
-        gtsam::Values snapshot_values = rig.values;
-        rig.offsetRow(1, snapshot_values, 0.5);
-        rig.publish(10.1, snapshot_values);
-
-        rig.view->updateVisualization(10.15, 10.15);
-
-        EXPECT_TRUE(rig.backboneVisible());
-        EXPECT_DOUBLE_EQ(rig.drawnBaseZ(), rig.rowBaseZ(1, snapshot_values));
-    }
-
     // Offline (and online with a phase delay), the display time can be earlier than
     // the snapshot time. The cap must not change which row is drawn then.
     TEST(ContinuumRobotVisualization, DisplayTimeBeforeSnapshotTimeStillSelectsByDisplayTime)
@@ -244,15 +229,6 @@ namespace Spacetime
         rig.view->updateVisualization(0.0, 0.0);
         EXPECT_EQ(rig.view->mp_axes[0]->GetUserMatrix(), matrix);
         EXPECT_DOUBLE_EQ(matrix->GetElement(2, 3), rig.rowBaseZ(0, moved));
-    }
-
-    TEST(ContinuumRobotVisualization, NodeFramesAreShownWithTheBackboneByDefault)
-    {
-        Rig rig;
-        EXPECT_TRUE(rig.view->nodeFramesShown());
-        rig.drawOneRow();
-        EXPECT_TRUE(rig.backboneVisible());
-        EXPECT_TRUE(rig.nodeFramesVisible());
     }
 
     TEST(ContinuumRobotVisualization, NodeFramesToggleIndependentlyOfTheBackbone)

@@ -12,16 +12,6 @@ from conftest import batch_estimator, make_wnoa_robot, run_session
 LINK = gtsam.Pose3(gtsam.Rot3(), gtsam.Point3(0.0, 0.0, 0.0))
 
 
-def test_joint_options_defaults_match_cpp():
-    options = joints.JointOptions()
-    assert options.type == joints.JointType.Rigid
-    assert options.offset.equals(gtsam.Pose3(), 0.0)
-    assert options.velocity_sigma_floor == pytest.approx(1e-3)
-    options.type = joints.JointType.Spherical
-    options.offset = gtsam.Pose3(gtsam.Rot3(), gtsam.Point3(0.0, 0.0, 0.1))
-    assert options.offset.translation()[2] == pytest.approx(0.1)
-
-
 def test_joint_factory_dispatches_on_prior_types():
     _, a = make_wnoa_robot()
     _, b = make_wnoa_robot(base=gtsam.Pose3(gtsam.Rot3(), gtsam.Point3(0.2, 0, 0)))
@@ -76,5 +66,5 @@ def test_end_effector_without_robot_raises_on_estimate():
 
 def test_end_effector_pose_sensor():
     ee = joints.EndEffector(gtsam.Pose3())
-    sensor = sensors.PoseSensor(np.eye(6), ee.endEffectorPrior())
+    sensor = sensors.PoseSensor(ee.endEffectorPrior())
     assert isinstance(sensor, sensors.PoseSensorEndEffector)
