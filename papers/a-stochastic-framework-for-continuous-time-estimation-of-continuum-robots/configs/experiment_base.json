@@ -52,6 +52,11 @@
         }
     },
     "visualizer": {
+        "ground_plane": {
+            "normal": [0, 0, 1],
+            "position": [0, 0, 0],
+            "size": 0.7071
+        },
         "robot": {
             "radius": 0.002
         },

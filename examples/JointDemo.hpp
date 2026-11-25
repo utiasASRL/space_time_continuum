@@ -29,26 +29,12 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/Values.h>
 
-#include <spacetime/Types.hpp>
-#include <spacetime/estimator/Estimator.hpp>
-#include <spacetime/estimator/joint_models/EndEffector.hpp>
-#include <spacetime/estimator/joint_models/Joint.hpp>
-#include <spacetime/estimator/prior_models/WNOA.hpp>
-#include <spacetime/estimator/sensor_models/PoseSensor.hpp>
-#include <spacetime/interface/InterfaceConcept.hpp>
-#include <spacetime/interface/Interfaces.hpp>
+#include <spacetime>
 
 #ifdef VISUALIZER
 #include <vtkAutoInit.h>
 VTK_MODULE_INIT(vtkRenderingOpenGL2);
 VTK_MODULE_INIT(vtkRenderingFreeType);
-#include <spacetime/visualizer/default/Visualizer.hpp>
-#include <spacetime/visualizer/default/VisualizerThread.hpp>
-#include <spacetime/visualizer/default/objects/ContinuumRobot.hpp>
-#include <spacetime/visualizer/default/objects/EndEffector.hpp>
-#include <spacetime/visualizer/default/objects/Joint.hpp>
-#include <spacetime/visualizer/default/objects/RuntimeWidget.hpp>
-#include <spacetime/visualizer/default/objects/SensorViews.hpp>
 #endif
 
 namespace JointDemo
@@ -65,11 +51,12 @@ namespace JointDemo
     using Vector6 = Eigen::Matrix<double, 6, 1>;
     using Matrix6 = Eigen::Matrix<double, 6, 6>;
 
-    /// A WNOA robot: its state and the prior extending it.
+    /// A WNOA robot: its state, the prior extending it, and its initial base pose.
     struct DemoRobot
     {
         std::shared_ptr<State> state;
         std::shared_ptr<Prior> prior;
+        Pose base;
     };
 
     /**
@@ -115,11 +102,12 @@ namespace JointDemo
         }
 
         DemoRobot out;
+        out.base = base;
         out.state = std::make_shared<State>(length, nodes);
         Values reference;
         reference.pose(base);
         reference.epsilon(strain);
-        out.prior = std::make_shared<Prior>(out.state, reference, Q0, Prior::MatrixN::Identity(), Q2, Q3);
+        out.prior = std::make_shared<Prior>(out.state, reference, Q0, Prior::MatrixN::Identity(), Q2, Q3, Prior::MatrixN::Identity());
         if (lock_base)
             out.state->lock("pose", 0.0, base);
         return out;
@@ -151,7 +139,7 @@ namespace JointDemo
         const auto node = prior.query(time, s, values);
         if (const auto wnoa = std::dynamic_pointer_cast<Values>(node))
             return wnoa->pose();
-        return std::dynamic_pointer_cast<Spacetime::Joints::EndEffectorValues<Pose>>(node)->pose();
+        return std::dynamic_pointer_cast<Spacetime::Joints::EndEffectorNodeValues<Pose>>(node)->pose();
     }
 
     /// How far a joint is from holding at `time`: |Log(T_off^-1 T_A^-1 T_B)| ([rad, m] mixed), from the estimator's current values.
@@ -229,11 +217,36 @@ namespace JointDemo
             joints << r.id << "," << r.residual << "," << r.travel_a << "," << r.travel_b << "\n";
     }
 
+#ifdef VISUALIZER
+    /**
+     * @brief The floor the robots stand on: a horizontal plane (normal +z) at z = 0, centred
+     *        under the robots' bases and sized to their horizontal spread, with a margin.
+     *        Every demo's robots start on (bucky_ball: around) z = 0.
+     */
+    inline Spacetime::Visualization::GroundPlaneOptions groundPlaneUnder(const std::vector<DemoRobot> &robots)
+    {
+        Spacetime::Visualization::GroundPlaneOptions plane;
+        if (robots.empty())
+            return plane;
+        Eigen::Vector2d centre = Eigen::Vector2d::Zero();
+        for (const auto &robot : robots)
+            centre += robot.base.translation().head<2>();
+        centre /= static_cast<double>(robots.size());
+        double spread = 0.0;
+        for (const auto &robot : robots)
+            spread = std::max(spread, (robot.base.translation().head<2>() - centre).norm());
+        plane.position = Eigen::Vector3d(centre.x(), centre.y(), 0.0);
+        plane.size = std::max(0.3, 3.0 * spread);
+        return plane;
+    }
+#endif
+
     /**
      * @brief Estimates [start_time, end_time] with a batch `estimator` already holding every
      *        robot, joint, end effector and sensor, then (unless `headless`) replays it in the
      *        visualizer, and prints each joint's residual at the end time -- or, if
-     *        `summary_only`, just their largest and mean residuals and travels.
+     *        `summary_only`, just their largest and mean residuals and travels. The visualizer
+     *        draws the floor under the robots (groundPlaneUnder), toggled with P.
      * @param show_node_frames Whether the robots' node frames start shown (toggle A), e.g. not where
      *        end effectors' frames already mark them.
      * @param on_estimated Called with the estimate once the run is solved (before the replay), e.g.
@@ -244,13 +257,12 @@ namespace JointDemo
                    int &argc, char *argv[], bool summary_only = false, bool show_node_frames = true,
                    const std::function<void(const gtsam::Values &)> &on_estimated = nullptr)
     {
-        Spacetime::Interface::SessionOptions session_options;
+        Spacetime::SessionOptions session_options;
         session_options.start_time = start_time;
         session_options.end_time = end_time;
         session_options.period = period;
         session_options.real_time = false;
-        Spacetime::Interfaces::Standalone::Session session(estimator, session_options);
-        session.addMeasurementQueues(estimator.getMeasurementQueues());
+        Spacetime::Session session(session_options);
 
         const auto initial_wall_time = std::chrono::steady_clock::now();
 #ifdef VISUALIZER
@@ -305,6 +317,8 @@ namespace JointDemo
                         vis.addVisualizable(joint_view);
                     }
                 }
+                // The floor under the robots (toggle P).
+                vis.addVisualizable(std::make_shared<Spacetime::Visualization::Default::GroundPlane>(groundPlaneUnder(robots)));
                 // Estimator phase timings along the bottom of the window, toggled with H (the run has ended before playback: its average and total, or total only in batch mode).
                 vis.addVisualizable(std::make_shared<Spacetime::Visualization::Default::RuntimeWidget>([&estimator]()
                                                                                                         { return estimator.getSnapshot(); }));
@@ -322,7 +336,7 @@ namespace JointDemo
 #endif
 
         // Offline: estimate everything first, then replay it.
-        session.start();
+        session.start(estimator);
         session.join();
         const double total_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - initial_wall_time).count();
         std::cout << "Estimation complete in " << total_time << " s." << std::endl;

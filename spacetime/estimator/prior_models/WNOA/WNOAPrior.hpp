@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <tuple>
 #include <stdexcept>
 #include <iterator>
 #include <cassert>
@@ -16,7 +17,11 @@
 #include <gtsam/inference/Factor.h>
 #include <gtsam/nonlinear/CustomFactor.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 #include <spacetime/estimator/utilities/logger.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
@@ -28,8 +33,10 @@
 #include <spacetime/estimator/prior_models/WNOA/experimental/UnaryFactor.hpp>
 #include <spacetime/estimator/prior_models/WNOA/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/Interpolator.hpp>
+#include <spacetime/estimator/prior_models/WNOA/Covariances.hpp>
 #include <spacetime/estimator/prior_models/InterpolationFactor.hpp>
 #include <spacetime/estimator/prior_models/GridPrior.hpp>
+#include <spacetime/estimator/prior_models/StraightStrain.hpp>
 
 namespace Spacetime::Priors::WNOA
 {
@@ -75,6 +82,11 @@ namespace Spacetime::Priors::WNOA
      * FactorType::Experimental passes only Q1's and Q2's diagonals to gtsam::WnoaMotionFactor, and
      * the WNOA / Legacy factors and the Interpolator invert all four as diagonal.
      *
+     * Q1..Q4 may vary along the robot (see CovarianceOverrides, given at construction):
+     * the time factors at node n use node n's Q1/Q3, the space factors between nodes n and
+     * n+1 use segment n's Q2/Q4, and measurement interpolation in the cell [s_n, s_{n+1}]
+     * uses both of these.
+     *
      * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
@@ -117,21 +129,83 @@ namespace Spacetime::Priors::WNOA
          * @param Q3 Strain random-walk-in-time PSD.
          * @param Q4 Velocity random-walk-in-arclength PSD.
          * @param options See PriorOptions.
+         * @param overrides Per-arclength values of Q1..Q4 replacing the nominal ones above
+         *        (see CovarianceOverrides); none by default.
+         * Warns if base_start_point's strain does not have the body x axis as its tangent
+         * axis (see Priors::warnIfTangentNotX). DefaultCovariances() gives tuned Q0..Q4.
+         * @throws std::invalid_argument for an override key that is not a node arclength
+         *         (see Priors::CovarianceProfile).
          */
         Prior(
             std::shared_ptr<StateType> state,
-            const Values<Pose> &base_start_point,
-            const Matrix3N &Q0 = Matrix3N::Identity(),
-            const MatrixN &Q1 = MatrixN::Identity(),
-            const MatrixN &Q2 = MatrixN::Identity(),
-            const MatrixN &Q3 = MatrixN::Identity(),
-            const MatrixN &Q4 = MatrixN::Identity(),
-            const PriorOptions &options = PriorOptions())
-            : Base(state, InterpolatorType(Q1, Q2, Q3, Q4), options.fixed_noise_model, options.cache_noise_model, "WNOA::Prior"),
-              m_node_reference(base_start_point), m_Q0(Q0), m_Q1(Q1), m_Q2(Q2), m_Q3(Q3), m_Q4(Q4), m_options(options) {}
+            const NodeValues<Pose> &base_start_point,
+            const Matrix3N &Q0,
+            const MatrixN &Q1,
+            const MatrixN &Q2,
+            const MatrixN &Q3,
+            const MatrixN &Q4,
+            const PriorOptions &options = PriorOptions(),
+            const CovarianceOverrides<Pose> &overrides = CovarianceOverrides<Pose>())
+            : Prior(state, base_start_point, Q0,
+                    std::make_shared<const CovarianceProfiles<Pose>>(Q1, Q2, Q3, Q4, stateArclengths(state), overrides),
+                    options) {}
+
+        /**
+         * @brief A prior with the default tuned covariances (see DefaultCovariances).
+         * @param state The grid state this prior extends.
+         * @param base_start_point Reference base-node values (see the full constructor).
+         * @param options See PriorOptions.
+         * @param overrides Per-arclength values of Q1..Q4 (see CovarianceOverrides).
+         */
+        Prior(std::shared_ptr<StateType> state, const NodeValues<Pose> &base_start_point, const PriorOptions &options = PriorOptions(),
+              const CovarianceOverrides<Pose> &overrides = CovarianceOverrides<Pose>())
+            : Prior(std::move(state), base_start_point, std::get<0>(DefaultCovariances()), std::get<1>(DefaultCovariances()),
+                    std::get<2>(DefaultCovariances()), std::get<3>(DefaultCovariances()), std::get<4>(DefaultCovariances()), options,
+                    overrides) {}
+
+    private:
+        Prior(std::shared_ptr<StateType> state, const NodeValues<Pose> &base_start_point, const Matrix3N &Q0,
+              std::shared_ptr<const CovarianceProfiles<Pose>> profiles, const PriorOptions &options)
+            : Base(state, InterpolatorType(profiles), options.fixed_noise_model, options.cache_noise_model, "WNOA::Prior"),
+              m_node_reference(base_start_point), m_Q0(Q0), m_Q(std::move(profiles)), m_options(options)
+        {
+            warnIfTangentNotX<Pose>(base_start_point.epsilon(), "WNOA::Prior");
+        }
+
+    public:
+
+        /**
+         * @brief The default tuned covariances (Q0, Q1, Q2, Q3, Q4), in constructor order.
+         *        For gtsam::Pose3, the experiment tuning of "A Stochastic Framework for
+         *        Continuous-Time Estimation of Continuum Robots"
+         *        (papers/.../configs/experiment_base.json), scaled by its prior_factor 0.5,
+         *        with Q0's rotational-strain diagonal permuted from the paper's z tangent
+         *        axis to the library's x (see Priors::straightStrain): torsion (about x) is
+         *        held tight and bending (about y and z) is free. Identity for other poses.
+         */
+        static std::tuple<Matrix3N, MatrixN, MatrixN, MatrixN, MatrixN> DefaultCovariances()
+        {
+            if constexpr (dim == 6)
+            {
+                constexpr double prior_factor = 0.5;
+                Eigen::Matrix<double, 18, 1> q0;
+                q0 << 1e-2, 1e-2, 1e-2, 8e-5, 8e-5, 8e-5, // pose [rot, trans]
+                    1e-2, 1e2, 1e2, 1e-2, 1e-2, 1e-2,     // strain [torsion, bending y, bending z, trans]
+                    1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2;   // velocity
+                const auto diag = [](double r, double t)
+                { return MatrixN((Eigen::Matrix<double, 6, 1>() << r, r, r, t, t, t).finished().asDiagonal()); };
+                return {prior_factor * Matrix3N(q0.asDiagonal()), prior_factor * diag(3e2, 3e0), prior_factor * diag(5e2, 8e-1),
+                        prior_factor * diag(3e2, 3e1), prior_factor * diag(5e1, 3e1)};
+            }
+            else
+                return {Matrix3N::Identity(), MatrixN::Identity(), MatrixN::Identity(), MatrixN::Identity(), MatrixN::Identity()};
+        }
 
         /// The options this prior was built with.
         const PriorOptions &options() const { return m_options; }
+
+        /// Q1..Q4 resolved over the state's nodes and segments (see CovarianceOverrides).
+        const CovarianceProfiles<Pose> &covarianceProfiles() const { return *m_Q; }
 
         /**
          * @brief Append a node row at `time` (see GridPrior::beginRow) and return its prior
@@ -148,8 +222,10 @@ namespace Spacetime::Priors::WNOA
             auto state = this->state();
 
             // Add relevant factors for new nodes
-            for (unsigned int i = state->estimation_nodes.size() - state->spatial_dim; i < state->estimation_nodes.size(); i++)
+            const unsigned int row_start = state->estimation_nodes.size() - state->spatial_dim;
+            for (unsigned int i = row_start; i < state->estimation_nodes.size(); i++)
             {
+                const unsigned int n = i - row_start; // spatial index
                 auto current_node = std::dynamic_pointer_cast<NodeType>(state->estimation_nodes.at(i));
                 if (!current_node)
                     throw std::runtime_error("WNOA::Prior::extendState expected a WNOA node in the state.");
@@ -163,10 +239,12 @@ namespace Spacetime::Priors::WNOA
                 if (previous_temporal_node != nullptr)
                 {
                     double dt = current_node->time - previous_temporal_node->time;
+                    const MatrixN &Q1 = m_Q->Q1.at(n);
+                    const MatrixN &Q3 = m_Q->Q3.at(n);
                     if (m_options.factor_type == FactorType::Experimental)
-                        appendFactors(new_factors, Experimental::BinaryTimeFactor::createFactors<Pose>(previous_temporal_node, current_node, m_Q1, m_Q3));
+                        appendFactors(new_factors, Experimental::BinaryTimeFactor::createFactors<Pose>(previous_temporal_node, current_node, Q1, Q3));
                     else
-                        new_factors.push_back(BinaryTimeFactor::createFactor<Pose>(previous_temporal_node, current_node, m_Q1, m_Q3));
+                        new_factors.push_back(BinaryTimeFactor::createFactor<Pose>(previous_temporal_node, current_node, Q1, Q3));
 
                     typename NodeType::ValuesType previous_temporal_values = previous_temporal_node->getValues(current_values);
                     temporal_reference_values = BinaryTimeFactor::Factor<Pose>::getZeroErrorNode(previous_temporal_values, dt);
@@ -199,10 +277,12 @@ namespace Spacetime::Priors::WNOA
                     if (!previous_spatial_node)
                         throw std::runtime_error("WNOA::Prior::extendState expected a WNOA node in the state.");
                     double ds = current_node->arclength - previous_spatial_node->arclength;
+                    const MatrixN &Q2 = m_Q->Q2.at(n - 1); // the segment [s_{n-1}, s_n]
+                    const MatrixN &Q4 = m_Q->Q4.at(n - 1);
                     if (m_options.factor_type == FactorType::Experimental)
-                        appendFactors(new_factors, Experimental::BinarySpaceFactor::createFactors<Pose>(previous_spatial_node, current_node, m_Q2, m_Q4));
+                        appendFactors(new_factors, Experimental::BinarySpaceFactor::createFactors<Pose>(previous_spatial_node, current_node, Q2, Q4));
                     else
-                        new_factors.push_back(BinarySpaceFactor::createFactor<Pose>(previous_spatial_node, current_node, m_Q2, m_Q4, m_options.factor_type == FactorType::Legacy));
+                        new_factors.push_back(BinarySpaceFactor::createFactor<Pose>(previous_spatial_node, current_node, Q2, Q4, m_options.factor_type == FactorType::Legacy));
 
                     typename NodeType::ValuesType previous_spatial_values = previous_spatial_node->getValues(new_values);
                     // FactorType::Experimental keeps the coupled guess it has always used.
@@ -224,12 +304,9 @@ namespace Spacetime::Priors::WNOA
             factors.insert(factors.end(), std::make_move_iterator(more.begin()), std::make_move_iterator(more.end()));
         }
 
-        Values<Pose> m_node_reference;
+        NodeValues<Pose> m_node_reference;
         Matrix3N m_Q0;
-        MatrixN m_Q1;
-        MatrixN m_Q2;
-        MatrixN m_Q3;
-        MatrixN m_Q4;
+        std::shared_ptr<const CovarianceProfiles<Pose>> m_Q; // Q1..Q4, shared with the interpolator
         PriorOptions m_options;
     };
 } // namespace Spacetime::Priors::WNOA

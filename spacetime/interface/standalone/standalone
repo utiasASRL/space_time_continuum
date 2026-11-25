@@ -1,0 +1,23 @@
+// -*- C++ -*-
+/**
+ * @file standalone
+ * @brief Aggregation header of spacetime/interface/standalone/: the standalone ("default") interface: its session, clocks, estimator runner and dataloaders.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_INTERFACE_STANDALONE
+#define SPACETIME_AGGREGATE_SPACETIME_INTERFACE_STANDALONE
+
+#if defined(SPACETIME_INTERFACE_STANDALONE) && SPACETIME_INTERFACE_STANDALONE
+
+#include <spacetime/interface/standalone/Clock.hpp>
+#include <spacetime/interface/standalone/EstimatorRunner.hpp>
+#include <spacetime/interface/standalone/FileDataloader.hpp>
+#include <spacetime/interface/standalone/Interface.hpp>
+#include <spacetime/interface/standalone/ThreadedDataloader.hpp>
+
+#endif
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_INTERFACE_STANDALONE

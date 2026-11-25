@@ -18,7 +18,7 @@ namespace Spacetime::Priors::WNOA
     using Pose = gtsam::Pose3;
     using NodeType = Node<Pose>;
     using StateType = Types::ContinuumRobotState<NodeType>;
-    using ValueType = WNOA::Values<Pose>; 
+    using ValueType = WNOA::NodeValues<Pose>; 
 
     TEST(WNOA, PriorExtension)
     {

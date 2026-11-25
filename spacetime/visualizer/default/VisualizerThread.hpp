@@ -47,7 +47,7 @@ namespace Spacetime::Visualization::Default
          *        reason (the user quit or closed the window, requestQuit(), or `build`
          *        throwing), e.g. to stop the estimator.
          * @param nice_delta Niceness added to the visualizer thread (see
-         *        Standalone::lowerCurrentThreadPriority).
+         *        Interface::Standalone::lowerCurrentThreadPriority).
          */
         VisualizerThread(int &argc, char **argv, VisualizerOptions options, std::string output_path, BuildFn build,
                          std::function<void()> on_closed = nullptr, int nice_delta = 10);

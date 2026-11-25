@@ -3,6 +3,8 @@
  * @brief spacetime.types: the library's base classes, each subclassable in Python.
  */
 
+#include <optional>
+#include <string>
 #include <typeindex>
 
 #include <spacetime/estimator/PosteriorCovariance.hpp>
@@ -47,8 +49,34 @@ namespace SpacetimePython
         }
     } // namespace
 
+    namespace
+    {
+        /// A Python number as a 1 x 1 matrix, or anything else cast to a matrix. @throws py::type_error otherwise.
+        Eigen::MatrixXd scalarOrMatrix(const py::object &object, const char *name)
+        {
+            if (py::isinstance<py::float_>(object) || py::isinstance<py::int_>(object))
+                return Eigen::MatrixXd::Constant(1, 1, object.cast<double>());
+            try
+            {
+                return object.cast<Eigen::MatrixXd>();
+            }
+            catch (const py::cast_error &)
+            {
+                throw py::type_error(std::string("MeasurementBase: `") + name + "` must be a number or a matrix.");
+            }
+        }
+    } // namespace
+
     void bindTypes(py::module_ &m)
     {
+        m.def("InterpolatedKeyAt", &Spacetime::Types::InterpolatedKeyAt, py::arg("key"), py::arg("point"),
+              "Interpolated key `key` (e.g. wnoa.InterpolatedKeys.Pose()) at the point-th arclength of a multi-point factor "
+              "(see ActuatorBase.getFactors); the node types' accessors take it as an argument, e.g. Pose(point). "
+              "Raises ValueError for an already point-indexed key.");
+        m.def("isPointKey", &Spacetime::Types::isPointKey, py::arg("key"), "Whether `key` is a point-indexed interpolated key.");
+        m.def("pointOf", &Spacetime::Types::pointOf, py::arg("key"), "The point index of a point-indexed key; None for any other key.");
+        m.def("placeholderOf", &Spacetime::Types::placeholderOf, py::arg("key"), "The plain interpolated key a point-indexed key stands for; any other key unchanged.");
+
         py::classh<KeyManager>(m, "KeyManager", "Allocates per-character gtsam.Symbol keys and records their timestamps.")
             .def(py::init<>())
             .def("nextKey", [](KeyManager &self, char chr, double timestamp) { return self.nextKey(static_cast<unsigned char>(chr), timestamp); },
@@ -63,6 +91,15 @@ namespace SpacetimePython
                  py::arg("value"), py::arg("covariance"), "Every component of `value` marked valid.")
             .def(py::init<double, double, const Eigen::MatrixXd &, const Eigen::MatrixXd &, const Eigen::MatrixXi &>(), py::arg("arclength"),
                  py::arg("time"), py::arg("value"), py::arg("covariance"), py::arg("mask"), "`mask` has the shape of `value`: 1 valid, 0 ignored.")
+            .def(py::init(
+                     [](double time, const py::object &value, const py::object &covariance, double arclength, const std::optional<Eigen::MatrixXi> &mask)
+                     {
+                         const Eigen::MatrixXd v = scalarOrMatrix(value, "value"), c = scalarOrMatrix(covariance, "covariance");
+                         return mask ? std::make_shared<MeasurementBase>(arclength, time, v, c, *mask) : std::make_shared<MeasurementBase>(arclength, time, v, c);
+                     }),
+                 py::kw_only(), py::arg("time"), py::arg("value"), py::arg("covariance"), py::arg("arclength") = 0.0, py::arg("mask") = py::none(),
+                 "Keyword-only: `value` and `covariance` may be plain numbers (a 1 x 1 measurement, e.g. a tendon length), and "
+                 "`arclength` defaults to 0 (actuators ignore it).")
             .def_readwrite("value", &MeasurementBase::value, "The measured value; its size and meaning depend on the sensor.")
             .def_readwrite("covariance", &MeasurementBase::covariance, "The value's covariance; its size and meaning depend on the sensor.")
             .def_readwrite("mask", &MeasurementBase::mask, "Valid components of `value` (1) or ignored ones (0); factors may clear entries (e.g. rejected outliers).")
@@ -100,10 +137,10 @@ namespace SpacetimePython
             .def("covarianceKeyGroups", &Model::covarianceKeyGroups, py::arg("values"),
                  "The key groups (lists of keys in `values`) whose joint posterior covariance to extract after each solve. Default: none.");
 
-        py::classh<NodeValues, PyNodeValues>(m, "NodeValues", "The values of a node's variables, one matrix per component.")
+        py::classh<NodeValuesBase, PyNodeValues>(m, "NodeValuesBase", "The values of a node's variables, one matrix per component.")
             .def(py::init<>())
-            .def_readwrite("values", &NodeValues::values, "A copy: assign the whole list to change it.")
-            .def("setRandom", &NodeValues::setRandom, "Fills every component with random entries.");
+            .def_readwrite("values", &NodeValuesBase::values, "A copy: assign the whole list to change it.")
+            .def("setRandom", &NodeValuesBase::setRandom, "Fills every component with random entries.");
 
         py::classh<NodeBase, PyNodeBase>(m, "NodeBase", "A node of the state at (arclength, time), holding named variables.")
             .def(py::init<KeyManager &, double, double>(), py::arg("km"), py::arg("arclength"), py::arg("time"),
@@ -131,7 +168,7 @@ namespace SpacetimePython
                  "[(interpolated key, this node's key)] in the order of the node's tangent vector, letting a prior map a sensor's "
                  "inner factor onto this node (the nearest-node default of StatefulModel). Default: empty, i.e. unsupported.")
             .def("getValuesBase", &NodeBase::getValuesBase, py::arg("values"),
-                 "This node's NodeValues read from `values`, or None if the node type does not support it (the default).")
+                 "This node's NodeValuesBase read from `values`, or None if the node type does not support it (the default).")
             .def("print", py::overload_cast<const std::string &>(&NodeBase::print, py::const_), py::arg("s") = "",
                  "Prints `s`, the node's location and its variables to stdout.");
 
@@ -153,6 +190,10 @@ namespace SpacetimePython
             .def("getOuterFactor", &StatefulModel::getOuterFactor, py::arg("time"), py::arg("arclength"), py::arg("inner_factor"),
                  "Wraps `inner_factor` (on the node type's interpolated keys) to evaluate it on the state at (time, arclength). "
                  "Default: on the nearest node; None outside the state's extent or without interpolated keys.")
+            .def("getMultiPointOuterFactor", &StatefulModel::getMultiPointOuterFactor, py::arg("time"), py::arg("arclengths"), py::arg("inner_factor"),
+                 "Wraps `inner_factor`, on point-indexed interpolated keys (point i at (time, arclengths[i]), see InterpolatedKeyAt), "
+                 "to evaluate it on the state. Default: a single point through getOuterFactor; None for several (grid priors "
+                 "interpolate them jointly). A factor on no point is returned unchanged.")
             .def(
                 "query", [](const StatefulModel &self, double time, double arclength, const gtsam::Values &values)
                 { return self.query(time, arclength, values); },
@@ -180,15 +221,17 @@ namespace SpacetimePython
             .def("stateful", &SensorBase::stateful, "The stateful model whose state this sensor measures.");
 
         py::classh<ActuatorBase, PyActuator, StatefulModel, MeasurementQueue>(
-            m, "ActuatorBase", "An input acting along the robot: each measured input becomes a variable shared by its factors (override getFactor).")
+            m, "ActuatorBase", "An input acting along the robot: each measured input becomes a variable shared by its factors (override getFactors).")
             .def(py::init([](pStateful stateful, std::vector<double> arclengths, unsigned int input_dim, char input_symbol)
                           { return new PyActuator(std::move(stateful), std::move(arclengths), input_dim, static_cast<unsigned char>(input_symbol)); }),
                  py::arg("stateful"), py::arg("arclengths"), py::arg("input_dim"), py::arg("input_symbol") = 'u',
                  "Acts on the state of `stateful` at `arclengths` [m] with inputs of size `input_dim`, keyed with `input_symbol`. "
                  "Raises RuntimeError for no stateful model, ValueError for no arclengths or a zero input_dim.")
-            .def("getFactor", &ActuatorBase::getFactor, py::arg("measurement"), py::arg("input_key"), py::arg("arclength"),
-                 "The factor of `measurement`'s input (the variable `input_key`) at `arclength`, on (some of) the node type's "
-                 "interpolated keys and `input_key`, with its own noise model; None drops it.")
+            .def("getFactors", &ActuatorBase::getFactors, py::arg("measurement"), py::arg("input_key"),
+                 "The inner factors of `measurement`'s input (the variable `input_key`), the one method to override: each on the "
+                 "node type's interpolated keys at any of the actuator's points (e.g. wnoa.InterpolatedKeys.Pose(i) at arclengths()[i]), "
+                 "`input_key` and any other variable, with its own noise model. A factor per point acts at each independently, one "
+                 "factor on several points acts on them jointly, one on no point constrains the input alone. Return [] or None for none.")
             .def("stateful", &ActuatorBase::stateful, "The stateful model whose state the input acts on.")
             .def("arclengths", &ActuatorBase::arclengths, "Where the input acts [m].")
             .def("inputDim", &ActuatorBase::inputDim, "The size of every input.")

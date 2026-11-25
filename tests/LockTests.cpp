@@ -13,6 +13,7 @@
 #include <spacetime/estimator/LockedFactor.hpp>
 #include <spacetime/estimator/utilities/ConfigLoader.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -21,7 +22,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using Vector6 = Eigen::Matrix<double, 6, 1>;
         using Matrix6 = Eigen::Matrix<double, 6, 6>;
 
@@ -55,8 +56,7 @@ namespace Spacetime
             /// Batch estimator over rows at t = 0, 0.1, ..., with a tip pose measurement per row.
             std::unique_ptr<Estimator> solve(int rows, bool covariance = true)
             {
-                EstimatorOptions options;
-                options.smootherLag = Estimator::BATCH_LAG;
+                EstimatorOptions options = Testing::estimatorOptions(Estimator::BATCH_LAG);
                 options.compute_covariance = covariance;
                 auto estimator = std::make_unique<Estimator>(options);
                 estimator->addPrior(prior);
@@ -228,7 +228,7 @@ namespace Spacetime
         state->lock("pose", 0.0, kBase);
         state->lock("strain", 0.0, kZero);
         state->lock("velocity", 0.0, kZero);
-        Estimator estimator(Estimator::BATCH_LAG);
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         estimator.addPrior(prior);
         estimator.estimate(0.0);
         estimator.finalize();
@@ -240,7 +240,7 @@ namespace Spacetime
     {
         Fixture f;
         f.state->lock("pose", 0.0, kBase);
-        Estimator estimator(0.15);
+        Estimator estimator(Testing::estimatorOptions(0.15));
         estimator.addPrior(f.prior);
         for (double t : {0.0, 0.1, 0.2, 0.3, 0.4})
             estimator.estimate(t);
@@ -265,8 +265,7 @@ namespace Spacetime
     {
         Fixture f;
         f.state->lock("pose", 0.0, kBase);
-        EstimatorOptions options;
-        options.smootherLag = 0.15;
+        EstimatorOptions options = Testing::estimatorOptions(0.15);
         options.smoother = EstimatorOptions::Smoother::Incremental;
         Estimator estimator(options);
         estimator.addPrior(f.prior);
@@ -325,5 +324,71 @@ namespace Spacetime
             EXPECT_THROW(loader.loadLocks(*f.state), std::invalid_argument) << locks;
             std::remove(path.c_str());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Locks without a value: the variable is held at its initial guess
+    // ------------------------------------------------------------------
+
+    TEST(Lock, WithoutAValueRejectsInvalidLocks)
+    {
+        Fixture f;
+        EXPECT_THROW(f.state->lock("strain", 0.3), std::invalid_argument);       // not a node arclength
+        EXPECT_THROW(f.state->lock("acceleration", 0.0), std::invalid_argument); // not a variable
+        EXPECT_THROW(f.state->lockInitial("pose", 2.0, 0.1), std::invalid_argument);
+    }
+
+    TEST(Lock, WithoutAValueWaitsForTheInitialGuess)
+    {
+        Fixture f;
+        f.state->lock("strain", -1.0);
+        KeyManager km;
+        f.state->addStateAtTime(km, 0.0);
+        EXPECT_TRUE(f.state->lockedValues().empty()); // no guess yet
+
+        gtsam::Values new_values;
+        new_values.insert(f.node(0, 3)->strainKey(), Vector6(Vector6::Constant(0.5)));
+        f.state->resolveLocks(new_values);
+        ASSERT_TRUE(f.state->lockedValues().exists(f.node(0, 3)->strainKey()));
+        EXPECT_TRUE(f.state->lockedValues().at<Vector6>(f.node(0, 3)->strainKey()).isApprox(Vector6::Constant(0.5)));
+
+        // Resolved once: a later guess does not move it.
+        gtsam::Values other;
+        other.insert(f.node(0, 3)->strainKey(), Vector6(Vector6::Zero()));
+        f.state->resolveLocks(other);
+        EXPECT_TRUE(f.state->lockedValues().at<Vector6>(f.node(0, 3)->strainKey()).isApprox(Vector6::Constant(0.5)));
+    }
+
+    TEST(Lock, WithoutAValueHoldsThePriorsInitialGuessThroughTheEstimate)
+    {
+        Fixture f;
+        f.state->lock("pose", 0.0);
+        f.state->lock("strain", 1.0);
+        auto estimator = f.solve(3, false);
+
+        for (unsigned int row = 0; row < 3; row++)
+        {
+            auto base = f.node(row, 0), tip = f.node(row, 3);
+            EXPECT_FALSE(estimator->getLinearizationPoint().exists(base->poseKey()));
+            EXPECT_FALSE(estimator->getLinearizationPoint().exists(tip->strainKey()));
+            EXPECT_TRUE(estimator->getLinearizationPoint().exists(tip->poseKey()));
+            // The prior's guess keeps the reference strain along every row.
+            const ValueType tip_values = tip->getValues(estimator->getCurrentValues());
+            EXPECT_TRUE(tip_values.epsilon().isApprox(kStrain, 1e-9)) << tip_values.epsilon().transpose();
+        }
+        // The first row's base guess is the reference pose; later rows' guesses drift with
+        // the reference velocity, and stay wherever they were first guessed.
+        EXPECT_TRUE(f.node(0, 0)->getValues(estimator->getCurrentValues()).pose().equals(kBase, 1e-9));
+        EXPECT_FALSE(f.node(2, 0)->getValues(estimator->getCurrentValues()).pose().equals(kBase, 1e-6));
+    }
+
+    TEST(Lock, WithoutAValueAndATimeOnlyThatRowIsLocked)
+    {
+        Fixture f;
+        f.state->lockInitial("strain", 1.0, 0.1);
+        auto estimator = f.solve(3, false);
+        EXPECT_TRUE(estimator->getLinearizationPoint().exists(f.node(0, 3)->strainKey()));
+        EXPECT_FALSE(estimator->getLinearizationPoint().exists(f.node(1, 3)->strainKey()));
+        EXPECT_TRUE(estimator->getLinearizationPoint().exists(f.node(2, 3)->strainKey()));
     }
 } // namespace Spacetime

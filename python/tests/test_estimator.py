@@ -7,12 +7,11 @@ import pytest
 import spacetime as st
 from spacetime import sensors
 
-from conftest import POSE_COVARIANCE, batch_estimator, bent_tip, make_wnoa_robot, pose_measurement, run_session
+from conftest import POSE_COVARIANCE, batch_estimator, estimator_options, bent_tip, make_wnoa_robot, pose_measurement, run_session
 
 
 def test_smoother_options_pass_through():
-    options = st.EstimatorOptions()
-    options.smootherLag = 0.25
+    options = estimator_options(0.25)
     options.smoother = st.EstimatorOptions.Smoother.Incremental
     isam2 = gtsam.ISAM2Params()
     isam2.relinearizeSkip = 3
@@ -27,8 +26,7 @@ def test_smoother_options_pass_through():
 
 def test_quasi_static_estimates_only_at_measurement_times():
     state, prior = make_wnoa_robot()
-    options = st.EstimatorOptions()
-    options.smootherLag = st.Estimator.BATCH_LAG
+    options = estimator_options(st.Estimator.BATCH_LAG)
     options.quasi_static = True
     estimator = st.Estimator(options)
     estimator.addPrior(prior)
@@ -86,8 +84,7 @@ def sliding_window_tip(smoother, lag=0.25, end_time=0.5):
     """The tip pose of a bent robot at end_time, estimated in a `lag` window by `smoother`."""
     length, curvature = 0.2, 3.0
     state, prior = make_wnoa_robot(length=length)
-    options = st.EstimatorOptions()
-    options.smootherLag = lag
+    options = estimator_options(lag)
     options.smoother = smoother
     isam2 = gtsam.ISAM2Params()
     isam2.setRelinearizeThreshold(0.0)
@@ -144,7 +141,7 @@ def test_batch_runtime_statistics_and_snapshot_flags():
 
 def test_sliding_window_snapshot_is_not_batch():
     state, prior = make_wnoa_robot()
-    estimator = st.Estimator(0.25)
+    estimator = st.Estimator(estimator_options(0.25))
     estimator.addModel(prior)
     run_session(estimator, end_time=0.3)
     snapshot = estimator.getSnapshot()

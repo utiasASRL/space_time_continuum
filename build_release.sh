@@ -24,7 +24,7 @@ fi
 
 mkdir -p build
 cd build
-cmake -DDebug=OFF -DVisualizer=ON -DBuildTests=ON -DMarchNative=ON "${python_flags[@]}" "${cmake_flags[@]}" .. || exit 1
+cmake -DDebug=OFF -DVisualizer=ON -DBuildTests=ON -DMarchNative=ON -DInterfaceROS2=ON "${python_flags[@]}" "${cmake_flags[@]}" .. || exit 1
 
 cmake --build . -j$(nproc) || exit 1
 if [ $build_python -eq 1 ]; then

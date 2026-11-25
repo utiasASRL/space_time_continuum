@@ -16,7 +16,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
     {
         using Pose = gtsam::Pose3;
         using NodeType = Node<Pose>;
-        using ValuesType = Values<Pose>;
+        using ValuesType = NodeValues<Pose>;
         using PriorType = Prior<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
         using Matrix6 = Eigen::Matrix<double, 6, 6>;
@@ -66,9 +66,9 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         };
 
         /// The same node values as a WNOA node, with a zero velocity.
-        WNOA::Values<Pose> asWNOA(const ValuesType &v)
+        WNOA::NodeValues<Pose> asWNOA(const ValuesType &v)
         {
-            WNOA::Values<Pose> out;
+            WNOA::NodeValues<Pose> out;
             out.pose(v.pose());
             out.epsilon(v.epsilon());
             return out;
@@ -88,7 +88,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
             ASSERT_TRUE(queried);
 
             Eigen::Matrix<double, 18, 18> wnoa_cov;
-            const WNOA::Values<Pose> expected = wnoa.interpolateSpace(
+            const WNOA::NodeValues<Pose> expected = wnoa.interpolateSpace(
                 0.0, 0.5, s, asWNOA(Fixture::shape(0, 0)), asWNOA(Fixture::shape(0, 1)), nullptr, &wnoa_cov);
             EXPECT_TRUE(queried->pose().equals(expected.pose(), 1e-12)) << "s = " << s;
             EXPECT_TRUE(queried->epsilon().isApprox(expected.epsilon(), 1e-12)) << "s = " << s;

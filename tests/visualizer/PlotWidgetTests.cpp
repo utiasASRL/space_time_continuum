@@ -429,7 +429,7 @@ namespace Spacetime
     {
         using Node = Priors::WNOA::Node<gtsam::Pose3>;
         auto state = std::make_shared<Types::ContinuumRobotState<Node>>(1.0, 2);
-        Priors::WNOA::Values<gtsam::Pose3> reference;
+        Priors::WNOA::NodeValues<gtsam::Pose3> reference;
         reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 1, 0, 0).finished());
         auto prior = std::make_shared<Priors::WNOA::Prior<gtsam::Pose3>>(state, reference);
         KeyManager km;

@@ -16,6 +16,7 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/visualizer/default/utilities.hpp>
 #include <spacetime/visualizer/default/objects/ContinuumRobot.hpp>
+#include "../TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -23,7 +24,7 @@ namespace Spacetime
     {
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
-        using ValuesType = Priors::WNOA::Values<Pose>;
+        using ValuesType = Priors::WNOA::NodeValues<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
         using ViewType = Visualization::Default::ContinuumRobot<NodeType>;
         using PriorType = Priors::WNOA::Prior<Pose>;
@@ -49,8 +50,7 @@ namespace Spacetime
                 node_reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
                 prior = std::make_shared<PriorType>(state, node_reference);
 
-                EstimatorOptions options;
-                options.smootherLag = 1.0;
+                EstimatorOptions options = Testing::estimatorOptions(1.0);
                 options.compute_covariance = compute_covariance;
                 estimator = std::make_unique<Estimator>(options);
                 estimator->addPrior(prior);

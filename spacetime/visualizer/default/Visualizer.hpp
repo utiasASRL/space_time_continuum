@@ -237,7 +237,7 @@ namespace Spacetime::Visualization::Default
 
     private:
         VisualizerOptions m_options;
-        /// Sets the background, lights, optional floor and world frame, and the initial camera.
+        /// Sets the background, lights, optional world frame, and the initial camera. (A floor is a GroundPlane the program adds.)
         void initScene();
         /// Saves the current view to `<screenshotsFolder()>/sample_<index>/<frame>.png`, then one frame per extra camera (cameras[1..]).
         void screenshot();

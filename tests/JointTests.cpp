@@ -14,11 +14,14 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/prior_models/WNOV.hpp>
+#include <spacetime/estimator/prior_models/WNOAQuasiStatic.hpp>
+#include <spacetime/estimator/joint_models/JointBase.hpp>
 #include <spacetime/estimator/joint_models/Joint.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 
 #include "NumericalDifferentiation.hpp"
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -32,13 +35,17 @@ namespace Spacetime
 
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using PriorType = Priors::WNOA::Prior<Pose>;
         using InterpolatorType = Priors::WNOA::Interpolator<Pose>;
 
         using WNOVNode = Priors::WNOV::Node<Pose>;
         using WNOVPrior = Priors::WNOV::Prior<Pose>;
         using WNOVState = Types::ContinuumRobotState<WNOVNode>;
+
+        using QSPrior = Priors::WNOAQuasiStatic::Prior<Pose>;
+        using QSState = QSPrior::StateType;
+        using QSValues = QSPrior::ValuesType;
 
         using JointType = Joints::Joint<PriorType, PriorType>;
         using MixedJointType = Joints::Joint<PriorType, WNOVPrior>;
@@ -70,6 +77,23 @@ namespace Spacetime
             }
 
             /// Nominal (straight, upright) pose at arclength s.
+            Pose nominal(double s) const { return base * Pose(gtsam::Rot3(), gtsam::Point3(s, 0, 0)); }
+        };
+
+        /// Quasi-static robot of length kLength with 5 nodes standing up at `position`, its base locked there.
+        struct QSRobot
+        {
+            std::shared_ptr<QSState> state;
+            std::shared_ptr<QSPrior> prior;
+            Pose base;
+
+            explicit QSRobot(const Vector3 &position) : base(upright(position))
+            {
+                state = std::make_shared<QSState>(kLength, 5);
+                prior = std::make_shared<QSPrior>(state, QSValues(base, (Vector6() << 0, 0, 0, 1.0, 0, 0).finished()));
+                state->lock("pose", 0.0, base);
+            }
+
             Pose nominal(double s) const { return base * Pose(gtsam::Rot3(), gtsam::Point3(s, 0, 0)); }
         };
 
@@ -326,6 +350,41 @@ namespace Spacetime
         EXPECT_EQ(joint.getNewFactors(0.0, values).size(), 1u);
     }
 
+    TEST(Joint, QuasiStaticRobotsAreJoinedByTheirPosesOnly)
+    {
+        WNOARobot a(Vector3::Zero());
+        QSRobot b(Vector3(0.3, 0, 0)), c(Vector3(0.6, 0, 0));
+        static_assert(!Joints::Joint<PriorType, QSPrior>::joins_velocity && !Joints::Joint<QSPrior, QSPrior>::joins_velocity);
+        Joints::Joint<PriorType, QSPrior> mixed(a.prior, kLength, b.prior, 0.2, rigidCovariance());
+        Joints::Joint<QSPrior, QSPrior> spherical(b.prior, kLength, c.prior, 0.0, sphericalCovariance(),
+                                                   Joints::JointOptions{.type = Joints::JointType::Spherical});
+        KeyManager km;
+        gtsam::Values values;
+        extend(km, values, 0.0, {a.prior, b.prior, c.prior});
+        EXPECT_EQ(mixed.getNewFactors(0.0, values).size(), 1u);
+        EXPECT_EQ(spherical.getNewFactors(0.0, values).size(), 1u);
+    }
+
+    TEST(Joint, JointBaseExposesTheJointOfAnyPriorPair)
+    {
+        WNOARobot a(Vector3::Zero());
+        QSRobot b(Vector3(0.3, 0, 0));
+        Joints::JointOptions options;
+        options.offset = someOffset();
+        const std::shared_ptr<Joints::JointBase> joint = std::make_shared<Joints::Joint<PriorType, QSPrior>>(a.prior, kLength, b.prior, 0.2, rigidCovariance(), options);
+        EXPECT_EQ(joint->priorModelA(), a.prior);
+        EXPECT_EQ(joint->priorModelB(), b.prior);
+        EXPECT_EQ(joint->stateA().get(), static_cast<const Types::State *>(a.state.get()));
+        EXPECT_EQ(joint->stateB().get(), static_cast<const Types::State *>(b.state.get()));
+        EXPECT_DOUBLE_EQ(joint->arclengthA(), kLength);
+        EXPECT_DOUBLE_EQ(joint->arclengthB(), 0.2);
+        EXPECT_TRUE(joint->offset().equals(someOffset()));
+        EXPECT_TRUE(joint->hasOffset());
+        EXPECT_FALSE(joint->joinsVelocity());
+        EXPECT_TRUE(gtsam::assert_equal(gtsam::Matrix(rigidCovariance()), gtsam::Matrix(joint->offsetCovariance())));
+        EXPECT_TRUE(JointType(a.prior, kLength, WNOARobot(Vector3(0.3, 0, 0)).prior, 0.0, rigidCovariance()).joinsVelocity());
+    }
+
     TEST(Joint, RobotsWithMismatchedRowsThrow)
     {
         WNOARobot a(Vector3::Zero()), b(Vector3(0.3, 0, 0));
@@ -463,7 +522,7 @@ namespace Spacetime
     TEST(Joint, BatchEstimateKeepsTheJoinedPointsTogether)
     {
         constexpr int ticks = 4;
-        Estimator joined_estimator(Estimator::BATCH_LAG), free_estimator(Estimator::BATCH_LAG);
+        Estimator joined_estimator(Testing::estimatorOptions(Estimator::BATCH_LAG)), free_estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         JoinedProblem joined(joined_estimator, ticks, true), free(free_estimator, ticks, false);
         for (int k = 0; k < ticks; k++)
         {
@@ -487,7 +546,7 @@ namespace Spacetime
     TEST(Joint, SlidingWindowEstimateKeepsTheJoinedPointsTogether)
     {
         constexpr int ticks = 8;
-        Estimator estimator(0.25);
+        Estimator estimator(Testing::estimatorOptions(0.25));
         JoinedProblem problem(estimator, ticks, true);
         for (int k = 0; k < ticks; k++)
         {
@@ -496,5 +555,36 @@ namespace Spacetime
             const Pose tip_a = problem.tip(problem.a, k * kPeriod, values), tip_b = problem.tip(problem.b, k * kPeriod, values);
             EXPECT_LT(Pose::Logmap(problem.offset.between(tip_a.between(tip_b))).norm(), 5e-3) << "tick " << k;
         }
+    }
+
+    TEST(Joint, BatchEstimateJoinsAQuasiStaticRobot)
+    {
+        // A's measured deflection drags the joined quasi-static robot B's tip along.
+        constexpr int ticks = 3;
+        WNOARobot a(Vector3::Zero());
+        QSRobot b(Vector3(0.3, 0, 0));
+        const Pose offset = a.nominal(kLength).between(b.nominal(kLength));
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
+        estimator.addPrior(a.prior);
+        estimator.addPrior(b.prior);
+        Joints::JointOptions options;
+        options.offset = offset;
+        estimator.addModel(std::make_shared<Joints::Joint<PriorType, QSPrior>>(a.prior, kLength, b.prior, kLength, Matrix6::Identity() * 1e-6, options));
+        auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(a.prior);
+        const Pose measured = a.nominal(kLength / 2) * Pose(gtsam::Rot3(), gtsam::Point3(0, 0.03, 0));
+        for (int k = 0; k < ticks; k++)
+            sensor->addMeasurement(std::make_shared<Types::MeasurementBase>(kLength / 2, k * kPeriod, measured.matrix(), Matrix6::Identity() * 1e-6,
+                                                                            Eigen::MatrixXi::Ones(6, 1)));
+        estimator.addSensor(sensor);
+        for (int k = 0; k < ticks; k++)
+            estimator.estimate(k * kPeriod);
+        estimator.finalize();
+
+        const double t = (ticks - 1) * kPeriod;
+        const gtsam::Values &values = estimator.getCurrentValues();
+        const Pose tip_a = query(*a.prior, t, kLength, values).pose();
+        const Pose tip_b = std::dynamic_pointer_cast<QSValues>(b.prior->query(t, kLength, values))->pose();
+        EXPECT_LT(Pose::Logmap(offset.between(tip_a.between(tip_b))).norm(), 5e-3);
+        EXPECT_GT((tip_b.translation() - b.nominal(kLength).translation()).norm(), 5e-3);
     }
 } // namespace Spacetime

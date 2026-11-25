@@ -18,6 +18,7 @@
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 #include <spacetime/estimator/sensor_models/GyroSensor.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -26,7 +27,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using Sensor = Sensors::GyroSensor<ValueType>;
         using Vector6 = Eigen::Matrix<double, 6, 1>;
 
@@ -35,7 +36,8 @@ namespace Spacetime
             state = std::make_shared<StateType>(1.0, spatial_dim);
             ValueType node_reference;
             node_reference.epsilon((Vector6() << 0, 0, 0, 0, 0, 1.0).finished());
-            return std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
+            const Eigen::Matrix<double, 6, 6> I = Eigen::Matrix<double, 6, 6>::Identity(); // identity weights, not the tuned defaults
+            return std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference, Eigen::Matrix<double, 18, 18>::Identity(), I, I, I, I);
         }
 
         std::shared_ptr<Types::MeasurementBase> makeGyroMeasurement(double arclength, double time, const Eigen::Vector3d &omega,
@@ -155,7 +157,7 @@ namespace Spacetime
         auto prior = makePrior(state);
         auto sensor = std::make_shared<Sensor>(prior);
 
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
         estimator.addSensor(sensor);
 
@@ -249,5 +251,128 @@ namespace Spacetime
         EXPECT_EQ(std::dynamic_pointer_cast<Sensor>(without_gyro.front()), nullptr);
 
         std::filesystem::remove_all(dir);
+    }
+    TEST(GyroSensor, DefaultOptionsEstimateNoBias)
+    {
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        auto sensor = std::make_shared<Sensor>(prior);
+        EXPECT_FALSE(sensor->options().estimate_bias);
+        EXPECT_EQ(sensor->biasModel(), nullptr);
+
+        KeyManager km;
+        gtsam::Values values, new_values;
+        EXPECT_TRUE(sensor->extendState(km, 0.0, values, new_values).empty());
+        EXPECT_TRUE(new_values.empty());
+        auto factor = sensor->getFactor(makeGyroMeasurement(0.5, 0.0, Eigen::Vector3d(0.1, 0.2, 0.3)));
+        ASSERT_NE(std::dynamic_pointer_cast<Sensor::Factor>(factor), nullptr);
+        EXPECT_EQ(factor->keys().size(), 1u);
+    }
+
+    TEST(GyroSensor, OffsetRotatesTheMeasuredAngularVelocity)
+    {
+        // A sensor yawed 90 degrees reads the body's x rate on its -y axis.
+        const gtsam::Rot3 R_bs = gtsam::Rot3::Rz(M_PI / 2);
+        const Vector6 varpi = (Vector6() << 0.4, 0.0, 0.0, 1.0, 2.0, 3.0).finished();
+        const Eigen::Vector3d omega_s = R_bs.matrix().transpose() * varpi.head<3>();
+        EXPECT_TRUE(omega_s.isApprox(Eigen::Vector3d(0.0, -0.4, 0.0), 1e-12));
+        const Sensor::Factor factor(gtsam::noiseModel::Unit::Create(3), omega_s, Eigen::MatrixXi::Ones(3, 1), R_bs);
+        EXPECT_TRUE(factor.evaluateError(varpi).isZero(1e-12));
+
+        gtsam::Values values;
+        values.insert(ValueType::InterpolatedKeys::Velocity(), varpi);
+        EXPECT_TRUE(gtsam::internal::testFactorJacobians("RotatedGyroFactor", factor, values, 1e-6, 1e-8));
+    }
+
+    TEST(GyroSensor, BiasedFactorJacobiansMatchNumerical)
+    {
+        const gtsam::Key b0 = gtsam::Symbol('b', 0), b1 = gtsam::Symbol('b', 1);
+        Eigen::MatrixXi mask = Eigen::MatrixXi::Ones(3, 1);
+        mask(2, 0) = 0;
+        const Sensor::BiasedFactor factor(gtsam::noiseModel::Unit::Create(3), Eigen::Vector3d(0.3, -0.2, 0.5), mask,
+                                          {{b0, 0.25}, {b1, 0.75}}, gtsam::Rot3::RzRyRx(0.1, -0.2, 0.3));
+        ASSERT_EQ(factor.keys().size(), 3u);
+
+        gtsam::Values values;
+        values.insert(ValueType::InterpolatedKeys::Velocity(), Vector6((Vector6() << 0.1, 0.4, -0.3, 0.2, -0.5, 0.6).finished()));
+        values.insert(b0, gtsam::Vector3(0.01, -0.02, 0.03));
+        values.insert(b1, gtsam::Vector3(-0.04, 0.05, 0.02));
+        EXPECT_TRUE(gtsam::internal::testFactorJacobians("GyroBiasedFactor", factor, values, 1e-6, 1e-8));
+        EXPECT_DOUBLE_EQ(factor.unwhitenedError(values)(2), 0.0);
+
+        // With zero bias and the identity rotation, it is the unbiased factor.
+        const Sensor::BiasedFactor plain(gtsam::noiseModel::Unit::Create(3), Eigen::Vector3d(0.3, -0.2, 0.5), Eigen::MatrixXi::Ones(3, 1),
+                                         {{b0, 1.0}});
+        values.update(b0, gtsam::Vector3(gtsam::Vector3::Zero()));
+        EXPECT_TRUE(plain.unwhitenedError(values).isApprox(
+            makeFactor(Eigen::Vector3d(0.3, -0.2, 0.5)).evaluateError(values.at<Vector6>(ValueType::InterpolatedKeys::Velocity())), 1e-12));
+    }
+
+    TEST(GyroSensor, BiasedMeasurementBeforeTheFirstBiasNodeIsDropped)
+    {
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        Sensors::GyroOptions options;
+        options.estimate_bias = true;
+        auto sensor = std::make_shared<Sensor>(prior, options);
+        ASSERT_NE(sensor->biasModel(), nullptr);
+        EXPECT_EQ(sensor->getFactor(makeGyroMeasurement(0.5, 0.0, Eigen::Vector3d::Zero())), nullptr);
+
+        KeyManager km;
+        gtsam::Values values, new_values;
+        EXPECT_EQ(sensor->extendState(km, 0.0, values, new_values).size(), 1u); // the bias prior
+        EXPECT_EQ(new_values.size(), 1u);
+        values.insert(new_values);
+        new_values.clear();
+        EXPECT_EQ(sensor->extendState(km, 0.1, values, new_values).size(), 1u); // the random walk
+        values.insert(new_values);
+
+        auto factor = std::dynamic_pointer_cast<Sensor::BiasedFactor>(sensor->getFactor(makeGyroMeasurement(0.5, 0.05, Eigen::Vector3d::Zero())));
+        ASSERT_NE(factor, nullptr);
+        EXPECT_EQ(factor->keys().size(), 3u); // the velocity and both bias nodes
+        EXPECT_EQ(sensor->covarianceKeyGroups(values).size(), 2u);
+
+        // Once the first bias node is marginalized, a measurement it borders is dropped.
+        sensor->onMarginalization(0.1, values);
+        EXPECT_EQ(sensor->getFactor(makeGyroMeasurement(0.5, 0.05, Eigen::Vector3d::Zero())), nullptr);
+        EXPECT_NE(sensor->getFactor(makeGyroMeasurement(0.5, 0.1, Eigen::Vector3d::Zero())), nullptr);
+    }
+
+    TEST(GyroSensor, EstimatorRecoversAConstantBiasOnAStationaryRobot)
+    {
+        // A pose sensor holds the robot still (straight along z, as makePrior's reference
+        // strain), so the gyro's constant reading is its bias.
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        Sensors::GyroOptions options;
+        options.estimate_bias = true;
+        options.bias.initial_covariance = 1e-2 * gtsam::Matrix3::Identity();
+        auto gyro = std::make_shared<Sensor>(prior, options);
+        auto pose_sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
+
+        Estimator estimator(Testing::estimatorOptions(0.5));
+        estimator.addPrior(prior);
+        estimator.addSensor(gyro);
+        estimator.addSensor(pose_sensor);
+
+        const Eigen::Vector3d bias(0.05, -0.03, 0.04);
+        const std::vector<double> arclengths = {0.0, 0.5, 1.0};
+        for (int k = 0; k <= 20; k++)
+        {
+            const double time = 0.1 * k;
+            for (double s : arclengths)
+            {
+                pose_sensor->addMeasurement(std::make_shared<Types::MeasurementBase>(
+                    s, time, Pose(gtsam::Rot3(), gtsam::Point3(0, 0, s)).matrix(), Eigen::MatrixXd(Eigen::Matrix<double, 6, 6>::Identity() * 1e-6)));
+                gyro->addMeasurement(makeGyroMeasurement(s, time, bias));
+            }
+        }
+        for (int k = 0; k <= 20; k++)
+            estimator.estimate(0.1 * k);
+
+        auto queried = std::dynamic_pointer_cast<Biases::BiasNodeValues<gtsam::Vector3>>(
+            gyro->biasModel()->query(2.0, 0.0, estimator.getCurrentValues()));
+        ASSERT_NE(queried, nullptr);
+        EXPECT_TRUE(queried->bias().isApprox(bias, 5e-2)) << "estimated bias " << queried->bias().transpose();
     }
 } // namespace Spacetime

@@ -23,7 +23,7 @@ namespace Spacetime::Priors::WNOA
         using Pose = gtsam::Pose3;
         using NodeType = Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = WNOA::Values<Pose>;
+        using ValueType = WNOA::NodeValues<Pose>;
         using Matrix6 = Eigen::Matrix<double, 6, 6>;
         using Vector6 = Eigen::Matrix<double, 6, 1>;
 

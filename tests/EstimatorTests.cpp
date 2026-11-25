@@ -13,13 +13,14 @@
 #include <spacetime/estimator/utilities/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/Estimator.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
     using Pose = gtsam::Pose3;
     using NodeType = Priors::WNOA::Node<Pose>;
     using StateType = Types::ContinuumRobotState<NodeType>;
-    using ValueType = Priors::WNOA::Values<Pose>;
+    using ValueType = Priors::WNOA::NodeValues<Pose>;
 
     TEST(Estimator, NonZeroStrainInitialization)
     {
@@ -31,7 +32,7 @@ namespace Spacetime
         node_reference.epsilon((Eigen::Vector<double, 6>() << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0).finished());
         std::shared_ptr<Priors::WNOA::Prior<Pose>> prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
 
-        Estimator estimator = Estimator(0.1);
+        Estimator estimator(Testing::estimatorOptions(0.1));
         estimator.addPrior(prior);
 
         estimator.estimate(0.0);
@@ -83,7 +84,7 @@ namespace Spacetime
 
         gtsam::Values current_values, new_values;
 
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
 
         estimator.estimate(0.0);
@@ -97,12 +98,14 @@ namespace Spacetime
         Eigen::Vector<double, 6> expected_varpi = (Eigen::Vector<double, 6>() << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0).finished();
         ValueType node0_values = node0->getValues(values);
         EXPECT_TRUE(node0_values.pose().equals(Pose()));
-        EXPECT_TRUE(node0_values.epsilon().isZero());
+        // The default reference strain is straight (see Priors::straightStrain).
+        const Eigen::Vector<double, 6> straight = Priors::straightStrain<Pose>();
+        EXPECT_TRUE(node0_values.epsilon().isApprox(straight));
         EXPECT_TRUE(node0_values.varpi().isApprox(expected_varpi));
 
         ValueType node_end_values = node_end->getValues(values);
-        EXPECT_TRUE(node_end_values.pose().equals(Pose()));
-        EXPECT_TRUE(node_end_values.epsilon().isZero());
+        EXPECT_TRUE(node_end_values.pose().equals(Pose(gtsam::Rot3(), gtsam::Point3(1.0, 0.0, 0.0)), 1e-9));
+        EXPECT_TRUE(node_end_values.epsilon().isApprox(straight));
         EXPECT_TRUE(node_end_values.varpi().isApprox(expected_varpi));
     }
 }

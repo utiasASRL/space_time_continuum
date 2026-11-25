@@ -73,11 +73,36 @@ namespace SpacetimePython
     using EndEffector = Spacetime::Joints::EndEffector<Pose>;
     using EndEffectorPrior = EndEffector::PriorType;
     using EndEffectorNode = EndEffector::NodeType;
-    using EndEffectorValues = Spacetime::Joints::EndEffectorValues<Pose>;
+    using EndEffectorNodeValues = Spacetime::Joints::EndEffectorNodeValues<Pose>;
     using EndEffectorState = Spacetime::Types::ContinuumRobotState<EndEffectorNode>;
 
-    using RobotJoint = Spacetime::Joints::Joint<WnoaPrior, WnoaPrior>;
-    using EndEffectorJoint = Spacetime::Joints::Joint<WnoaPrior, EndEffectorPrior>;
+    using JointBase = Spacetime::Joints::JointBase;
+
+    /// A list of prior types, for visitPrior.
+    template <typename... Priors>
+    struct PriorList
+    {
+    };
+    /// The built-in robot priors: what joints, end effectors and the visualizer take as a robot.
+    using RobotPriors = PriorList<WnoaPrior, WnovPrior, QuasiStaticPrior>;
+    /// What a joint's side B may be: a robot or an end effector's prior.
+    using JointSideBPriors = PriorList<WnoaPrior, WnovPrior, QuasiStaticPrior, EndEffectorPrior>;
+
+    /// Calls `f` with `prior` cast to the first type of the list it is; false if it is none of them.
+    template <typename... Priors, typename F>
+    bool visitPrior(PriorList<Priors...>, const pStateful &prior, F &&f)
+    {
+        const auto try_one = [&]<typename P>()
+        {
+            if (auto typed = std::dynamic_pointer_cast<P>(prior))
+            {
+                f(typed);
+                return true;
+            }
+            return false;
+        };
+        return (try_one.template operator()<Priors>() || ...);
+    }
 
     /// A Python reference to `value`, not a copy: overrides see (and may modify) the caller's object.
     template <typename T>
@@ -164,11 +189,18 @@ namespace SpacetimePython
             return Base::getOuterFactor(time, arclength, inner_factor);
         }
 
+        std::shared_ptr<gtsam::NonlinearFactor> getMultiPointOuterFactor(double time, const std::vector<double> &arclengths,
+                                                                         const gtsam::NoiseModelFactor::shared_ptr &inner_factor) const override
+        {
+            SPACETIME_OVERRIDE(std::shared_ptr<gtsam::NonlinearFactor>, Base, "getMultiPointOuterFactor", time, arclengths, inner_factor);
+            return Base::getMultiPointOuterFactor(time, arclengths, inner_factor);
+        }
+
         /**
          * A Python `query(time, arclength, values)` returns the node values, or a tuple of them and
          * their conditional covariance. It gives no posterior covariance: that output is left empty.
          */
-        std::shared_ptr<Spacetime::Types::NodeValues> query(double time, double arclength, const gtsam::Values &values,
+        std::shared_ptr<Spacetime::Types::NodeValuesBase> query(double time, double arclength, const gtsam::Values &values,
                                                             Eigen::MatrixXd *conditionalCovariance = nullptr,
                                                             const Spacetime::PosteriorCovariance *posterior = nullptr,
                                                             Eigen::MatrixXd *posteriorCovariance = nullptr) const override
@@ -178,17 +210,17 @@ namespace SpacetimePython
                 if (py::function py_override = py::get_override(static_cast<const Base *>(this), "query"))
                 {
                     const py::object result = py_override(time, arclength, ref(values));
-                    std::shared_ptr<Spacetime::Types::NodeValues> node;
+                    std::shared_ptr<Spacetime::Types::NodeValuesBase> node;
                     if (py::isinstance<py::tuple>(result))
                     {
                         const auto items = result.cast<py::tuple>();
-                        node = items[0].cast<std::shared_ptr<Spacetime::Types::NodeValues>>();
+                        node = items[0].cast<std::shared_ptr<Spacetime::Types::NodeValuesBase>>();
                         if (conditionalCovariance)
                             *conditionalCovariance = items[1].cast<Eigen::MatrixXd>();
                     }
                     else
                     {
-                        node = result.cast<std::shared_ptr<Spacetime::Types::NodeValues>>();
+                        node = result.cast<std::shared_ptr<Spacetime::Types::NodeValuesBase>>();
                         if (conditionalCovariance)
                             conditionalCovariance->resize(0, 0);
                     }
@@ -217,28 +249,38 @@ namespace SpacetimePython
         }
     };
 
-    /// Python overrides of ActuatorBase::getFactor (and the Model virtuals).
+    /// Python overrides of ActuatorBase::getFactors (and the Model virtuals). The override may return None (no factors).
     struct PyActuator : PyModel<Spacetime::Types::ActuatorBase>
     {
         using PyModel<Spacetime::Types::ActuatorBase>::PyModel;
 
-        gtsam::NoiseModelFactor::shared_ptr getFactor(const Spacetime::Types::MeasurementBase &measurement, gtsam::Key input_key,
-                                                      double arclength) const override
+        InnerFactors getFactors(const Spacetime::Types::MeasurementBase &measurement, gtsam::Key input_key) const override
         {
-            SPACETIME_OVERRIDE(gtsam::NoiseModelFactor::shared_ptr, Spacetime::Types::ActuatorBase, "getFactor", ref(measurement), input_key,
-                               arclength);
-            throw pureVirtual("ActuatorBase::getFactor");
+            py::gil_scoped_acquire gil;
+            if (py::function py_override = py::get_override(static_cast<const Spacetime::Types::ActuatorBase *>(this), "getFactors"))
+            {
+                const py::object result = py_override(ref(measurement), input_key);
+                return result.is_none() ? InnerFactors() : result.cast<InnerFactors>();
+            }
+            throw pureVirtual("ActuatorBase::getFactors");
         }
     };
 
-    struct PyNodeValues : Spacetime::Types::NodeValues, py::trampoline_self_life_support
+    /// A node type's interpolated-key accessor `Plain()`, or `Indexed(point)` when `point` is given (see Types::InterpolatedKeyAt).
+    template <typename R, R (*Plain)(), R (*Indexed)(std::size_t)>
+    R pointOptional(std::optional<std::size_t> point)
     {
-        using Spacetime::Types::NodeValues::NodeValues;
+        return point ? Indexed(*point) : Plain();
+    }
+
+    struct PyNodeValues : Spacetime::Types::NodeValuesBase, py::trampoline_self_life_support
+    {
+        using Spacetime::Types::NodeValuesBase::NodeValuesBase;
 
         void setRandom() override
         {
-            SPACETIME_OVERRIDE(void, Spacetime::Types::NodeValues, "setRandom");
-            Spacetime::Types::NodeValues::setRandom();
+            SPACETIME_OVERRIDE(void, Spacetime::Types::NodeValuesBase, "setRandom");
+            Spacetime::Types::NodeValuesBase::setRandom();
         }
     };
 
@@ -254,9 +296,9 @@ namespace SpacetimePython
             return Spacetime::Types::NodeBase::interpolatedKeys();
         }
 
-        std::shared_ptr<Spacetime::Types::NodeValues> getValuesBase(const gtsam::Values &values) const override
+        std::shared_ptr<Spacetime::Types::NodeValuesBase> getValuesBase(const gtsam::Values &values) const override
         {
-            SPACETIME_OVERRIDE(std::shared_ptr<Spacetime::Types::NodeValues>, Spacetime::Types::NodeBase, "getValuesBase", ref(values));
+            SPACETIME_OVERRIDE(std::shared_ptr<Spacetime::Types::NodeValuesBase>, Spacetime::Types::NodeBase, "getValuesBase", ref(values));
             return Spacetime::Types::NodeBase::getValuesBase(values);
         }
     };
@@ -296,6 +338,7 @@ namespace SpacetimePython
     void bindPriors(py::module_ &m);
     void bindJoints(py::module_ &m);
     void bindSensors(py::module_ &m);
+    void bindActuators(py::module_ &m);
     void bindEstimator(py::module_ &m);
     void bindInterface(py::module_ &m);
     void bindUtilities(py::module_ &m);

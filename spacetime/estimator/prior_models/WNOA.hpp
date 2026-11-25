@@ -6,6 +6,7 @@
 #ifndef WNOA_HPP
 #define WNOA_HPP
 
+#include <spacetime/estimator/prior_models/WNOA/Covariances.hpp>
 #include <spacetime/estimator/prior_models/WNOA/BinarySpaceFactor.hpp>
 #include <spacetime/estimator/prior_models/WNOA/BinaryTimeFactor.hpp>
 #include <spacetime/estimator/prior_models/WNOA/UnaryFactor.hpp>

@@ -10,13 +10,14 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
     namespace
     {
         using Pose = gtsam::Pose3;
-        using QSValues = Priors::WNOAQuasiStatic::Values<Pose>;
+        using QSValues = Priors::WNOAQuasiStatic::NodeValues<Pose>;
         using QSPrior = Priors::WNOAQuasiStatic::Prior<Pose>;
         using QSState = Types::ContinuumRobotState<Priors::WNOAQuasiStatic::Node<Pose>>;
         using QSSensor = Sensors::PoseSensor<QSValues>;
@@ -31,8 +32,7 @@ namespace Spacetime
 
         EstimatorOptions quasiStaticOptions(double smoother_lag)
         {
-            EstimatorOptions options;
-            options.smootherLag = smoother_lag;
+            EstimatorOptions options = Testing::estimatorOptions(smoother_lag);
             options.quasi_static = true;
             return options;
         }
@@ -177,8 +177,7 @@ namespace Spacetime
 
     TEST(QuasiStaticEstimator, OptionOffKeepsRowsAtTheEstimateTimes)
     {
-        EstimatorOptions options;
-        options.smootherLag = Estimator::BATCH_LAG;
+        EstimatorOptions options = Testing::estimatorOptions(Estimator::BATCH_LAG);
         Fixture f(options);
         Fixture::measure(f.a, 0.013);
         f.estimator.estimate(0.1);
@@ -188,7 +187,7 @@ namespace Spacetime
 
     TEST(QuasiStaticEstimator, WorksWithTheWNOAPriorToo)
     {
-        using WNOAValues = Priors::WNOA::Values<Pose>;
+        using WNOAValues = Priors::WNOA::NodeValues<Pose>;
         auto state = std::make_shared<Types::ContinuumRobotState<Priors::WNOA::Node<Pose>>>(1.0, 2);
         auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, WNOAValues());
         auto sensor = std::make_shared<Sensors::PoseSensor<WNOAValues>>(prior);

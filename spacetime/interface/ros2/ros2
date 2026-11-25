@@ -1,0 +1,26 @@
+// -*- C++ -*-
+/**
+ * @file ros2
+ * @brief Aggregation header of spacetime/interface/ros2/: the ROS2 interface: its session, clock, sensor nodes (pose, IMU, tendon) and TF helpers.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_INTERFACE_ROS2
+#define SPACETIME_AGGREGATE_SPACETIME_INTERFACE_ROS2
+
+#if defined(SPACETIME_INTERFACE_ROS2) && SPACETIME_INTERFACE_ROS2
+
+#include <spacetime/interface/ros2/Conversions.hpp>
+#include <spacetime/interface/ros2/ImuSensorNode.hpp>
+#include <spacetime/interface/ros2/Interface.hpp>
+#include <spacetime/interface/ros2/KinematicTendonNode.hpp>
+#include <spacetime/interface/ros2/PoseSensorNode.hpp>
+#include <spacetime/interface/ros2/RosClock.hpp>
+#include <spacetime/interface/ros2/SensorNode.hpp>
+#include <spacetime/interface/ros2/WaitForTransform.hpp>
+
+#endif
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_INTERFACE_ROS2

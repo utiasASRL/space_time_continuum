@@ -13,7 +13,7 @@
 #include <spacetime/interface/standalone/Clock.hpp>
 #include <spacetime/interface/standalone/FileDataloader.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     namespace
     {
@@ -124,6 +124,33 @@ namespace Spacetime::Standalone
         EXPECT_EQ(calls, 2);
     }
 
+    // An observer subscribed before the dataloader withheld the data saw it on registration, so
+    // delivery (and restoring what is left) must not hand it the same measurements again.
+    TEST(FileDataloader, ObserversSubscribedBeforeWithholdingSeeEachMeasurementOnce)
+    {
+        auto a = makeQueue({0.0, 0.1});
+        int calls = 0;
+        a->addMeasurementCallback([&](const MeasurementQueue::pMeasurementType &)
+                                  { calls++; });
+        EXPECT_EQ(calls, 2); // replayed on registration
+        {
+            FileDataloader loader({a}, steppedClock());
+            loader.run(std::stop_token());
+        }
+        EXPECT_EQ(calls, 2);
+        {
+            auto b = makeQueue({0.0, 0.1});
+            int b_calls = 0;
+            b->addMeasurementCallback([&](const MeasurementQueue::pMeasurementType &)
+                                      { b_calls++; });
+            {
+                FileDataloader loader({b}, steppedClock()); // never run: destruction restores everything
+            }
+            EXPECT_EQ(b_calls, 2);
+            EXPECT_EQ(timesIn(*b), (std::vector<double>{0.0, 0.1}));
+        }
+    }
+
     TEST(FileDataloader, DestructionRestoresUndeliveredMeasurements)
     {
         auto a = makeQueue({0.0, 0.1, 0.2});
@@ -186,4 +213,4 @@ namespace Spacetime::Standalone
         EXPECT_FALSE(loader.deliveredThrough(60.0));
         EXPECT_EQ(delivered, (std::vector<double>{0.0, 60.0})); // restoring is an ordinary add
     }
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone

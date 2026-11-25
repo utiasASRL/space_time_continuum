@@ -2,19 +2,28 @@
 #define WNOAQUASISTATICPRIOR_HPP
 
 #include <memory>
+#include <tuple>
 #include <vector>
 
 #include <gtsam/base/Lie.h>
 #include <gtsam/base/Testable.h>
 #include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/PriorFactor.h>
+#include <gtsam/nonlinear/NoiseModelFactorN.h> // before WnoaFactor.h, which uses it without including it
 #include <gtsam/nonlinear/WnoaFactor.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 #include <spacetime/estimator/prior_models/GridPrior.hpp>
+#include <spacetime/estimator/prior_models/StraightStrain.hpp>
+#include <spacetime/estimator/prior_models/WNOA/WNOAPrior.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/WNOAQuasiStaticState.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/Interpolator.hpp>
+#include <spacetime/estimator/prior_models/WNOAQuasiStatic/Covariances.hpp>
 
 namespace Spacetime::Priors::WNOAQuasiStatic
 {
@@ -72,18 +81,52 @@ namespace Spacetime::Priors::WNOAQuasiStatic
          * @param Q0 Unary factor covariance over [pose, strain]; only its two diagonal blocks are used.
          * @param Q2 Arclength-axis (pose, strain) WNOA process PSD.
          * @param options See PriorOptions.
+         * @param overrides Per-segment values of Q2 replacing the nominal one above (see
+         *        CovarianceOverrides); none by default.
+         * Warns if base_start_point's strain does not have the body x axis as its tangent
+         * axis (see Priors::warnIfTangentNotX). DefaultCovariances() gives tuned Q0 and Q2.
+         * @throws std::invalid_argument for an override key that is not a node arclength
+         *         (see Priors::CovarianceProfile).
          */
         Prior(
             std::shared_ptr<StateType> state,
             const ValuesType &base_start_point,
-            const Matrix2N &Q0 = Matrix2N::Identity(),
-            const MatrixN &Q2 = MatrixN::Identity(),
-            const PriorOptions &options = PriorOptions())
-            : Base(state, InterpolatorType(Q2), options.fixed_noise_model, options.cache_noise_model, "WNOAQuasiStatic::Prior"),
-              m_node_reference(base_start_point), m_Q0(Q0), m_Q2(Q2), m_options(options) {}
+            const Matrix2N &Q0,
+            const MatrixN &Q2,
+            const PriorOptions &options = PriorOptions(),
+            const CovarianceOverrides<Pose> &overrides = CovarianceOverrides<Pose>())
+            : Prior(state, base_start_point, Q0,
+                    std::make_shared<const CovarianceProfiles<Pose>>(Q2, stateArclengths(state), overrides), options) {}
+
+        /**
+         * @brief A prior with the default tuned covariances (see DefaultCovariances).
+         * @param state The grid state this prior extends.
+         * @param base_start_point Reference base-node values (see the full constructor).
+         * @param options See PriorOptions.
+         * @param overrides Per-segment values of Q2 (see CovarianceOverrides).
+         */
+        Prior(std::shared_ptr<StateType> state, const ValuesType &base_start_point, const PriorOptions &options = PriorOptions(),
+              const CovarianceOverrides<Pose> &overrides = CovarianceOverrides<Pose>())
+            : Prior(std::move(state), base_start_point, std::get<0>(DefaultCovariances()), std::get<1>(DefaultCovariances()), options,
+                    overrides) {}
+
+        /**
+         * @brief The default tuned covariances (Q0, Q2), in constructor order: the WNOA
+         *        prior's (see WNOA::Prior::DefaultCovariances), as ConfigLoader shares them
+         *        (Q0's [pose, strain] block, and Q2).
+         */
+        static std::tuple<Matrix2N, MatrixN> DefaultCovariances()
+        {
+            const auto [Q0, Q1, Q2, Q3, Q4] = WNOA::Prior<Pose>::DefaultCovariances();
+            (void)Q1, (void)Q3, (void)Q4;
+            return {Q0.template topLeftCorner<2 * dim, 2 * dim>(), Q2};
+        }
 
         /// The options this prior was built with.
         const PriorOptions &options() const { return m_options; }
+
+        /// Q2 resolved over the state's segments (see CovarianceOverrides).
+        const CovarianceProfiles<Pose> &covarianceProfiles() const { return *m_Q; }
 
         /**
          * @brief Append a node row at `time` (see GridPrior::beginRow) and return its prior
@@ -117,7 +160,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
                 new_factors.push_back(std::make_shared<gtsam::WnoaMotionFactor<Pose>>(
                     previous_node->poseKey(), previous_node->strainKey(),
                     current_node->poseKey(), current_node->strainKey(),
-                    ds, m_Q2.diagonal()));
+                    ds, m_Q->Q2.at(i - row_start - 1).diagonal())); // the segment [s_{n-1}, s_n]
 
                 const ValuesType previous = previous_node->getValues(new_values);
                 const ValuesType initial(previous.pose() * gtsam::traits<Pose>::Expmap(ds * previous.epsilon()), previous.epsilon());
@@ -128,9 +171,17 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         }
 
     private:
+        Prior(std::shared_ptr<StateType> state, const ValuesType &base_start_point, const Matrix2N &Q0,
+              std::shared_ptr<const CovarianceProfiles<Pose>> profiles, const PriorOptions &options)
+            : Base(state, InterpolatorType(profiles), options.fixed_noise_model, options.cache_noise_model, "WNOAQuasiStatic::Prior"),
+              m_node_reference(base_start_point), m_Q0(Q0), m_Q(std::move(profiles)), m_options(options)
+        {
+            warnIfTangentNotX<Pose>(base_start_point.epsilon(), "WNOAQuasiStatic::Prior");
+        }
+
         ValuesType m_node_reference;
         Matrix2N m_Q0;
-        MatrixN m_Q2;
+        std::shared_ptr<const CovarianceProfiles<Pose>> m_Q; // Q2, shared with the interpolator
         PriorOptions m_options;
     };
 } // namespace Spacetime::Priors::WNOAQuasiStatic

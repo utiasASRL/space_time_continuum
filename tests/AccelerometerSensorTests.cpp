@@ -25,6 +25,7 @@
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 
 #include "NumericalDifferentiation.hpp"
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -175,7 +176,7 @@ namespace Spacetime
         std::shared_ptr<WNOAPrior> makeWNOAPrior(std::shared_ptr<WNOAState> &state)
         {
             state = std::make_shared<WNOAState>(1.0, 4); // nodes at s = 0, 1/3, 2/3, 1
-            Priors::WNOA::Values<Pose> reference;
+            Priors::WNOA::NodeValues<Pose> reference;
             reference.epsilon((Vector6() << 0, 0, 0, 1.0, 0, 0).finished());
             return std::make_shared<WNOAPrior>(state, reference);
         }
@@ -381,8 +382,8 @@ namespace Spacetime
         const Options options;
         const Vector3 specific_force = R.unrotate(a_world - options.gravity);
         const Preintegration pim = preintegrate(0.0, dt, 5, [&](double) { return specific_force; });
-        const gtsam::Values values = makeValues(Pose(R, gtsam::Point3()), twist(Vector3::Zero(), R.unrotate(v_world)),
-                                                Pose(R, gtsam::Point3()), twist(Vector3::Zero(), R.unrotate(v_world + a_world * dt)));
+        const gtsam::Values values = makeValues(Pose(R, gtsam::Point3::Zero()), twist(Vector3::Zero(), R.unrotate(v_world)),
+                                                Pose(R, gtsam::Point3::Zero()), twist(Vector3::Zero(), R.unrotate(v_world + a_world * dt)));
         EXPECT_LT(makeFactor(pim, options).unwhitenedError(values).norm(), 1e-12);
     }
 
@@ -400,7 +401,7 @@ namespace Spacetime
                                                     const Vector3 w = w0 + (t / dt) * (w1 - w0);
                                                     return options.offset.rotation().unrotate(Vector3(alpha.cross(r) + w.cross(w.cross(r))));
                                                 });
-        const gtsam::Values values = makeValues(Pose(), twist(w0, Vector3::Zero()), Pose(Rot::Rz(0.25), gtsam::Point3()), twist(w1, Vector3::Zero()));
+        const gtsam::Values values = makeValues(Pose(), twist(w0, Vector3::Zero()), Pose(Rot::Rz(0.25), gtsam::Point3::Zero()), twist(w1, Vector3::Zero()));
         for (const bool slerp : {false, true})
             EXPECT_LT(makeFactor(pim, withSlerp(options, slerp)).unwhitenedError(values).norm(), 1e-12) << "slerp " << slerp;
     }
@@ -413,19 +414,19 @@ namespace Spacetime
         const Options options;
         const Preintegration pim = preintegrate(0.0, dt, 8, [&](double t) { return Rot::Rx(rate * t).unrotate(-options.gravity); });
         const Vector6 varpi = twist(Vector3(rate, 0.0, 0.0), Vector3::Zero());
-        const gtsam::Values values = makeValues(Pose(), varpi, Pose(Rot::Rx(rate * dt), gtsam::Point3()), varpi);
+        const gtsam::Values values = makeValues(Pose(), varpi, Pose(Rot::Rx(rate * dt), gtsam::Point3::Zero()), varpi);
         EXPECT_LT(makeFactor(pim, withSlerp(options, true)).unwhitenedError(values).norm(), 1e-12);
         EXPECT_GT(makeFactor(pim, withSlerp(options, false)).unwhitenedError(values).norm(), 1e-2);
     }
 
     TEST(AccelerometerFactor, ABiasIsRemovedFromTheReadings)
     {
-        const Pose T(Rot::RzRyRx(0.4, -0.6, 0.3), gtsam::Point3());
+        const Pose T(Rot::RzRyRx(0.4, -0.6, 0.3), gtsam::Point3::Zero());
         const Vector3 bias(0.2, -0.1, 0.05);
         const double dt = 0.1;
         for (const bool slerp : {false, true})
         {
-            const Options options = withOffset(withSlerp(Options(), slerp), Pose(Rot::RzRyRx(0.5, 0.2, -0.3), gtsam::Point3()));
+            const Options options = withOffset(withSlerp(Options(), slerp), Pose(Rot::RzRyRx(0.5, 0.2, -0.3), gtsam::Point3::Zero()));
             const Vector3 specific_force = options.offset.rotation().unrotate(T.rotation().unrotate(-options.gravity));
             const Preintegration pim = preintegrate(0.0, dt, 5, [&](double) { return Vector3(specific_force + bias); }, linearBias(0.0, dt));
             const auto factor = makeFactor(pim, options);
@@ -677,7 +678,7 @@ namespace Spacetime
 
             // Batch: the end effector is unanchored between sparse poses, so the window
             // solves of a sliding-window smoother would be underconstrained at first.
-            Estimator estimator(Estimator::BATCH_LAG);
+            Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
             estimator.addPrior(prior);
             estimator.addSensor(pose_sensor);
             std::shared_ptr<EEAccelerometer> accelerometer;
@@ -710,7 +711,7 @@ namespace Spacetime
             run.varpi = queried ? queried->varpi() : Vector6::Zero();
             if (accelerometer && accelerometer->biasModel())
             {
-                auto bias_values = std::dynamic_pointer_cast<Biases::BiasValues<Vector3>>(accelerometer->biasModel()->query(duration, 0.0, estimator.getCurrentValues()));
+                auto bias_values = std::dynamic_pointer_cast<Biases::BiasNodeValues<Vector3>>(accelerometer->biasModel()->query(duration, 0.0, estimator.getCurrentValues()));
                 EXPECT_NE(bias_values, nullptr);
                 if (bias_values)
                     run.bias = bias_values->bias();
@@ -885,6 +886,6 @@ namespace Spacetime
         auto prior = std::make_shared<WNOVPrior>(state, Pose(), Vector6::Zero());
         const auto sensors = data.load(R"("include_accelerometer": true)", prior);
         ASSERT_EQ(sensors.size(), 1u); // the aurora only
-        EXPECT_NE(std::dynamic_pointer_cast<Sensors::PoseSensor<Priors::WNOV::Values<Pose>>>(sensors.front()), nullptr);
+        EXPECT_NE(std::dynamic_pointer_cast<Sensors::PoseSensor<Priors::WNOV::NodeValues<Pose>>>(sensors.front()), nullptr);
     }
 } // namespace Spacetime

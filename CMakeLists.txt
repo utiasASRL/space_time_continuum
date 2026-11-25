@@ -92,6 +92,7 @@ if(InterfaceROS2)
     find_package(tf2_ros REQUIRED)
     find_package(tf2_msgs REQUIRED)
     find_package(geometry_msgs REQUIRED)
+    find_package(sensor_msgs REQUIRED)
     find_package(visualization_msgs REQUIRED)
 endif()
 if(Visualizer AND NOT VisualizerBackend STREQUAL "default")
@@ -145,10 +146,28 @@ install(TARGETS ${SPACETIME_EXPORTED_TARGETS}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 # Headers live next to their sources, under spacetime/, and are included as <spacetime/...>.
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/spacetime/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/spacetime
-    FILES_MATCHING PATTERN "*.hpp"
-)
+# Installs every .hpp file under SOURCE_DIR, and every extensionless aggregation header (one per
+# folder, named after it, e.g. spacetime/estimator/estimator), keeping the folder layout.
+function(install_headers SOURCE_DIR DEST_PREFIX)
+    install(DIRECTORY ${SOURCE_DIR}/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${DEST_PREFIX}
+        FILES_MATCHING PATTERN "*.hpp"
+    )
+    file(GLOB_RECURSE ALL_FILES "${SOURCE_DIR}/*")
+    foreach(FILE ${ALL_FILES})
+        get_filename_component(EXT ${FILE} EXT)
+        if(NOT EXT STREQUAL "")
+            continue()
+        endif()
+        file(RELATIVE_PATH REL_PATH ${SOURCE_DIR} ${FILE})
+        get_filename_component(REL_DIR ${REL_PATH} DIRECTORY)
+        # The top-level aggregation header (<spacetime>) cannot go one level up, where the
+        # spacetime/ header directory is: it stays in that directory, which is on the include
+        # path of every target (see spacetime/CMakeLists.txt).
+        install(FILES ${FILE} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${DEST_PREFIX}/${REL_DIR})
+    endforeach()
+endfunction()
+install_headers(${CMAKE_CURRENT_SOURCE_DIR}/spacetime spacetime)
 install(EXPORT ${PROJECT_NAME}Targets
     FILE ${PROJECT_NAME}Targets.cmake
     NAMESPACE ${PROJECT_NAME}::

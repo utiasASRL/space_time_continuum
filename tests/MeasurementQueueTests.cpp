@@ -95,6 +95,37 @@ namespace Spacetime
         EXPECT_EQ(calls, 1);
     }
 
+    // A callback that saw a measurement while it was queued is not called again when it is
+    // redelivered; one registered while it was withheld is called on redelivery.
+    TEST(MeasurementQueueAccessors, RedeliveryNotifiesOnlyCallbacksRegisteredSinceWithholding)
+    {
+        Types::MeasurementQueue queue;
+        queue.addMeasurement(makeMeasurement(0.0));
+
+        int early = 0, late = 0;
+        queue.addMeasurementCallback([&](const Types::MeasurementQueue::pMeasurementType &)
+                                     { early++; });
+        EXPECT_EQ(early, 1); // replayed on registration
+
+        const auto withheld = queue.withholdAll();
+        ASSERT_EQ(withheld.size(), 1u);
+        EXPECT_EQ(withheld.front().notified, 1u);
+        EXPECT_TRUE(queue.empty());
+        queue.addMeasurementCallback([&](const Types::MeasurementQueue::pMeasurementType &)
+                                     { late++; });
+        EXPECT_EQ(late, 0); // nothing queued to replay
+
+        for (const auto &w : withheld)
+            queue.redeliver(w);
+        EXPECT_EQ(early, 1);
+        EXPECT_EQ(late, 1);
+        EXPECT_EQ(timesOf(queue.peekAll()), (std::vector<double>{0.0}));
+
+        queue.addMeasurement(makeMeasurement(0.1)); // a new measurement reaches every callback
+        EXPECT_EQ(early, 2);
+        EXPECT_EQ(late, 2);
+    }
+
     TEST(MeasurementQueueAccessors, ConcurrentProducersAndReaders)
     {
         Types::MeasurementQueue queue;

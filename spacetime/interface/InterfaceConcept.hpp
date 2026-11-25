@@ -1,34 +1,33 @@
 /**
  * @file InterfaceConcept.hpp
  * @brief What an interface must provide, so downstream code can swap interfaces by changing
- *        only which one it selects:
+ *        only the template argument of Spacetime::Session (see spacetime/interface/Interfaces.hpp):
  *        @code
- *        #include <spacetime/interface/Interfaces.hpp>
- *        using SelectedInterface = Spacetime::Interfaces::Standalone; // the one line to change
+ *        #include <spacetime>
  *
- *        SelectedInterface::Session session(estimator, options);
- *        session.addMeasurementQueues(estimator.getMeasurementQueues());
- *        session.start();
+ *        Spacetime::SessionOptions options;
+ *        Spacetime::Session session(options); // the default interface; or e.g. Spacetime::Session<Spacetime::INTERFACE_ROS2>
+ *        session.start(estimator);
  *        session.join();
  *        @endcode
  *
- *        Each interface declares a bundle `Spacetime::Interfaces::<Name>` (see e.g.
- *        spacetime/interface/standalone/Interface.hpp) holding a `name` and a `Session`
- *        type. A Session runs the estimator on the interface's own terms: it owns the clock,
+ *        Each interface, numbered by one of the INTERFACE_* constants, specializes
+ *        `Interface::Traits<INTERFACE_X>` (see e.g. spacetime/interface/standalone/Interface.hpp)
+ *        with a `name` and a `Session` type. A Session runs the estimator on the interface's own terms: it owns the clock,
  *        the measurement sources and however many threads (or none, e.g. an executor it is
  *        handed) the interface needs. Its hooks are:
- *        - `Session(Estimator &, const SessionOptions &)`: drives the estimator, which must
- *          outlive the session.
- *        - `void addMeasurementQueues(queues)`: the models' measurement queues (typically
- *          Estimator::getMeasurementQueues()) the interface fills, however it gets the data
- *          (replaying what is already loaded into them, subscribing to a topic per queue,
- *          ...). Call before start(), and before any measurement observer (e.g. a visualizer
- *          view) subscribes to them.
+ *        - `Session(const SessionOptions &)`: sets up the clock and whatever else the interface
+ *          needs before running. Holds no estimator, so it can be built (and e.g. a
+ *          visualizer given its now() and requestStop()) before the estimator is complete.
  *        - `void setTickCallback(Interface::EstimatorDriver::TickCallback)`: called with the
  *          time of each estimate, right after it, on the estimating thread. Call before start().
- *        - `void start()`: starts estimating from the start time. Throws std::invalid_argument
- *          for invalid options (e.g. a non-positive period, or a batch-mode estimator in real
- *          time).
+ *        - `void start(Estimator &)`: starts estimating with the estimator, which must outlive
+ *          the session, from the start time, filling its measurement queues
+ *          (Estimator::getMeasurementQueues(), read here, so every model added by then is
+ *          covered) however the interface gets the data (replaying what is already loaded into
+ *          them, subscribing to a topic per queue, ...). Throws std::invalid_argument for invalid
+ *          options (e.g. a non-positive period, or a batch-mode estimator in real time), and
+ *          std::logic_error if already started.
  *        - `void requestStop()`: asks the run to end as soon as possible. Safe to call from
  *          any thread, at any time (e.g. when a visualizer is closed).
  *        - `void join()`: blocks until the run has ended (reached the end time, or stopped),
@@ -46,14 +45,24 @@
 
 #include <concepts>
 #include <string_view>
-#include <vector>
 
 #include <spacetime/estimator/Estimator.hpp>
-#include <spacetime/estimator/types/MeasurementQueue.hpp>
 #include <spacetime/interface/EstimatorDriver.hpp>
 
 namespace Spacetime::Interface
 {
+    inline constexpr int INTERFACE_STANDALONE = 0; ///< The standalone ("default") interface: file playback (see standalone/Interface.hpp).
+    inline constexpr int INTERFACE_ROS2 = 1;       ///< The ROS2 interface (see ros2/Interface.hpp).
+    inline constexpr int INTERFACE_MUJOCO = 2;     ///< The MuJoCo interface (not implemented yet).
+
+    /**
+     * @brief An interface's bundle: a `name` and a `Session` satisfying InterfaceType. Each built
+     *        interface specializes it for its INTERFACE_* constant; it is left undefined for the others.
+     * @tparam I One of the INTERFACE_* constants.
+     */
+    template <int I>
+    struct Traits;
+
     /// What every interface's Session is constructed with.
     struct SessionOptions
     {
@@ -65,7 +74,7 @@ namespace Spacetime::Interface
 
     /**
      * @brief An interface bundle: a `name` and a `Session` with the hooks listed in the file comment.
-     * @tparam I The bundle type, e.g. Spacetime::Interfaces::Standalone.
+     * @tparam I The bundle type, e.g. Interface::Traits<INTERFACE_STANDALONE>.
      */
     template <typename I>
     concept InterfaceType =
@@ -73,12 +82,11 @@ namespace Spacetime::Interface
             typename I::Session;
             { I::name } -> std::convertible_to<std::string_view>;
         } &&
-        std::constructible_from<typename I::Session, Estimator &, const SessionOptions &> &&
-        requires(typename I::Session &session, const typename I::Session &const_session,
-                 const std::vector<Types::pMeasurementQueueType> &queues, EstimatorDriver::TickCallback callback) {
-            { session.addMeasurementQueues(queues) } -> std::same_as<void>;
+        std::constructible_from<typename I::Session, const SessionOptions &> &&
+        requires(typename I::Session &session, const typename I::Session &const_session, Estimator &estimator,
+                 EstimatorDriver::TickCallback callback) {
             { session.setTickCallback(callback) } -> std::same_as<void>;
-            { session.start() } -> std::same_as<void>;
+            { session.start(estimator) } -> std::same_as<void>;
             { session.requestStop() } -> std::same_as<void>;
             { session.join() } -> std::same_as<void>;
             { const_session.finished() } -> std::convertible_to<bool>;

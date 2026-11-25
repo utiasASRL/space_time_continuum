@@ -130,15 +130,15 @@ namespace SpacetimePython
         py::class_<Estimator, std::shared_ptr<Estimator>>(
             m, "Estimator", "The fixed-lag (or batch) smoother over every model, prior and sensor added to it.")
             .def(py::init<const EstimatorOptions &>(), py::arg("options"), "Raises ValueError for a negative smootherLag other than BATCH_LAG.")
-            .def(py::init<double, const gtsam::LevenbergMarquardtParams &>(), py::arg("smootherLag") = 0.0,
-                 py::arg("params") = EstimatorOptions::defaultLMParams(),
-                 "A batch fixed-lag smoother keeping `smootherLag` [s] of past states (BATCH_LAG: batch mode), solving with `params`. "
+            .def(py::init<double>(), py::arg("smootherLag") = Estimator::BATCH_LAG,
+                 "Default options, keeping `smootherLag` [s] of past states (BATCH_LAG, the default, selects batch mode). "
                  "Raises ValueError for a negative smootherLag other than BATCH_LAG.")
             .def_readonly_static("BATCH_LAG", &Estimator::BATCH_LAG, "The smootherLag selecting batch mode (-1).")
             .def("addModel", &Estimator::addModel, py::arg("model"),
                  "Adds a model; models run in the order added. Raises ValueError for None, or a stateful model whose state "
                  "another added stateful model extends already.")
             .def("addSensor", &Estimator::addSensor, py::arg("sensor"), "Same as addModel.")
+            .def("addActuator", &Estimator::addActuator, py::arg("actuator"), "Same as addModel, for an actuator (e.g. actuators.KinematicTendon).")
             .def("addPrior", &Estimator::addModel, py::arg("prior"), "Same as addModel.")
             .def("addRobot", &Estimator::addRobot, py::arg("robot"), "Adds every model of `robot`, in its order; adds none if addModel would raise for any.")
             .def("setCovarianceKeyGroupsFn", &Estimator::setCovarianceKeyGroupsFn, py::arg("fn"),

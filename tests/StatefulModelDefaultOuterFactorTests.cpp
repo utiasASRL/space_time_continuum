@@ -18,6 +18,7 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/types/NearestNodeFactor.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 // Tests of Types::StatefulModel's default outer factor: snapping an off-node query to the nearest
 // node (nearest arclength, then nearest time), for stateful models that do not override
@@ -29,7 +30,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using Vector6 = gtsam::Vector6;
         using NodeType = Priors::WNOA::Node<Pose>;
-        using ValuesType = Priors::WNOA::Values<Pose>;
+        using ValuesType = Priors::WNOA::NodeValues<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
         using Keys = Priors::WNOA::InterpolatedKeys<Pose>;
 
@@ -341,7 +342,7 @@ namespace Spacetime
     {
         auto state = std::make_shared<StateType>(std::vector<double>{0.0, 0.2, 1.0});
         auto prior = std::make_shared<SnappingPrior>(state);
-        Estimator estimator(1.0); // lag long enough to keep the snapped-to row (t = 0.1) in the window
+        Estimator estimator(Testing::estimatorOptions(1.0)); // lag long enough to keep the snapped-to row (t = 0.1) in the window
         estimator.addPrior(prior);
 
         auto sensor = std::make_shared<Sensors::PoseSensor<ValuesType>>(prior);

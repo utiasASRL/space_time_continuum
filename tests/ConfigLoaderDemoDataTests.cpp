@@ -20,7 +20,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using PriorType = Priors::WNOA::Prior<Pose>;
 
         std::shared_ptr<PriorType> makePrior(std::shared_ptr<StateType> &state)

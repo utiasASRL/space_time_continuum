@@ -27,6 +27,23 @@
 namespace Spacetime::Types
 {
     /**
+     * @brief The index of the node arclength `s` (within TOLERANCE) in the ascending
+     *        `arclengths`, with -1 meaning the last one (the tip).
+     * @return nullopt if `s` is not a node arclength.
+     */
+    inline std::optional<unsigned int> nodeIndexAt(const std::vector<double> &arclengths, double s)
+    {
+        if (arclengths.empty())
+            return std::nullopt;
+        const double arclength = (s == -1.0) ? arclengths.back() : s;
+        auto it = std::find_if(arclengths.begin(), arclengths.end(), [&](double a)
+                               { return std::abs(a - arclength) < TOLERANCE; });
+        if (it == arclengths.end())
+            return std::nullopt;
+        return static_cast<unsigned int>(std::distance(arclengths.begin(), it));
+    }
+
+    /**
      * @brief The state of a continuum robot: a grid of NodeT nodes, one row (at fixed
      *        arclengths) per addStateAtTime call. Nodes are indexed by a flat index (order
      *        of creation) and by their (spatial, temporal) grid index.
@@ -101,23 +118,37 @@ namespace Spacetime::Types
         template <typename T>
         void lock(const std::string &type, double s, const T &value, std::optional<double> t = std::nullopt)
         {
-            const double arclength = (s == -1.0) ? arclengths.back() : s;
-            auto it = std::find_if(arclengths.begin(), arclengths.end(), [&](double a)
-                                   { return std::abs(a - arclength) < TOLERANCE; });
-            if (it == arclengths.end())
-                throw std::invalid_argument("ContinuumRobotState::lock: s = " + std::to_string(s) + " is not a node arclength (or -1 for the tip).");
-
+            const unsigned int spatial_index = lockIndex(type, s);
             KeyManager probe_keys; // only used to read the node type's variables
             const NodeT probe(probe_keys, 0.0, 0.0);
-            const auto names = probe.names();
-            if (std::find(names.begin(), names.end(), type) == names.end())
-                throw std::invalid_argument("ContinuumRobotState::lock: the node type has no variable \"" + type + "\".");
             if (probe.type(type) != std::type_index(typeid(T)))
                 throw std::invalid_argument("ContinuumRobotState::lock: the value's type does not match variable \"" + type + "\".");
 
-            m_locks.push_back(Lock{type, static_cast<unsigned int>(std::distance(arclengths.begin(), it)), t,
+            m_locks.push_back(Lock{type, spatial_index, t,
                                    [type, value](const NodeT &node, gtsam::Values &values)
                                    { node.insert(type, value, values); }});
+        }
+
+        /**
+         * @brief Hold the variable `type` of the nodes at arclength `s` fixed at the initial
+         *        guess the prior gives it when each node is first added (e.g. a WNOA prior's
+         *        boundary NodeValues for the base row, so a locked strain is usually the
+         *        straight [0, 0, 0, 1, 0, 0]), instead of estimating it. See lockInitial.
+         * @throws std::invalid_argument if `s` is not a node arclength or `type` is not a
+         *         variable of the node type.
+         */
+        void lock(const std::string &type, double s) { lockInitial(type, s); }
+
+        /**
+         * @brief lock(type, s) restricted, if `t` is given, to the node row created at `t`
+         *        (within TOLERANCE). The value is read from the initial guesses after the
+         *        estimator's phase 1 (see Types::State::resolveLocks).
+         * @throws std::invalid_argument if `s` is not a node arclength or `type` is not a
+         *         variable of the node type.
+         */
+        void lockInitial(const std::string &type, double s, std::optional<double> t = std::nullopt)
+        {
+            m_locks.push_back(Lock{type, lockIndex(type, s), t, nullptr});
         }
 
         /**
@@ -167,8 +198,14 @@ namespace Spacetime::Types
                 {
                     if (lock.spatial_index != spatial_index || (lock.time && std::abs(*lock.time - time) >= TOLERANCE))
                         continue;
-                    if (!this->locked_values_.exists(new_node->key(lock.type)))
-                        lock.insert(*new_node, this->locked_values_);
+                    const gtsam::Key key = new_node->key(lock.type);
+                    if (!this->locked_values_.exists(key))
+                    {
+                        if (lock.insert)
+                            lock.insert(*new_node, this->locked_values_);
+                        else
+                            this->pending_initial_locks_.push_back(key); // see resolveLocks
+                    }
                     lock.matched = true;
                 }
             }
@@ -298,13 +335,28 @@ namespace Spacetime::Types
 
         using NodeGridIndex = std::tuple<unsigned int, unsigned int>; // (spatial index, temporal index)
 
+        /// The spatial index of a lock at `s` on variable `type`. @throws std::invalid_argument (see lock).
+        unsigned int lockIndex(const std::string &type, double s) const
+        {
+            const std::optional<unsigned int> index = nodeIndexAt(arclengths, s);
+            if (!index)
+                throw std::invalid_argument("ContinuumRobotState::lock: s = " + std::to_string(s) + " is not a node arclength (or -1 for the tip).");
+
+            KeyManager probe_keys; // only used to read the node type's variables
+            const NodeT probe(probe_keys, 0.0, 0.0);
+            const auto names = probe.names();
+            if (std::find(names.begin(), names.end(), type) == names.end())
+                throw std::invalid_argument("ContinuumRobotState::lock: the node type has no variable \"" + type + "\".");
+            return *index;
+        }
+
         /// A pending lock(): which variable, at which spatial index and (optionally) time.
         struct Lock
         {
             std::string type;
             unsigned int spatial_index;
             std::optional<double> time;
-            std::function<void(const NodeT &, gtsam::Values &)> insert;
+            std::function<void(const NodeT &, gtsam::Values &)> insert; ///< null: lock to the initial guess
             bool matched = false; ///< a node row matched it (or it was warned about)
         };
         std::vector<Lock> m_locks;

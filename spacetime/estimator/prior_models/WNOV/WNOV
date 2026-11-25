@@ -1,0 +1,19 @@
+// -*- C++ -*-
+/**
+ * @file WNOV
+ * @brief Aggregation header of spacetime/estimator/prior_models/WNOV/: the white-noise-on-velocity prior: its state, prior and interpolator.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOV
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOV
+
+#include <spacetime/estimator/prior_models/WNOV/Covariances.hpp>
+#include <spacetime/estimator/prior_models/WNOV/InterpolatedKeys.hpp>
+#include <spacetime/estimator/prior_models/WNOV/Interpolator.hpp>
+#include <spacetime/estimator/prior_models/WNOV/WNOVPrior.hpp>
+#include <spacetime/estimator/prior_models/WNOV/WNOVState.hpp>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOV

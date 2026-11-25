@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <gtsam/nonlinear/Values.h>
+#include <gtsam/nonlinear/NoiseModelFactorN.h> // before WnoaFactor.h, which uses it without including it
 #include <gtsam/nonlinear/WnoaFactor.h>
 
 #include <spacetime/estimator/joint_models/EndEffectorInterpolator.hpp>
@@ -44,6 +45,13 @@ namespace Spacetime::Joints
         EndEffectorPrior(std::shared_ptr<StateType> state, const Pose &initial_pose, const TangentVector &q_psd_diag)
             : Base(state, EndEffectorInterpolator<Pose>(q_psd_diag), false, true, "EndEffectorPrior"),
               m_initial_pose(initial_pose), m_q_psd_diag(q_psd_diag) {}
+
+        /// An end-effector prior with the default q_psd_diag (see DefaultCovariances).
+        EndEffectorPrior(std::shared_ptr<StateType> state, const Pose &initial_pose)
+            : EndEffectorPrior(std::move(state), initial_pose, DefaultCovariances()) {}
+
+        /// The default q_psd_diag: ones (no tuned values exist yet).
+        static TangentVector DefaultCovariances() { return TangentVector::Ones(); }
 
         /**
          * @brief Phase 1: adds one row at `time` (if strictly after the last, see

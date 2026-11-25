@@ -30,7 +30,7 @@ namespace Spacetime::Types
     {
     public:
         using pMeasurementType = MeasurementQueue::pMeasurementType; ///< Shared pointer to a queued measurement.
-        using pValuesType = std::shared_ptr<NodeValues>;             ///< Shared pointer to type-erased node values.
+        using pValuesType = std::shared_ptr<NodeValuesBase>;             ///< Shared pointer to type-erased node values.
         using pStatefulType = Types::pStatefulType;                  ///< Shared pointer to the measured stateful model.
 
         /**

@@ -1,0 +1,24 @@
+// -*- C++ -*-
+/**
+ * @file WNOA
+ * @brief Aggregation header of spacetime/estimator/prior_models/WNOA/: the white-noise-on-acceleration prior: its state, prior, interpolator and factors.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOA
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOA
+
+#include <spacetime/estimator/prior_models/WNOA/Covariances.hpp>
+#include <spacetime/estimator/prior_models/WNOA/BinarySpaceFactor.hpp>
+#include <spacetime/estimator/prior_models/WNOA/BinaryTimeFactor.hpp>
+#include <spacetime/estimator/prior_models/WNOA/InterpolatedKeys.hpp>
+#include <spacetime/estimator/prior_models/WNOA/Interpolator.hpp>
+#include <spacetime/estimator/prior_models/WNOA/UnaryFactor.hpp>
+#include <spacetime/estimator/prior_models/WNOA/WNOAPrior.hpp>
+#include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
+
+#include <spacetime/estimator/prior_models/WNOA/experimental/experimental>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOA

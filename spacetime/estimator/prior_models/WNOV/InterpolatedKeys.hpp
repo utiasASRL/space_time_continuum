@@ -1,6 +1,7 @@
 #ifndef WNOV_INTERPOLATEDKEYS_HPP
 #define WNOV_INTERPOLATEDKEYS_HPP
 
+#include <cstddef>
 #include <stdexcept>
 #include <utility>
 
@@ -9,6 +10,7 @@
 #include <gtsam/nonlinear/Values.h>
 
 #include <spacetime/estimator/prior_models/WNOV/WNOVState.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
 
 namespace Spacetime::Priors::WNOV
 {
@@ -26,7 +28,7 @@ namespace Spacetime::Priors::WNOV
     template <typename PoseT>
     struct InterpolatedKeys
     {
-        using ValuesType = Values<PoseT>; ///< The node values these keys index.
+        using ValuesType = NodeValues<PoseT>; ///< The node values these keys index.
         /// Pose tangent dimension.
         static constexpr int dim = gtsam::traits<PoseT>::dimension;
 
@@ -35,6 +37,10 @@ namespace Spacetime::Priors::WNOV
 
         /// The full set of interpolated keys this node type defines.
         static gtsam::KeyVector keys() { return {Pose()}; }
+
+        /// The interpolated keys at the `point`-th arclength of a multi-point factor (see Types::InterpolatedKeyAt).
+        static gtsam::Key Pose(std::size_t point) { return Types::InterpolatedKeyAt(Pose(), point); }
+        static gtsam::KeyVector keys(std::size_t point) { return Types::InterpolatedKeysAt(keys(), point); }
 
         /// Insert the pose of `node` into `values` at `key`; throws std::runtime_error unless `key` is Pose().
         static void insert(gtsam::Key key, const ValuesType &node, gtsam::Values &values)

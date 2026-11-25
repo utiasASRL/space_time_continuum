@@ -19,7 +19,7 @@ namespace Spacetime::Priors::WNOV
     {
         using Pose = gtsam::Pose3;
         using NodeType = Node<Pose>;
-        using ValuesType = Values<Pose>;
+        using ValuesType = NodeValues<Pose>;
         using PriorType = Prior<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
         using Matrix6 = Eigen::Matrix<double, 6, 6>;

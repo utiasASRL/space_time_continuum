@@ -1,4 +1,5 @@
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -296,5 +297,20 @@ namespace Spacetime
                     EXPECT_DOUBLE_EQ(channel, expected) << "cell " << cell << " with " << extra_points << " extra points";
             }
         }
+    }
+
+    TEST(ContinuumRobotVisualization, SetSpatialInterpolationPointsRebuildsTheBackbone)
+    {
+        Rig rig;
+        rig.view->setSpatialInterpolationPoints(3); // no interpolator: a no-op
+        EXPECT_EQ(rig.view->spatialInterpolationPoints(), 0u);
+        rig.bindInterpolator();
+        rig.view->setSpatialInterpolationPoints(3);
+        EXPECT_EQ(rig.view->spatialInterpolationPoints(), 3u);
+        EXPECT_EQ(rig.view->mp_backbone_points->GetNumberOfPoints(), static_cast<vtkIdType>(kSpatialDim + (kSpatialDim - 1) * 3));
+        rig.view->adjustSpatialInterpolationPoints(+100); // clamped
+        EXPECT_EQ(rig.view->spatialInterpolationPoints(), Visualization::Default::ContinuumRobot<NodeType>::kMaxSpatialInterpolationPoints);
+        EXPECT_THROW(rig.view->setSpatialInterpolationPoints(Visualization::Default::ContinuumRobot<NodeType>::kMaxSpatialInterpolationPoints + 1),
+                     std::invalid_argument);
     }
 } // namespace Spacetime

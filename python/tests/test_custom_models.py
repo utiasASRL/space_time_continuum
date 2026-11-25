@@ -135,7 +135,6 @@ def test_python_actuator_sets_strain():
     """An actuator commanding the full strain at the tip: its factor ties the interpolated strain to
     the input u_k (error = strain - u), as tests/ActuatorBaseTests.cpp's StrainInputFactor does."""
     commanded = np.array([0.0, CURVATURE, 0.0, 1.0, 0.0, 0.0])
-    strain_key = wnoa.InterpolatedKeys.Strain()
 
     def strain_minus_input(factor, values, jacobians):
         strain, u = values.atVector6(factor.keys()[0]), values.atVector(factor.keys()[1])  # a fixed-size strain, a dynamic input
@@ -145,10 +144,11 @@ def test_python_actuator_sets_strain():
         return strain - u
 
     class StrainActuator(types.ActuatorBase):
-        def getFactor(self, measurement, input_key, arclength):
-            assert arclength == LENGTH
+        def getFactors(self, measurement, input_key):
             noise = gtsam.noiseModel.Isotropic.Sigma(6, 1e-3)
-            return gtsam.CustomFactor(noise, [strain_key, input_key], strain_minus_input)
+            # One factor per point: the strain at arclengths()[i] against the input.
+            return [gtsam.CustomFactor(noise, [wnoa.InterpolatedKeys.Strain(i), input_key], strain_minus_input)
+                    for i in range(len(self.arclengths()))]
 
     state, prior = make_wnoa_robot(length=LENGTH)
     actuator = StrainActuator(prior, [LENGTH], 6)
@@ -166,7 +166,7 @@ def test_python_actuator_sets_strain():
 
 def test_python_actuator_invalid_arguments_raise():
     class Noop(types.ActuatorBase):
-        def getFactor(self, measurement, input_key, arclength):
+        def getFactors(self, measurement, input_key):
             return None
 
     _, prior = make_wnoa_robot()
@@ -176,9 +176,63 @@ def test_python_actuator_invalid_arguments_raise():
         Noop(prior, [0.1], 0)
 
 
+def test_python_actuator_spanning_several_points():
+    """One factor on two points at once (their mean strain against the input), interpolated jointly by the prior."""
+    commanded = np.array([0.0, CURVATURE, 0.0, 1.0, 0.0, 0.0])
+
+    def mean_strain_minus_input(factor, values, jacobians):
+        keys = factor.keys()
+        a, b, u = values.atVector6(keys[0]), values.atVector6(keys[1]), values.atVector(keys[2])
+        if jacobians is not None:
+            jacobians[0] = 0.5 * np.eye(6)
+            jacobians[1] = 0.5 * np.eye(6)
+            jacobians[2] = -np.eye(6)
+        return 0.5 * (a + b) - u
+
+    class MeanStrainActuator(types.ActuatorBase):
+        def getFactors(self, measurement, input_key):
+            keys = [wnoa.InterpolatedKeys.Strain(0), wnoa.InterpolatedKeys.Strain(1), input_key]
+            assert all(types.isPointKey(k) for k in keys[:2]) and types.pointOf(keys[1]) == 1
+            return [gtsam.CustomFactor(gtsam.noiseModel.Isotropic.Sigma(6, 1e-3), keys, mean_strain_minus_input)]
+
+    state, prior = make_wnoa_robot(length=LENGTH)
+    actuator = MeanStrainActuator(prior, [LENGTH / 2, LENGTH], 6)
+    for k in range(6):
+        actuator.addMeasurement(types.MeasurementBase(0.0, 0.1 * k, commanded.reshape(6, 1), np.eye(6) * 1e-6))
+    estimator = batch_estimator()
+    estimator.addModel(prior)
+    estimator.addModel(actuator)
+    run_session(estimator, end_time=END_TIME)
+    values = estimator.getCurrentValues()
+    mean = 0.5 * (prior.query(END_TIME, LENGTH / 2, values).epsilon() + prior.query(END_TIME, LENGTH, values).epsilon())
+    np.testing.assert_allclose(mean, commanded, atol=1e-2)
+
+
+def test_python_actuator_must_implement_get_factors():
+    class Incomplete(types.ActuatorBase):
+        pass
+
+    _, prior = make_wnoa_robot()
+    actuator = Incomplete(prior, [0.1], 6)
+    with pytest.raises(RuntimeError):
+        actuator.getFactors(types.MeasurementBase(0.0, 0.0, np.zeros((6, 1)), np.eye(6)), gtsam.symbol('u', 0))
+
+
+def test_point_indexed_keys():
+    key = wnoa.InterpolatedKeys.Pose(2)
+    assert key != wnoa.InterpolatedKeys.Pose() and types.isPointKey(key)
+    assert types.pointOf(key) == 2 and types.pointOf(wnoa.InterpolatedKeys.Pose()) is None
+    assert types.placeholderOf(key) == wnoa.InterpolatedKeys.Pose()
+    assert types.InterpolatedKeyAt(wnoa.InterpolatedKeys.Pose(), 2) == key
+    assert list(wnoa.InterpolatedKeys.keys(1)) == [wnoa.InterpolatedKeys.Pose(1), wnoa.InterpolatedKeys.Strain(1),
+                                                   wnoa.InterpolatedKeys.Velocity(1)]
+    with pytest.raises(ValueError):
+        types.InterpolatedKeyAt(key, 1)
+
+
 # A rigid body written entirely in Python: its node, node values, state, prior and robot.
 
-class BodyValues(types.NodeValues):
+class BodyValues(types.NodeValuesBase):
     def __init__(self, pose):
         super().__init__()
         self.values = [pose.matrix()]

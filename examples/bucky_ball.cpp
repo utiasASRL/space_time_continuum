@@ -41,7 +41,7 @@
 #include "JointDemo.hpp"
 
 using namespace JointDemo;
-using EndEffectorPoseSensor = Spacetime::Sensors::PoseSensor<Spacetime::Joints::EndEffectorValues<Pose>>;
+using EndEffectorPoseSensor = Spacetime::Sensors::PoseSensor<Spacetime::Joints::EndEffectorNodeValues<Pose>>;
 
 namespace
 {

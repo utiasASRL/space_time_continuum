@@ -1,0 +1,17 @@
+// -*- C++ -*-
+/**
+ * @file experimental
+ * @brief Aggregation header of spacetime/estimator/prior_models/WNOA/experimental/: the WNOA prior's factors built from GTSAM's Lie-algebra factors (WNOA::PriorOptions::factor_type Experimental).
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOA_EXPERIMENTAL
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOA_EXPERIMENTAL
+
+#include <spacetime/estimator/prior_models/WNOA/experimental/BinarySpaceFactor.hpp>
+#include <spacetime/estimator/prior_models/WNOA/experimental/BinaryTimeFactor.hpp>
+#include <spacetime/estimator/prior_models/WNOA/experimental/UnaryFactor.hpp>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS_WNOA_EXPERIMENTAL

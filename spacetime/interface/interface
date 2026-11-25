@@ -1,0 +1,28 @@
+// -*- C++ -*-
+/**
+ * @file interface
+ * @brief Aggregation header of spacetime/interface/: the interface layer and every built interface, with Interface::Session (Spacetime::Session, see Types.hpp).
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_INTERFACE
+#define SPACETIME_AGGREGATE_SPACETIME_INTERFACE
+
+#if (defined(SPACETIME_INTERFACE_STANDALONE) && SPACETIME_INTERFACE_STANDALONE) || (defined(SPACETIME_INTERFACE_ROS2) && SPACETIME_INTERFACE_ROS2)
+
+#include <spacetime/interface/Clock.hpp>
+#include <spacetime/interface/Dataloader.hpp>
+#include <spacetime/interface/EstimationSchedule.hpp>
+#include <spacetime/interface/EstimatorDriver.hpp>
+#include <spacetime/interface/InterfaceConcept.hpp>
+#include <spacetime/interface/Interfaces.hpp>
+#include <spacetime/interface/SnapshotHistory.hpp>
+
+#include <spacetime/interface/standalone/standalone>
+#include <spacetime/interface/ros2/ros2>
+
+#endif
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_INTERFACE

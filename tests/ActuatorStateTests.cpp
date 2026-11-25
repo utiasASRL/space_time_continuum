@@ -56,7 +56,7 @@ namespace Spacetime
 
         gtsam::Values values;
         values.insert(node->inputKey(), gtsam::Vector(Eigen::Vector2d(1.0, -2.0)));
-        const auto read = std::dynamic_pointer_cast<Types::InputValues>(node->getValuesBase(values));
+        const auto read = std::dynamic_pointer_cast<Types::InputNodeValues>(node->getValuesBase(values));
         ASSERT_NE(read, nullptr);
         EXPECT_TRUE(read->input().isApprox(Eigen::Vector2d(1.0, -2.0)));
     }
@@ -70,7 +70,7 @@ namespace Spacetime
         const auto node = state.addInput(km, 0.0);
         EXPECT_EQ(node->dim(), 3u);
 
-        const Types::InputValues initial(3);
+        const Types::InputNodeValues initial(3);
         ASSERT_EQ(initial.values.size(), 1u); // one component, the input
         EXPECT_EQ(initial.input().rows(), 3);
         EXPECT_EQ(initial.input().cols(), 1);

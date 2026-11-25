@@ -18,7 +18,7 @@ namespace Spacetime::Priors::WNOV
     {
         using Pose = gtsam::Pose3;
         using NodeType = Node<Pose>;
-        using ValuesType = Values<Pose>;
+        using ValuesType = NodeValues<Pose>;
         using Keys = InterpolatedKeys<Pose>;
         using TangentVector = gtsam::traits<Pose>::TangentVector;
     }
@@ -53,8 +53,8 @@ namespace Spacetime::Priors::WNOV
         target = source;
         EXPECT_TRUE(target.pose().equals(source.pose()));
 
-        Types::NodeValues &target_base = target;
-        const WNOA::Values<Pose> other_type;
+        Types::NodeValuesBase &target_base = target;
+        const WNOA::NodeValues<Pose> other_type;
         EXPECT_THROW(target_base = other_type, std::runtime_error);
     }
 

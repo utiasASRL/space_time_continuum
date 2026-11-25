@@ -1,7 +1,7 @@
 #ifndef NUMERICAL_DIFFERENTIATION_HPP
 #define NUMERICAL_DIFFERENTIATION_HPP
 
-// Numerical-differentiation testing tool for WNOA::Values<Pose>-valued
+// Numerical-differentiation testing tool for WNOA::NodeValues<Pose>-valued
 // interpolation code (Interpolator, InterpolationFactor). This is a TEST-ONLY
 // utility -- it is deliberately kept out of the production headers under
 // spacetime/, since central-difference Jacobians are far too slow to use at

@@ -11,20 +11,19 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
-#include <spacetime/interface/InterfaceConcept.hpp>
-#include <spacetime/interface/Interfaces.hpp>
 #include <spacetime/interface/standalone/Clock.hpp>
 #include <spacetime/interface/standalone/EstimatorRunner.hpp>
 #include <spacetime/interface/standalone/FileDataloader.hpp>
+#include "../TestEstimatorOptions.hpp"
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     namespace
     {
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
 
         std::shared_ptr<Priors::WNOA::Prior<Pose>> makePrior()
         {
@@ -44,7 +43,7 @@ namespace Spacetime::Standalone
         struct Problem
         {
             std::shared_ptr<Priors::WNOA::Prior<Pose>> prior = makePrior();
-            Estimator estimator = Estimator(/*smootherLag=*/0.35);
+            Estimator estimator{Testing::estimatorOptions(0.35)};
             std::shared_ptr<Sensors::PoseSensor<ValueType>> sensor;
 
             explicit Problem(std::initializer_list<double> times)
@@ -67,18 +66,17 @@ namespace Spacetime::Standalone
             return options;
         }
 
-        /// Generic downstream code: only the concept is known here.
-        template <Interface::InterfaceType I>
-        double runGeneric(Estimator &estimator, const Interface::SessionOptions &options, std::vector<double> &ticks,
+        /// Generic downstream code: only the interface's constant is known here.
+        template <int I>
+        double runGeneric(Estimator &estimator, const Spacetime::SessionOptions &options, std::vector<double> &ticks,
                           std::thread::id &tick_thread)
         {
-            typename I::Session session(estimator, options);
-            session.addMeasurementQueues(estimator.getMeasurementQueues());
+            Spacetime::Session<I> session(options);
             session.setTickCallback([&](double t)
                                     {
                 ticks.push_back(t);
                 tick_thread = std::this_thread::get_id(); });
-            session.start();
+            session.start(estimator);
             session.join();
             EXPECT_TRUE(session.finished());
             return session.endTime();
@@ -96,7 +94,7 @@ namespace Spacetime::Standalone
         Problem through_session({0.0, 0.1, 0.2, 0.3, 0.4, 0.5});
         std::vector<double> ticks;
         std::thread::id tick_thread;
-        runGeneric<Interfaces::Standalone>(through_session.estimator, sessionOptions(0.0, 0.5, 0.1), ticks, tick_thread);
+        runGeneric<INTERFACE_STANDALONE>(through_session.estimator, sessionOptions(0.0, 0.5, 0.1), ticks, tick_thread);
 
         Problem through_runner({0.0, 0.1, 0.2, 0.3, 0.4, 0.5});
         auto clock = std::make_shared<SteppedClock>();
@@ -114,13 +112,13 @@ namespace Spacetime::Standalone
 
     TEST(StandaloneInterface, OfflineTimeFollowsTheEstimates)
     {
-        Estimator estimator;
-        Interfaces::Standalone::Session session(estimator, sessionOptions(2.0, 2.2, 0.1));
+        Estimator estimator(Testing::estimatorOptions(0.0));
+        Spacetime::Session session(sessionOptions(2.0, 2.2, 0.1));
         EXPECT_FALSE(session.isRealTime());
         std::vector<double> now_at_tick;
         session.setTickCallback([&](double)
                                 { now_at_tick.push_back(session.now()); });
-        session.start();
+        session.start(estimator);
         session.join();
         ASSERT_EQ(now_at_tick.size(), 3u);
         EXPECT_DOUBLE_EQ(now_at_tick.front(), 2.0);
@@ -128,10 +126,10 @@ namespace Spacetime::Standalone
 
     TEST(StandaloneInterface, RealTimeFollowsTheWallClockAndStopsPromptly)
     {
-        Estimator estimator;
-        Interfaces::Standalone::Session session(estimator, sessionOptions(0.0, 60.0, 0.5, /*real_time=*/true));
+        Estimator estimator(Testing::estimatorOptions(0.0));
+        Spacetime::Session session(sessionOptions(0.0, 60.0, 0.5, /*real_time=*/true));
         EXPECT_TRUE(session.isRealTime());
-        session.start();
+        session.start(estimator);
         const double before = session.now();
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
         EXPECT_GE(session.now() - before, 0.02);
@@ -143,4 +141,63 @@ namespace Spacetime::Standalone
         EXPECT_LT(secondsSince(stop_time), 1.0);
         EXPECT_TRUE(session.finished());
     }
-} // namespace Spacetime::Standalone
+    // The session reads the estimator's queues in start(), so models and data added after it is
+    // built are still replayed, and count towards an end time of "until the data ends".
+    TEST(StandaloneInterface, ReplaysModelsAndDataAddedAfterTheSessionIsBuilt)
+    {
+        Spacetime::Session session(sessionOptions(0.0, -1.0, 0.25)); // exact binary steps, so the last one lands on 0.75
+        Problem problem({0.0, 0.25, 0.5});
+        problem.sensor->addMeasurement(makeMeasurement(0.75, 0.075));
+        session.start(problem.estimator);
+        session.join();
+        EXPECT_DOUBLE_EQ(session.endTime(), 0.75);
+        EXPECT_TRUE(problem.sensor->empty());
+        ASSERT_TRUE(problem.estimator.getSnapshot());
+        EXPECT_DOUBLE_EQ(problem.estimator.getSnapshot()->time, 0.75);
+    }
+
+    // An observer subscribed before start() (e.g. a visualizer view) sees each measurement once,
+    // although start() withholds and redelivers them.
+    TEST(StandaloneInterface, ObserversSubscribedBeforeStartSeeEachMeasurementOnce)
+    {
+        Spacetime::Session session(sessionOptions(0.0, 0.3, 0.1));
+        Problem problem({0.0, 0.1, 0.2, 0.3});
+        std::vector<double> seen;
+        problem.sensor->addMeasurementCallback([&](const Types::MeasurementQueue::pMeasurementType &m)
+                                               { seen.push_back(m->time); });
+        session.start(problem.estimator);
+        session.join();
+        EXPECT_EQ(seen, (std::vector<double>{0.0, 0.1, 0.2, 0.3}));
+    }
+
+    TEST(StandaloneInterface, StartingTwiceThrows)
+    {
+        Problem problem({0.0});
+        Spacetime::Session session(sessionOptions(0.0, 0.1, 0.1));
+        session.start(problem.estimator);
+        EXPECT_THROW(session.start(problem.estimator), std::logic_error);
+        session.join();
+    }
+
+    // A start() that throws hands the withheld measurements back, so a corrected session can run them.
+    TEST(StandaloneInterface, AFailedStartLeavesTheDataInPlace)
+    {
+        Problem problem({0.0, 0.1});
+        Spacetime::Session invalid(sessionOptions(0.0, 0.1, 0.0)); // non-positive period
+        EXPECT_THROW(invalid.start(problem.estimator), std::invalid_argument);
+        EXPECT_EQ(problem.sensor->size(), 2u);
+        EXPECT_FALSE(invalid.finished());
+    }
+
+    TEST(StandaloneInterface, StopRequestedBeforeStartEndsTheRunAtOnce)
+    {
+        Problem problem({0.0, 0.1});
+        Spacetime::Session session(sessionOptions(0.0, 60.0, 0.5, /*real_time=*/true));
+        session.requestStop();
+        const auto start = std::chrono::steady_clock::now();
+        session.start(problem.estimator);
+        session.join();
+        EXPECT_LT(secondsSince(start), 1.0);
+        EXPECT_TRUE(session.finished());
+    }
+} // namespace Spacetime::Interface::Standalone

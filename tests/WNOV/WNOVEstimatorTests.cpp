@@ -8,6 +8,7 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/prior_models/WNOV.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "../TestEstimatorOptions.hpp"
 
 namespace Spacetime::Priors::WNOV
 {
@@ -15,7 +16,7 @@ namespace Spacetime::Priors::WNOV
     {
         using Pose = gtsam::Pose3;
         using NodeType = Node<Pose>;
-        using ValuesType = Values<Pose>;
+        using ValuesType = NodeValues<Pose>;
         using PriorType = Prior<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
         using Sensor = Sensors::PoseSensor<ValuesType>;
@@ -35,7 +36,7 @@ namespace Spacetime::Priors::WNOV
 
             Fixture(double smoother_lag, bool compute_covariance = false, const PriorOptions &prior_options = PriorOptions())
                 : estimator([&]
-                            { EstimatorOptions options; options.smootherLag = smoother_lag; options.compute_covariance = compute_covariance; return options; }())
+                            { EstimatorOptions options = Testing::estimatorOptions(smoother_lag); options.compute_covariance = compute_covariance; return options; }())
             {
                 prior = std::make_shared<PriorType>(state, Pose(), epsilon0, 1e-4 * Matrix6::Identity(),
                                                     1e-2 * Matrix6::Identity(), 1e-1 * Matrix6::Identity(), prior_options);

@@ -24,6 +24,7 @@
 #include <spacetime/estimator/EstimatorSnapshot.hpp>
 
 #include "NumericalDifferentiation.hpp"
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -31,7 +32,7 @@ namespace Spacetime
     {
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
-        using ValuesType = Priors::WNOA::Values<Pose>;
+        using ValuesType = Priors::WNOA::NodeValues<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
         using PriorType = Priors::WNOA::Prior<Pose>;
         using InterpolatorType = Priors::WNOA::Interpolator<Pose>;
@@ -350,7 +351,7 @@ namespace Spacetime
     TEST(PosteriorCovariance, EstimatorDoesNotExtractByDefault)
     {
         auto prior = makePrior(3);
-        Estimator estimator(/*smootherLag=*/1.0);
+        Estimator estimator(Testing::estimatorOptions(1.0));
         estimator.addPrior(prior);
         estimator.estimate(0.0);
         estimator.estimate(0.1);
@@ -362,8 +363,7 @@ namespace Spacetime
     TEST(PosteriorCovariance, EstimatorExtractsVariancesAndNeighbourBlocks)
     {
         auto [state, prior] = makePriorWithState(3);
-        EstimatorOptions options;
-        options.smootherLag = 1.0;
+        EstimatorOptions options = Testing::estimatorOptions(1.0);
         options.compute_covariance = true;
         Estimator estimator(options);
         estimator.addPrior(prior);
@@ -407,7 +407,7 @@ namespace Spacetime
         // The base node carries a unary prior with covariance Q0 (identity by default);
         // conditioning on anything more can only shrink it.
         auto [state, prior] = makePriorWithState(3);
-        Estimator estimator(/*smootherLag=*/1.0);
+        Estimator estimator(Testing::estimatorOptions(1.0));
         estimator.addPrior(prior);
         estimator.estimate(0.0);
 
@@ -419,7 +419,7 @@ namespace Spacetime
     TEST(PosteriorCovariance, EstimatorCovarianceRejectsUnavailableKeys)
     {
         auto [state, prior] = makePriorWithState(2);
-        Estimator estimator(/*smootherLag=*/0.15);
+        Estimator estimator(Testing::estimatorOptions(0.15));
         EXPECT_THROW(estimator.covariance(gtsam::Symbol('p', 0)), std::runtime_error); // before the first estimate
 
         estimator.addPrior(prior);
@@ -436,8 +436,7 @@ namespace Spacetime
     TEST(PosteriorCovariance, EstimatorExtractionSurvivesMarginalization)
     {
         auto [state, prior] = makePriorWithState(2);
-        EstimatorOptions options;
-        options.smootherLag = 0.15;
+        EstimatorOptions options = Testing::estimatorOptions(0.15);
         options.compute_covariance = true;
         Estimator estimator(options);
         estimator.addPrior(prior);
@@ -455,8 +454,7 @@ namespace Spacetime
     TEST(PosteriorCovariance, EstimatorKeyGroupsCanBeOverridden)
     {
         auto [state, prior] = makePriorWithState(3);
-        EstimatorOptions options;
-        options.smootherLag = 1.0;
+        EstimatorOptions options = Testing::estimatorOptions(1.0);
         options.compute_covariance = true;
         Estimator estimator(options);
         estimator.addPrior(prior);
@@ -622,8 +620,7 @@ namespace Spacetime
     TEST(PosteriorCovariance, PriorQueryForwardsThePosterior)
     {
         auto [state, prior] = makePriorWithState(3);
-        EstimatorOptions options;
-        options.smootherLag = 1.0;
+        EstimatorOptions options = Testing::estimatorOptions(1.0);
         options.compute_covariance = true;
         Estimator estimator(options);
         estimator.addPrior(prior);

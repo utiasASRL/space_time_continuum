@@ -38,7 +38,7 @@
 #include <spacetime/interface/standalone/Clock.hpp>
 #include <spacetime/interface/standalone/ThreadedDataloader.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     /// How an EstimatorRunner runs (see its file comment).
     struct RunnerOptions
@@ -227,6 +227,6 @@ namespace Spacetime::Standalone
             }
         }
     };
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone
 
 #endif // SPACETIME_STANDALONE_ESTIMATORRUNNER_HPP

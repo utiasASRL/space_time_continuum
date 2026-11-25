@@ -4,6 +4,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -12,7 +13,11 @@
 #include <gtsam/inference/Key.h>
 #include <gtsam/nonlinear/Values.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/PosteriorCovariance.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 
@@ -40,6 +45,11 @@ namespace Spacetime::Priors
      *
      *   AxisPlanT planInterpolate(bool space, double delta_i, double delta) const;
      *   AxisPlanT planExtrapolate(bool space, double delta_i) const;
+     *   (optionally, instead of the two above, the same with a trailing
+     *    `std::optional<double> cell_arclength`: the arclength of the grid cell's anchor
+     *    node, for priors whose covariances vary along the robot (see
+     *    Priors::CovarianceProfile). Every stage of a query in the cell [s_n, s_{n+1}]
+     *    passes s_n; nullopt asks for the nominal covariances.)
      *   ValuesType resolveInterpolate(const AxisPlanT &plan, const ValuesType &n0,
      *                                 const ValuesType &n1, AxisJacobian *jac, MatrixNode *cov) const;
      *   ValuesType resolveExtrapolate(const AxisPlanT &plan, const ValuesType &n0,
@@ -139,16 +149,19 @@ namespace Spacetime::Priors
          * @param conditionalCov Optional output conditional covariance (node_dim x
          *        node_dim), assuming node_k/node_kp1 are known exactly, in the
          *        interpolated node's state perturbation frame.
+         * @param cell_arclength Arclength whose covariances apply (see
+         *        Priors::CovarianceProfile::at); nullopt uses the nominal ones.
          */
         ValuesType interpolateTime(
             double t_k, double t_kp1, double time,
             const ValuesType &node_k, const ValuesType &node_kp1,
             gtsam::OptionalMatrixType jac = nullptr,
-            MatrixNode *conditionalCov = nullptr) const
+            MatrixNode *conditionalCov = nullptr,
+            std::optional<double> cell_arclength = std::nullopt) const
         {
             AxisJacobian axis_jac;
             ValuesType result = resolveAxis(/*space=*/false, time - t_k, t_kp1 - t_k,
-                                            node_k, &node_kp1, jac ? &axis_jac : nullptr, conditionalCov);
+                                            node_k, &node_kp1, jac ? &axis_jac : nullptr, conditionalCov, cell_arclength);
             if (jac)
                 *jac = axis_jac;
             return result;
@@ -160,17 +173,22 @@ namespace Spacetime::Priors
          * @param s_n Left border arclength.
          * @param s_np1 Right border arclength.
          * @param arclength Query arclength, s_n <= arclength <= s_np1.
+         * @param cell_arclength Arclength whose covariances apply (see
+         *        Priors::CovarianceProfile::at); nullopt uses those of the segment starting
+         *        at s_n.
          * @throws std::runtime_error if arclength lies before s_n or past s_np1.
          */
         ValuesType interpolateSpace(
             double s_n, double s_np1, double arclength,
             const ValuesType &node_n, const ValuesType &node_np1,
             gtsam::OptionalMatrixType jac = nullptr,
-            MatrixNode *conditionalCov = nullptr) const
+            MatrixNode *conditionalCov = nullptr,
+            std::optional<double> cell_arclength = std::nullopt) const
         {
             AxisJacobian axis_jac;
             ValuesType result = resolveAxis(/*space=*/true, arclength - s_n, s_np1 - s_n,
-                                            node_n, &node_np1, jac ? &axis_jac : nullptr, conditionalCov);
+                                            node_n, &node_np1, jac ? &axis_jac : nullptr, conditionalCov,
+                                            cell_arclength ? cell_arclength : std::optional<double>(s_n));
             if (jac)
                 *jac = axis_jac;
             return result;
@@ -190,26 +208,32 @@ namespace Spacetime::Priors
          * @param conditionalCov Optional output conditional covariance (node_dim x
          *        node_dim), assuming node_anchor is known exactly, in the extrapolated
          *        node's state perturbation frame.
+         * @param cell_arclength Arclength whose covariances apply (see
+         *        Priors::CovarianceProfile::at); nullopt uses the nominal ones.
          * @throws std::runtime_error if time < t_anchor (beyond TOLERANCE).
          */
         ValuesType extrapolateTime(
             double t_anchor, double time, const ValuesType &node_anchor,
             gtsam::OptionalMatrixType jac = nullptr,
-            MatrixNode *conditionalCov = nullptr) const
+            MatrixNode *conditionalCov = nullptr,
+            std::optional<double> cell_arclength = std::nullopt) const
         {
-            return extrapolateAxis(/*space=*/false, time - t_anchor, node_anchor, jac, conditionalCov);
+            return extrapolateAxis(/*space=*/false, time - t_anchor, node_anchor, jac, conditionalCov, cell_arclength);
         }
 
         /**
          * @brief Extrapolate a single node forward in arclength past the last bordering
-         *        node at the same time. Symmetric counterpart to extrapolateTime.
+         *        node at the same time. Symmetric counterpart to extrapolateTime;
+         *        `cell_arclength` defaults to s_anchor.
          */
         ValuesType extrapolateSpace(
             double s_anchor, double arclength, const ValuesType &node_anchor,
             gtsam::OptionalMatrixType jac = nullptr,
-            MatrixNode *conditionalCov = nullptr) const
+            MatrixNode *conditionalCov = nullptr,
+            std::optional<double> cell_arclength = std::nullopt) const
         {
-            return extrapolateAxis(/*space=*/true, arclength - s_anchor, node_anchor, jac, conditionalCov);
+            return extrapolateAxis(/*space=*/true, arclength - s_anchor, node_anchor, jac, conditionalCov,
+                                   cell_arclength ? cell_arclength : std::optional<double>(s_anchor));
         }
 
         /**
@@ -249,7 +273,7 @@ namespace Spacetime::Priors
          * @return The interpolated node's values (a ValuesType).
          * @throws std::runtime_error as makePlan does.
          */
-        std::shared_ptr<Types::NodeValues> interpolate(
+        std::shared_ptr<Types::NodeValuesBase> interpolate(
             double time, double arclength, const gtsam::Values &values,
             const std::shared_ptr<NodeType> &node00,
             const std::shared_ptr<NodeType> &node01,
@@ -290,6 +314,9 @@ namespace Spacetime::Priors
                     "Interpolator::interpolate: node01 must lie strictly past node00 in time.");
 
             Plan plan;
+            // Every stage of a query in the cell [s_n, s_{n+1}] takes that cell's covariances,
+            // keyed by its anchor node's arclength (see Priors::CovarianceProfile).
+            const double cell = node00->arclength;
             plan.space_mode = classifyAxis(arclength - node00->arclength, node10 != nullptr);
             plan.time_mode = classifyAxis(time - node00->time, node01 != nullptr);
             const bool space_active = plan.space_mode != AxisMode::Coincide;
@@ -297,33 +324,33 @@ namespace Spacetime::Priors
 
             if (space_active && !time_active)
                 plan.space0 = makeStage(/*space=*/true, arclength - node00->arclength,
-                                        node10 ? node10->arclength - node00->arclength : 0.0, node10 != nullptr);
+                                        node10 ? node10->arclength - node00->arclength : 0.0, node10 != nullptr, cell);
             else if (time_active && !space_active)
                 plan.time = makeStage(/*space=*/false, time - node00->time,
-                                      node01 ? node01->time - node00->time : 0.0, node01 != nullptr);
+                                      node01 ? node01->time - node00->time : 0.0, node01 != nullptr, cell);
             else if (plan.space_mode == AxisMode::Interpolate && plan.time_mode == AxisMode::Interpolate)
             {
                 if (!node11)
                     throw std::runtime_error(
                         "Interpolator::interpolate requires node11 when interpolating in both arclength and time.");
                 plan.space0 = makeStage(/*space=*/true, arclength - node00->arclength,
-                                        node10->arclength - node00->arclength, /*has_border=*/true);
+                                        node10->arclength - node00->arclength, /*has_border=*/true, cell);
                 plan.space1 = makeStage(/*space=*/true, arclength - node01->arclength,
-                                        node11->arclength - node01->arclength, /*has_border=*/true);
+                                        node11->arclength - node01->arclength, /*has_border=*/true, cell);
                 plan.time = makeStage(/*space=*/false, time - node00->time,
-                                      node01->time - node00->time, /*has_border=*/true);
+                                      node01->time - node00->time, /*has_border=*/true, cell);
             }
             else if (plan.time_mode == AxisMode::Interpolate) // arclength extrapolated
             {
                 plan.time = makeStage(/*space=*/false, time - node00->time,
-                                      node01->time - node00->time, /*has_border=*/true);
-                plan.space0 = makeStage(/*space=*/true, arclength - node00->arclength, 0.0, /*has_border=*/false);
+                                      node01->time - node00->time, /*has_border=*/true, cell);
+                plan.space0 = makeStage(/*space=*/true, arclength - node00->arclength, 0.0, /*has_border=*/false, cell);
             }
             else if (time_active) // time extrapolated
             {
                 plan.space0 = makeStage(/*space=*/true, arclength - node00->arclength,
-                                        node10 ? node10->arclength - node00->arclength : 0.0, node10 != nullptr);
-                plan.time = makeStage(/*space=*/false, time - node00->time, 0.0, /*has_border=*/false);
+                                        node10 ? node10->arclength - node00->arclength : 0.0, node10 != nullptr, cell);
+                plan.time = makeStage(/*space=*/false, time - node00->time, 0.0, /*has_border=*/false, cell);
             }
             return plan;
         }
@@ -332,7 +359,7 @@ namespace Spacetime::Priors
          * @brief interpolate() for a query already planned with makePlan, against the
          *        same corners.
          */
-        std::shared_ptr<Types::NodeValues> interpolate(
+        std::shared_ptr<Types::NodeValuesBase> interpolate(
             const Plan &plan, const gtsam::Values &values,
             const std::shared_ptr<NodeType> &node00,
             const std::shared_ptr<NodeType> &node01,
@@ -412,9 +439,10 @@ namespace Spacetime::Priors
             bool space, double delta_i, double delta,
             const ValuesType &n0, const ValuesType *n1,
             AxisJacobian *jac,
-            MatrixNode *cov) const
+            MatrixNode *cov,
+            std::optional<double> cell_arclength = std::nullopt) const
         {
-            return resolveStage(makeStage(space, delta_i, delta, n1 != nullptr), n0, n1, jac, cov);
+            return resolveStage(makeStage(space, delta_i, delta, n1 != nullptr, cell_arclength), n0, n1, jac, cov);
         }
 
         /**
@@ -427,7 +455,8 @@ namespace Spacetime::Priors
          * produces, by anchoring on the last node at or before the query and leaving the
          * border null).
          */
-        AxisStage makeStage(bool space, double delta_i, double delta, bool has_border) const
+        AxisStage makeStage(bool space, double delta_i, double delta, bool has_border,
+                            std::optional<double> cell_arclength = std::nullopt) const
         {
             AxisStage stage;
             stage.mode = classifyAxis(delta_i, has_border);
@@ -437,9 +466,19 @@ namespace Spacetime::Priors
                     "is only defined between the two, and extrapolation must be anchored on the "
                     "far node with no border supplied.");
             if (stage.mode == AxisMode::Interpolate)
-                stage.plan = derived().planInterpolate(space, delta_i, delta);
+            {
+                if constexpr (requires(const Derived &d) { d.planInterpolate(space, delta_i, delta, cell_arclength); })
+                    stage.plan = derived().planInterpolate(space, delta_i, delta, cell_arclength);
+                else
+                    stage.plan = derived().planInterpolate(space, delta_i, delta);
+            }
             else if (stage.mode == AxisMode::Extrapolate)
-                stage.plan = derived().planExtrapolate(space, delta_i);
+            {
+                if constexpr (requires(const Derived &d) { d.planExtrapolate(space, delta_i, cell_arclength); })
+                    stage.plan = derived().planExtrapolate(space, delta_i, cell_arclength);
+                else
+                    stage.plan = derived().planExtrapolate(space, delta_i);
+            }
             return stage;
         }
 
@@ -484,11 +523,12 @@ namespace Spacetime::Priors
         ValuesType extrapolateAxis(
             bool space, double delta_i, const ValuesType &node_anchor,
             gtsam::OptionalMatrixType jac,
-            MatrixNode *conditionalCov) const
+            MatrixNode *conditionalCov,
+            std::optional<double> cell_arclength) const
         {
             AxisJacobian wide_jac;
             ValuesType result = resolveAxis(space, delta_i, /*delta=*/0.0, node_anchor, nullptr,
-                                            jac ? &wide_jac : nullptr, conditionalCov);
+                                            jac ? &wide_jac : nullptr, conditionalCov, cell_arclength);
             if (jac)
                 *jac = wide_jac.template leftCols<node_dim>();
             return result;
@@ -497,7 +537,7 @@ namespace Spacetime::Priors
         /// The corner dispatch behind interpolate(), producing the mean, the per-key
         /// Jacobians and the conditional covariance from a query planned by makePlan
         /// against the same corners. See interpolate() for the contract.
-        std::shared_ptr<Types::NodeValues> interpolateCorners(
+        std::shared_ptr<Types::NodeValuesBase> interpolateCorners(
             const Plan &plan, const gtsam::Values &values,
             const std::shared_ptr<NodeType> &node00,
             const std::shared_ptr<NodeType> &node01,

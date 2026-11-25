@@ -9,9 +9,13 @@ add_library(estimator
     ${CPP_FILES}
     ${H_FILES}
 )
+# The second path finds the package-level <spacetime> header (spacetime/spacetime): it cannot
+# sit next to the spacetime/ directory, and compilers skip that directory when looking it up.
 target_include_directories(estimator PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/spacetime>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/spacetime>
     PRIVATE
     ${gtsam_INCLUDE_DIRS}
 )
@@ -86,6 +90,7 @@ if(InterfaceROS2)
         tf2_ros::tf2_ros
         ${tf2_msgs_TARGETS}
         ${geometry_msgs_TARGETS}
+        ${sensor_msgs_TARGETS}
     )
     target_compile_definitions(ros2 PUBLIC SPACETIME_INTERFACE_ROS2=1)
     add_library(spacetime::ros2 ALIAS ros2)
@@ -111,11 +116,13 @@ if(InterfaceROS2)
         ros2
         ${visualization_msgs_TARGETS}
     )
+    # Lets <spacetime> include the rviz headers.
+    target_compile_definitions(rviz PUBLIC SPACETIME_RVIZ=1)
     add_library(spacetime::rviz ALIAS rviz)
 endif()
 
-# Every built interface, for downstream code that selects one with a single line
-# (see spacetime/interface/Interfaces.hpp).
+# Every built interface, for downstream code that selects one with Spacetime::Session's
+# template argument (see <spacetime>, spacetime/Types.hpp and spacetime/interface/Interfaces.hpp).
 add_library(interfaces INTERFACE)
 target_link_libraries(interfaces INTERFACE interface)
 if(InterfaceStandalone)

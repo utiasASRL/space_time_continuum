@@ -1,0 +1,26 @@
+// -*- C++ -*-
+/**
+ * @file types
+ * @brief Aggregation header of spacetime/estimator/types/: the base types of models, states and measurements.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_TYPES
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_TYPES
+
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ActuatorState.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Measurement.hpp>
+#include <spacetime/estimator/types/MeasurementQueue.hpp>
+#include <spacetime/estimator/types/Model.hpp>
+#include <spacetime/estimator/types/NearestNodeFactor.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
+#include <spacetime/estimator/types/StatefulModel.hpp>
+#include <spacetime/estimator/types/States.hpp>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_TYPES

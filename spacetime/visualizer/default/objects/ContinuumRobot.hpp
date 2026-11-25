@@ -260,14 +260,29 @@ namespace Spacetime::Visualization::Default
         /// Extra rendering-subdivision points inserted between each pair of adjacent spatial nodes along the backbone. Available in both online and offline mode. No-op if no interpolator is bound.
         void adjustSpatialInterpolationPoints(int delta) const
         {
-            if (!m_shape.hasInterpolator())
-                return;
             const int new_value = std::clamp(static_cast<int>(m_spatial_interp_points) + delta, 0, static_cast<int>(kMaxSpatialInterpolationPoints));
-            if (static_cast<unsigned int>(new_value) == m_spatial_interp_points)
+            setSpatialInterpolationPoints(static_cast<unsigned int>(new_value));
+        }
+
+        /**
+         * @brief Sets the extra rendering-subdivision points per backbone segment to `points`
+         *        (see adjustSpatialInterpolationPoints), before or after visualize(). No-op if no
+         *        interpolator is bound, so bind one first.
+         * @throws std::invalid_argument if `points` exceeds kMaxSpatialInterpolationPoints.
+         */
+        void setSpatialInterpolationPoints(unsigned int points) const
+        {
+            if (points > kMaxSpatialInterpolationPoints)
+                throw std::invalid_argument("Default::ContinuumRobot::setSpatialInterpolationPoints: at most " +
+                                            std::to_string(kMaxSpatialInterpolationPoints) + " points, got " + std::to_string(points) + ".");
+            if (!m_shape.hasInterpolator() || points == m_spatial_interp_points)
                 return;
-            m_spatial_interp_points = static_cast<unsigned int>(new_value);
+            m_spatial_interp_points = points;
             rebuildBackboneGeometry();
         }
+
+        /// Extra rendering-subdivision points per backbone segment (see setSpatialInterpolationPoints).
+        unsigned int spatialInterpolationPoints() const { return m_spatial_interp_points; }
 
         /// Whether to draw the posterior position-covariance ellipsoids. They are only shown
         /// when the snapshot carries a covariance (EstimatorOptions::compute_covariance).

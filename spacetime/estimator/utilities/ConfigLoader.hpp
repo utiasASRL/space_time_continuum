@@ -8,6 +8,8 @@
 #ifndef CONFIGLOADER_HPP
 #define CONFIGLOADER_HPP
 
+#include <algorithm>
+#include <initializer_list>
 #include <utility>
 #include <vector>
 #include <glob.h>
@@ -26,7 +28,11 @@
 #include <json/value.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/utilities/WindowHistory.hpp>
 #include <spacetime/estimator/utilities/logger.hpp>
@@ -206,15 +212,13 @@ namespace Spacetime::Utilities
          *        "weights" (diagonals "Q0" (18: [pose, epsilon, varpi]) and "Q1".."Q4" (6 each;
          *        "Q4" defaults to "Q3"), all scaled by an optional "prior_factor") and
          *        "initial_condition" ("T0", a row-major 4x4 T_ib, "epsilon0" and "varpi0").
-         *        Vectors are in GTSAM [rotational, translational] order. A missing section
-         *        keeps the values passed in.
-         * @warning Within a present "weights" / "initial_condition" section, every entry
-         *          (but Q4) must be given with the right length: a missing one leaves its
-         *          output set from an uninitialized vector, and sizes are not checked
-         *          (unlike loadWNOVPrior's loadSizedArray).
+         *        Vectors are in GTSAM [rotational, translational] order. A missing section or
+         *        entry keeps the value passed in (a missing Q4 takes Q3's), so pass initialized
+         *        defaults.
+         * @throws std::invalid_argument for an entry of the wrong length (see loadArrayData).
          */
         template <typename Pose>
-        void loadWNOAPrior(Spacetime::Priors::WNOA::Values<Pose> &base_start_point, double &time_period, Spacetime::Priors::WNOA::Prior<Pose>::Matrix3N &Q0, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q1, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q2, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q3, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q4) const
+        void loadWNOAPrior(Spacetime::Priors::WNOA::NodeValues<Pose> &base_start_point, double &time_period, Spacetime::Priors::WNOA::Prior<Pose>::Matrix3N &Q0, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q1, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q2, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q3, Spacetime::Priors::WNOA::Prior<Pose>::MatrixN &Q4) const
         {
             Json::Value prior_root;
             if (!safeRead(root, "prior", prior_root))
@@ -231,37 +235,46 @@ namespace Spacetime::Utilities
                     double prior_factor = 1.0;
                     safeRead(weights_root, "prior_factor", prior_factor);
 
-                    Eigen::Matrix<double, 6, 1> _Q1, _Q2, _Q3, _Q4;
-                    loadArrayData(weights_root, "Q1", _Q1);
-                    Q1 = prior_factor * _Q1.asDiagonal();
-                    loadArrayData(weights_root, "Q2", _Q2);
-                    Q2 = prior_factor * _Q2.asDiagonal();
-                    loadArrayData(weights_root, "Q3", _Q3);
-                    Q3 = prior_factor * _Q3.asDiagonal();
-                    if (!loadArrayData(weights_root, "Q4", _Q4))
+                    // A missing weight keeps the value passed in (Q4: Q3's); the locals start
+                    // there, so loadArrayData's warning reports the value actually kept.
+                    Eigen::Matrix<double, 6, 1> diagonal = Q1.diagonal();
+                    if (loadArrayData(weights_root, "Q1", diagonal))
+                        Q1 = prior_factor * diagonal.asDiagonal();
+                    diagonal = Q2.diagonal();
+                    if (loadArrayData(weights_root, "Q2", diagonal))
+                        Q2 = prior_factor * diagonal.asDiagonal();
+                    diagonal = Q3.diagonal();
+                    if (loadArrayData(weights_root, "Q3", diagonal))
+                        Q3 = prior_factor * diagonal.asDiagonal();
+                    if (weights_root.isMember("Q4"))
+                    {
+                        loadArrayData(weights_root, "Q4", diagonal);
+                        Q4 = prior_factor * diagonal.asDiagonal();
+                    }
+                    else
                     {
                         info() << "Q4 not found in config. Defaulting to Q3 values.";
-                        _Q4 = _Q3;
+                        Q4 = Q3;
                     }
-                    Q4 = prior_factor * _Q4.asDiagonal();
 
-                    Eigen::Matrix<double, 18, 1> _Q0;
-                    loadArrayData(weights_root, "Q0", _Q0);
-                    Q0 = prior_factor * _Q0.asDiagonal();
+                    Eigen::Matrix<double, 18, 1> diagonal0 = Q0.diagonal();
+                    if (loadArrayData(weights_root, "Q0", diagonal0))
+                        Q0 = prior_factor * diagonal0.asDiagonal();
                 }
 
                 Json::Value initial_condition_root;
                 if (safeRead(wnoa_root, "initial_condition", initial_condition_root))
                 {
                     // Load initial condition values
-                    Eigen::Matrix<double, 4, 4> T0;
-                    Eigen::Matrix<double, 6, 1> epsilon0, varpi0;
-                    loadMatrix4Data(initial_condition_root, "T0", T0);
-                    loadArrayData(initial_condition_root, "epsilon0", epsilon0);
-                    loadArrayData(initial_condition_root, "varpi0", varpi0);
-                    base_start_point.pose(Pose(T0));
-                    base_start_point.epsilon(epsilon0);
-                    base_start_point.varpi(varpi0);
+                    // A missing entry keeps base_start_point's.
+                    Eigen::Matrix<double, 4, 4> T0 = base_start_point.pose().matrix();
+                    Eigen::Matrix<double, 6, 1> epsilon0 = base_start_point.epsilon(), varpi0 = base_start_point.varpi();
+                    if (loadMatrix4Data(initial_condition_root, "T0", T0))
+                        base_start_point.pose(Pose(T0));
+                    if (loadArrayData(initial_condition_root, "epsilon0", epsilon0))
+                        base_start_point.epsilon(epsilon0);
+                    if (loadArrayData(initial_condition_root, "varpi0", varpi0))
+                        base_start_point.varpi(varpi0);
                 }
 
                 if (wnoa_root.isMember("time_period"))
@@ -312,10 +325,10 @@ namespace Spacetime::Utilities
          *        "prior.wnoa.initial_condition". A missing section keeps the values passed in.
          */
         template <typename Pose>
-        void loadWNOAQuasiStaticPrior(Spacetime::Priors::WNOAQuasiStatic::Values<Pose> &base_start_point, double &time_period, typename Spacetime::Priors::WNOAQuasiStatic::Prior<Pose>::Matrix2N &Q0, typename Spacetime::Priors::WNOAQuasiStatic::Prior<Pose>::MatrixN &Q2) const
+        void loadWNOAQuasiStaticPrior(Spacetime::Priors::WNOAQuasiStatic::NodeValues<Pose> &base_start_point, double &time_period, typename Spacetime::Priors::WNOAQuasiStatic::Prior<Pose>::Matrix2N &Q0, typename Spacetime::Priors::WNOAQuasiStatic::Prior<Pose>::MatrixN &Q2) const
         {
             using WNOAPrior = Spacetime::Priors::WNOA::Prior<Pose>;
-            Spacetime::Priors::WNOA::Values<Pose> wnoa_start_point;
+            Spacetime::Priors::WNOA::NodeValues<Pose> wnoa_start_point;
             wnoa_start_point.pose(base_start_point.pose());
             wnoa_start_point.epsilon(base_start_point.epsilon());
             typename WNOAPrior::Matrix3N wnoa_Q0 = WNOAPrior::Matrix3N::Identity();
@@ -323,7 +336,7 @@ namespace Spacetime::Utilities
             typename WNOAPrior::MatrixN unused_Q1, unused_Q3, unused_Q4;
             loadWNOAPrior<Pose>(wnoa_start_point, time_period, wnoa_Q0, unused_Q1, Q2, unused_Q3, unused_Q4);
 
-            base_start_point = Spacetime::Priors::WNOAQuasiStatic::Values<Pose>(wnoa_start_point.pose(), wnoa_start_point.epsilon());
+            base_start_point = Spacetime::Priors::WNOAQuasiStatic::NodeValues<Pose>(wnoa_start_point.pose(), wnoa_start_point.epsilon());
             Q0 = wnoa_Q0.template topLeftCorner<2 * WNOAPrior::dim, 2 * WNOAPrior::dim>();
         }
 
@@ -390,6 +403,71 @@ namespace Spacetime::Utilities
                     T0 = Pose(Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(T0_row_major.data()).eval());
                 loadSizedArray(initial_condition_root, "epsilon0", "prior.wnov.initial_condition", epsilon0);
             }
+        }
+
+        /**
+         * @brief Read the WNOA prior's per-arclength covariance overrides (see
+         *        Priors::WNOA::CovarianceOverrides) from "prior.wnoa.overrides": for each of
+         *        "Q1".."Q4", an array of entries {"arclength": s, "diagonal": [...]} (a
+         *        replacement, scaled by "prior.wnoa.weights.prior_factor" like the nominal
+         *        weights) and/or {"arclength": s, "scale": k} (a factor on the value
+         *        resolved so far), applied in order. Q1 and Q3 are keyed by a node's
+         *        arclength, Q2 and Q4 by a segment's lower node; -1 is the tip (last segment).
+         * @return No overrides if the section is absent.
+         * @throws std::invalid_argument for a malformed entry.
+         */
+        template <typename Pose>
+        Spacetime::Priors::WNOA::CovarianceOverrides<Pose> loadWNOACovarianceOverrides() const
+        {
+            Spacetime::Priors::WNOA::CovarianceOverrides<Pose> overrides;
+            Json::Value overrides_root;
+            if (!readPriorOverrides("wnoa", overrides_root))
+                return overrides;
+            const double prior_factor = readPriorFactor("wnoa");
+            loadCovarianceOverride(overrides_root, "Q1", "prior.wnoa.overrides", prior_factor, overrides.Q1);
+            loadCovarianceOverride(overrides_root, "Q2", "prior.wnoa.overrides", prior_factor, overrides.Q2);
+            loadCovarianceOverride(overrides_root, "Q3", "prior.wnoa.overrides", prior_factor, overrides.Q3);
+            loadCovarianceOverride(overrides_root, "Q4", "prior.wnoa.overrides", prior_factor, overrides.Q4);
+            warnUnknownOverrides(overrides_root, "prior.wnoa.overrides", {"Q1", "Q2", "Q3", "Q4"});
+            return overrides;
+        }
+
+        /**
+         * @brief Read the quasi-static prior's Q2 overrides from "prior.wnoa.overrides.Q2"
+         *        (see loadWNOACovarianceOverrides), as loadWNOAQuasiStaticPrior shares the
+         *        WNOA section. Overrides of Q1, Q3 and Q4 do not apply to it and are ignored.
+         */
+        template <typename Pose>
+        Spacetime::Priors::WNOAQuasiStatic::CovarianceOverrides<Pose> loadWNOAQuasiStaticCovarianceOverrides() const
+        {
+            Spacetime::Priors::WNOAQuasiStatic::CovarianceOverrides<Pose> overrides;
+            Json::Value overrides_root;
+            if (!readPriorOverrides("wnoa", overrides_root))
+                return overrides;
+            loadCovarianceOverride(overrides_root, "Q2", "prior.wnoa.overrides", readPriorFactor("wnoa"), overrides.Q2);
+            return overrides;
+        }
+
+        /**
+         * @brief Read the WNOV prior's per-arclength covariance overrides (see
+         *        Priors::WNOV::CovarianceOverrides) from "prior.wnov.overrides", in the
+         *        format of loadWNOACovarianceOverrides: "Q1" (arclength axis, keyed by a
+         *        segment's lower node) and "Q2" (time axis, keyed by a node).
+         * @return No overrides if the section is absent.
+         * @throws std::invalid_argument for a malformed entry.
+         */
+        template <typename Pose>
+        Spacetime::Priors::WNOV::CovarianceOverrides<Pose> loadWNOVCovarianceOverrides() const
+        {
+            Spacetime::Priors::WNOV::CovarianceOverrides<Pose> overrides;
+            Json::Value overrides_root;
+            if (!readPriorOverrides("wnov", overrides_root))
+                return overrides;
+            const double prior_factor = readPriorFactor("wnov");
+            loadCovarianceOverride(overrides_root, "Q1", "prior.wnov.overrides", prior_factor, overrides.Q1);
+            loadCovarianceOverride(overrides_root, "Q2", "prior.wnov.overrides", prior_factor, overrides.Q2);
+            warnUnknownOverrides(overrides_root, "prior.wnov.overrides", {"Q1", "Q2"});
+            return overrides;
         }
 
         /**
@@ -582,11 +660,13 @@ namespace Spacetime::Utilities
          * @brief Read the visualizer options from the "visualizer" section: the camera
          *        views ("cameras", a list of {"position", "look_at", "up"}, each a 3-vector
          *        in the world frame; the first is the interactive view, the rest only take
-         *        extra screenshots) and the robot views' tube radius ("robot.radius" [m]).
+         *        extra screenshots), the robot views' tube radius ("robot.radius" [m]) and
+         *        their initial extra backbone points per segment ("robot.spatial_interpolation_points").
          *        Missing entries keep VisualizerOptions' defaults; the other legacy entries
          *        of the section are not read.
          * @throws std::invalid_argument if "cameras" is not a list of objects, a camera
-         *         vector is not 3 numbers, or the radius is not positive.
+         *         vector is not 3 numbers, the radius is not positive, or the spatial
+         *         interpolation points are outside [0, 10].
          */
         Spacetime::Visualization::VisualizerOptions loadVisualizerOptions() const
         {
@@ -617,8 +697,48 @@ namespace Spacetime::Utilities
             }
 
             Json::Value robot_root;
-            if (safeRead(visualizer_root, "robot", robot_root) && safeRead(robot_root, "radius", options.robot.radius) && !(options.robot.radius > 0.0))
-                throw std::invalid_argument("visualizer.robot.radius must be positive.");
+            if (safeRead(visualizer_root, "robot", robot_root))
+            {
+                if (safeRead(robot_root, "radius", options.robot.radius) && !(options.robot.radius > 0.0))
+                    throw std::invalid_argument("visualizer.robot.radius must be positive.");
+                // Read as an int so a negative value is rejected rather than wrapped; 10 is
+                // Default::ContinuumRobot::kMaxSpatialInterpolationPoints (not included here).
+                int points = static_cast<int>(options.robot.spatial_interpolation_points);
+                if (safeRead(robot_root, "spatial_interpolation_points", points))
+                {
+                    if (points < 0 || points > 10)
+                        throw std::invalid_argument("visualizer.robot.spatial_interpolation_points must be in [0, 10].");
+                    options.robot.spatial_interpolation_points = static_cast<unsigned int>(points);
+                }
+            }
+            return options;
+        }
+
+        /**
+         * @brief Read the optional ground plane "visualizer.ground_plane": {"normal", "position"
+         *        (its centre [m]), each a 3-vector in the world frame, and "size" (the square's
+         *        side length [m])}. Missing fields keep GroundPlaneOptions' defaults. The plane
+         *        is only drawn where the program adds it (e.g. Default::GroundPlane).
+         * @return The options, or nullopt if there is no "visualizer.ground_plane" entry.
+         * @throws std::invalid_argument if the entry is not an object, a vector is not 3
+         *         numbers, the normal is zero, or the size is not positive.
+         */
+        std::optional<Spacetime::Visualization::GroundPlaneOptions> loadGroundPlaneOptions() const
+        {
+            Json::Value visualizer_root, plane_root;
+            if (!safeRead(root, "visualizer", visualizer_root) || !visualizer_root.isObject() || !visualizer_root.isMember("ground_plane"))
+                return std::nullopt;
+            plane_root = visualizer_root["ground_plane"];
+            const std::string section = "visualizer.ground_plane";
+            if (!plane_root.isObject())
+                throw std::invalid_argument(section + " must be an object.");
+            Spacetime::Visualization::GroundPlaneOptions options;
+            loadSizedArray(plane_root, "normal", section, options.normal);
+            loadSizedArray(plane_root, "position", section, options.position);
+            if (!(options.normal.norm() > 0.0))
+                throw std::invalid_argument(section + ".normal must be nonzero.");
+            if (safeRead(plane_root, "size", options.size) && !(options.size > 0.0))
+                throw std::invalid_argument(section + ".size must be positive.");
             return options;
         }
 
@@ -628,6 +748,78 @@ namespace Spacetime::Utilities
         {
             Json::Value prior_root;
             return safeRead(root, "prior", prior_root) && safeRead(prior_root, type, out);
+        }
+
+        /// "prior.<type>.overrides" into `out`, if present.
+        /// @throws std::invalid_argument if it is not an object.
+        bool readPriorOverrides(const std::string &type, Json::Value &out) const
+        {
+            Json::Value type_root;
+            if (!readPriorSubsection(type, type_root) || !type_root.isMember("overrides"))
+                return false;
+            out = type_root["overrides"];
+            if (!out.isObject())
+                throw std::invalid_argument("prior." + type + ".overrides must be an object of \"Q<i>\": [entries].");
+            return true;
+        }
+
+        /// "prior.<type>.weights.prior_factor", or 1.
+        double readPriorFactor(const std::string &type) const
+        {
+            double prior_factor = 1.0;
+            Json::Value type_root, weights_root;
+            if (readPriorSubsection(type, type_root) && safeRead(type_root, "weights", weights_root))
+                safeRead(weights_root, "prior_factor", prior_factor);
+            return prior_factor;
+        }
+
+        /// Warn about each member of an overrides section that no Q of the prior reads.
+        static void warnUnknownOverrides(const Json::Value &overrides_root, const std::string &section, std::initializer_list<const char *> known)
+        {
+            for (const std::string &name : overrides_root.getMemberNames())
+                if (std::none_of(known.begin(), known.end(), [&](const char *k)
+                                 { return name == k; }))
+                    warning() << section << "." << name << " is not an overridable covariance of this prior; it is ignored.";
+        }
+
+        /**
+         * @brief Read `section.key`, an array of {"arclength", "diagonal" | "scale"} entries,
+         *        into `out` (see loadWNOACovarianceOverrides); nothing if it is absent.
+         * @throws std::invalid_argument for a malformed entry.
+         */
+        template <typename MatrixT>
+        static void loadCovarianceOverride(const Json::Value &overrides_root, const std::string &key, const std::string &section,
+                                           double prior_factor, Spacetime::Priors::CovarianceOverride<MatrixT> &out)
+        {
+            if (!overrides_root.isMember(key))
+                return;
+            const std::string name = section + "." + key;
+            const Json::Value &entries = overrides_root[key];
+            if (!entries.isArray())
+                throw std::invalid_argument(name + " must be an array of {\"arclength\", \"diagonal\" or \"scale\"} entries.");
+            for (Json::ArrayIndex i = 0; i < entries.size(); i++)
+            {
+                const Json::Value &entry = entries[i];
+                const std::string entry_name = name + "[" + std::to_string(i) + "]";
+                if (!entry.isObject() || !entry.isMember("arclength") || !entry["arclength"].isNumeric())
+                    throw std::invalid_argument(entry_name + " must be an object with a numeric \"arclength\".");
+                const bool has_diagonal = entry.isMember("diagonal"), has_scale = entry.isMember("scale");
+                if (!has_diagonal && !has_scale)
+                    throw std::invalid_argument(entry_name + " needs a \"diagonal\" or a \"scale\".");
+                const double arclength = entry["arclength"].asDouble();
+                if (has_diagonal)
+                {
+                    Eigen::Matrix<double, MatrixT::RowsAtCompileTime, 1> diagonal;
+                    loadSizedArray(entry, "diagonal", entry_name, diagonal);
+                    out.set(arclength, MatrixT(prior_factor * diagonal.asDiagonal()));
+                }
+                if (has_scale)
+                {
+                    if (!entry["scale"].isNumeric())
+                        throw std::invalid_argument(entry_name + ".scale must be a number.");
+                    out.scale(arclength, entry["scale"].asDouble());
+                }
+            }
         }
 
         /**

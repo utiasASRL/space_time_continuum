@@ -42,7 +42,7 @@ namespace SpacetimePython
             m, "SnapshotPublisher",
             "Publishes the estimator's latest snapshot for rviz2: each robot's backbone (PoseArray), tube, covariance ellipsoids "
             "and joints (MarkerArray), and node frames (TF). Run it on a session (Session.addNode).")
-            .def(py::init([](Spacetime::Estimator &estimator, const std::shared_ptr<Spacetime::Ros2::RosClock> &clock, const Rviz::SnapshotPublisherOptions &options)
+            .def(py::init([](Spacetime::Estimator &estimator, const std::shared_ptr<Spacetime::Interface::Ros2::RosClock> &clock, const Rviz::SnapshotPublisherOptions &options)
                           { return std::make_shared<Rviz::SnapshotPublisherNode>([&estimator]()
                                                                                  { return estimator.getSnapshot(); },
                                                                                  clock, options); }),
@@ -67,15 +67,12 @@ namespace SpacetimePython
                 "Publishes the robot `prior` extends as `name` (a topic token, [A-Za-z][A-Za-z0-9_]*). Add robots and joints before the session starts. "
                 "Raises ValueError for a taken or invalid name or a robot added already.")
             .def(
-                "addJoint", [](Rviz::SnapshotPublisherNode &self, const std::string &name, const RobotJoint &joint, double radius)
+                "addJoint", [](Rviz::SnapshotPublisherNode &self, const std::string &name, const JointBase &joint, double radius)
                 { self.addJoint(name, joint, radius); },
                 py::arg("name"), py::arg("joint"), py::arg("radius") = 0.015,
-                "Draws `joint` between its robots, added before it: a cylinder of `radius` [m] if its points are apart, else a sphere. "
-                "Raises ValueError for a taken or invalid name, a robot not added, or robots in different frames.")
-            .def(
-                "addJoint", [](Rviz::SnapshotPublisherNode &self, const std::string &name, const EndEffectorJoint &joint, double radius)
-                { self.addJoint(name, joint, radius); },
-                py::arg("name"), py::arg("joint"), py::arg("radius") = 0.015, "Draws an end effector's joint; see the RobotJoint overload.")
+                "Draws `joint` (any joints.Joint, an end effector's too) between its robots, added before it: a cylinder of `radius` [m] "
+                "if its points are apart, else a sphere. Raises ValueError for a taken or invalid name, a robot not added, or robots in "
+                "different frames.")
             .def("publishLatest", &Rviz::SnapshotPublisherNode::publishLatest, py::call_guard<py::gil_scoped_release>(),
                  "Publishes the latest snapshot if it is new (and the clock has started); returns whether it did.");
     }

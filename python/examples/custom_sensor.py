@@ -15,7 +15,7 @@ import gtsam
 import numpy as np
 
 import spacetime as st
-from spacetime import interface, types
+from spacetime import types
 from spacetime.priors import wnoa
 
 LENGTH, NODES, PERIOD, END_TIME = 0.2, 5, 0.1, 1.0
@@ -39,7 +39,7 @@ class Logger(types.Model):
 
 def main():
     state = wnoa.ContinuumRobotState(LENGTH, NODES)
-    reference = wnoa.Values()
+    reference = wnoa.NodeValues()
     reference.epsilon(np.array([0.0, 0, 0, 1, 0, 0]))  # straight, [rot, trans]
     prior = wnoa.Prior(state, reference)
     state.lock("pose", 0.0, gtsam.Pose3())
@@ -60,12 +60,11 @@ def main():
         sensor.addMeasurement(types.MeasurementBase(LENGTH, t, tip.matrix(), covariance))
     estimator.addSensor(sensor)
 
-    session_options = interface.SessionOptions()
+    session_options = st.SessionOptions()
     session_options.end_time = END_TIME
     session_options.period = PERIOD
-    session = interface.Session(estimator, session_options)
-    session.addMeasurementQueues(estimator.getMeasurementQueues())
-    session.start()
+    session = st.Session(session_options)
+    session.start(estimator)
     session.join()
 
     tip = prior.query(session.endTime(), LENGTH, estimator.getCurrentValues()).pose()

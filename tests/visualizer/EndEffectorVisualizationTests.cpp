@@ -24,7 +24,7 @@ namespace Spacetime
         using Vector6 = Eigen::Matrix<double, 6, 1>;
         using Matrix6 = Eigen::Matrix<double, 6, 6>;
         using EndEffector = Joints::EndEffector<Pose>;
-        using EEValues = Joints::EndEffectorValues<Pose>;
+        using EEValues = Joints::EndEffectorNodeValues<Pose>;
         using EEView = Visualization::Default::EndEffector<Pose>;
         using RobotNode = Priors::WNOA::Node<Pose>;
         using RobotState = Types::ContinuumRobotState<RobotNode>;
@@ -56,7 +56,7 @@ namespace Spacetime
 
             Rig()
             {
-                Priors::WNOA::Values<Pose> reference;
+                Priors::WNOA::NodeValues<Pose> reference;
                 reference.pose(Pose(gtsam::Rot3::Ry(-M_PI / 2), gtsam::Point3(0, 0, 0)));
                 reference.epsilon((Vector6() << 0, 0, 0, 1, 0, 0).finished());
                 robot_prior = std::make_shared<RobotPrior>(state, reference);

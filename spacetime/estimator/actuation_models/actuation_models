@@ -1,0 +1,15 @@
+// -*- C++ -*-
+/**
+ * @file actuation_models
+ * @brief Aggregation header of spacetime/estimator/actuation_models/: the actuators (e.g. the kinematic tendon).
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_ACTUATION_MODELS
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_ACTUATION_MODELS
+
+#include <spacetime/estimator/actuation_models/KinematicTendon.hpp>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_ACTUATION_MODELS

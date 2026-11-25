@@ -5,20 +5,18 @@
 
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/interface/InterfaceConcept.hpp>
+#include "../TestEstimatorOptions.hpp"
 
 namespace Spacetime::Interface
 {
     namespace
     {
-        using Queues = std::vector<Types::pMeasurementQueueType>;
-
         /// A minimal, synchronous Session: start() "runs" by recording the options' times.
         struct MockSession
         {
-            MockSession(Estimator &, const SessionOptions &options) : options(options) {}
-            void addMeasurementQueues(const Queues &queues) { queue_count += queues.size(); }
+            explicit MockSession(const SessionOptions &options) : options(options) {}
             void setTickCallback(EstimatorDriver::TickCallback callback) { tick = std::move(callback); }
-            void start()
+            void start(Estimator &)
             {
                 started = true;
                 if (tick)
@@ -33,7 +31,6 @@ namespace Spacetime::Interface
 
             SessionOptions options;
             EstimatorDriver::TickCallback tick;
-            std::size_t queue_count = 0;
             bool started = false, stop_requested = false, joined = false;
         };
 
@@ -57,7 +54,7 @@ namespace Spacetime::Interface
 
         struct WrongConstructorSession : MockSession
         {
-            explicit WrongConstructorSession(Estimator &estimator) : MockSession(estimator, SessionOptions()) {}
+            explicit WrongConstructorSession(Estimator &) : MockSession(SessionOptions()) {}
         };
         struct WrongConstructor
         {
@@ -79,19 +76,6 @@ namespace Spacetime::Interface
             using Session = NoNowSession;
         };
 
-        struct NoQueuesSession : MockSession
-        {
-            using MockSession::MockSession;
-
-        private:
-            void addMeasurementQueues(const Queues &);
-        };
-        struct NoQueues
-        {
-            static constexpr std::string_view name = "no queues";
-            using Session = NoQueuesSession;
-        };
-
         struct NoStopSession : MockSession
         {
             using MockSession::MockSession;
@@ -108,7 +92,7 @@ namespace Spacetime::Interface
         struct WrongReturnSession : MockSession
         {
             using MockSession::MockSession;
-            bool start() { return true; } // must return void
+            bool start(Estimator &) { return true; } // must return void
         };
         struct WrongReturn
         {
@@ -118,16 +102,15 @@ namespace Spacetime::Interface
 
         /// Generic downstream code: only the concept is known here.
         template <InterfaceType I>
-        std::string_view runGeneric(Estimator &estimator, const Queues &queues, std::vector<double> &ticks)
+        std::string_view runGeneric(Estimator &estimator, std::vector<double> &ticks)
         {
             SessionOptions options;
             options.start_time = 1.5;
             options.end_time = 2.0;
-            typename I::Session session(estimator, options);
-            session.addMeasurementQueues(queues);
+            typename I::Session session(options);
             session.setTickCallback([&ticks](double t)
                                     { ticks.push_back(t); });
-            session.start();
+            session.start(estimator);
             session.join();
             EXPECT_TRUE(session.finished());
             EXPECT_DOUBLE_EQ(session.endTime(), 2.0);
@@ -142,7 +125,6 @@ namespace Spacetime::Interface
         static_assert(!InterfaceType<NoName>);
         static_assert(!InterfaceType<WrongConstructor>);
         static_assert(!InterfaceType<NoNow>);
-        static_assert(!InterfaceType<NoQueues>);
         static_assert(!InterfaceType<NoStop>);
         static_assert(!InterfaceType<WrongReturn>);
         static_assert(!InterfaceType<int>);
@@ -150,10 +132,9 @@ namespace Spacetime::Interface
 
     TEST(InterfaceConcept, GenericCodeRunsAgainstTheConceptAlone)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         std::vector<double> ticks;
-        const Queues queues = {std::make_shared<Types::MeasurementQueue>()};
-        EXPECT_EQ(runGeneric<MockInterface>(estimator, queues, ticks), "mock");
+        EXPECT_EQ(runGeneric<MockInterface>(estimator, ticks), "mock");
         EXPECT_EQ(ticks, (std::vector<double>{1.5}));
     }
 } // namespace Spacetime::Interface

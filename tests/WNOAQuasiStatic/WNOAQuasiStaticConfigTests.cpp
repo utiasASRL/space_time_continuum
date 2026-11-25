@@ -67,7 +67,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
     TEST(WNOAQuasiStaticConfig, ReadsThePoseAndStrainPartsOfTheWNOASection)
     {
         const auto loader = loaderFor("qs_prior.json", kConfig);
-        Values<Pose> base;
+        NodeValues<Pose> base;
         double time_period = -1.0;
         PriorType::Matrix2N Q0 = PriorType::Matrix2N::Identity();
         PriorType::MatrixN Q2 = PriorType::MatrixN::Identity();

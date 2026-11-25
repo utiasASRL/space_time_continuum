@@ -16,6 +16,7 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/utilities/GroundTruthExport.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime::Utilities
 {
@@ -24,7 +25,7 @@ namespace Spacetime::Utilities
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
 
         std::vector<std::vector<double>> readRows(const std::filesystem::path &path, std::string &header)
         {
@@ -57,8 +58,7 @@ namespace Spacetime::Utilities
 
             static EstimatorOptions options()
             {
-                EstimatorOptions o;
-                o.smootherLag = Estimator::BATCH_LAG;
+                EstimatorOptions o = Testing::estimatorOptions(Estimator::BATCH_LAG);
                 o.compute_covariance = true;
                 return o;
             }
@@ -179,7 +179,7 @@ namespace Spacetime::Utilities
     {
         // WNOV holds no strain or velocity: same 20 / 326 columns, with nan in their place.
         using WNOVNode = Priors::WNOV::Node<Pose>;
-        using WNOVValues = Priors::WNOV::Values<Pose>;
+        using WNOVValues = Priors::WNOV::NodeValues<Pose>;
         auto state = std::make_shared<Types::ContinuumRobotState<WNOVNode>>(1.0, 3);
         auto prior = std::make_shared<Priors::WNOV::Prior<Pose>>(state, Pose(), (Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
         Estimator estimator(ExportFixture::options());
@@ -226,7 +226,7 @@ namespace Spacetime::Utilities
         // The quasi-static prior holds a pose and a strain: velocity columns are nan, and
         // the covariance holds the 12 x 12 pose/strain block with nan elsewhere.
         using QSNode = Priors::WNOAQuasiStatic::Node<Pose>;
-        using QSValues = Priors::WNOAQuasiStatic::Values<Pose>;
+        using QSValues = Priors::WNOAQuasiStatic::NodeValues<Pose>;
         const Eigen::Vector<double, 6> strain = (Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished();
         auto state = std::make_shared<Types::ContinuumRobotState<QSNode>>(1.0, 3);
         auto prior = std::make_shared<Priors::WNOAQuasiStatic::Prior<Pose>>(state, QSValues(Pose(), strain));

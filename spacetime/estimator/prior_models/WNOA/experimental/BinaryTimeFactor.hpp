@@ -7,6 +7,7 @@
 #include <Eigen/Dense>
 #include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/NonlinearFactor.h>
+#include <gtsam/nonlinear/NoiseModelFactorN.h> // before WnoaFactor.h, which uses it without including it
 #include <gtsam/nonlinear/WnoaFactor.h>
 #include <gtsam/slam/BetweenFactor.h>
 

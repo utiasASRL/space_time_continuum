@@ -1,17 +1,19 @@
 #ifndef STATEFULMODEL_HPP
 #define STATEFULMODEL_HPP
 
-#include <vector>
 #include <concepts>
+#include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 #include <Eigen/Core>
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/nonlinear/Values.h>
 
 #include <spacetime/estimator/PosteriorCovariance.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
 #include <spacetime/estimator/types/Model.hpp>
 #include <spacetime/estimator/types/NearestNodeFactor.hpp>
 #include <spacetime/estimator/types/States.hpp>
@@ -56,6 +58,9 @@ namespace Spacetime::Types
         /// Variables of this model's state that are held fixed (see Types::State::lockedValues).
         const gtsam::Values &lockedValues() const override { return mp_state->lockedValues(); }
 
+        /// Locks this model's state's variables that were locked without a value (see Types::State::resolveLocks).
+        void resolveLocks(const gtsam::Values &new_values) override { mp_state->resolveLocks(new_values); }
+
         /**
          * @brief Phase 1 (see Types::Model::extendState): adds the state's new variables up to
          *        `time`, with their initial guesses in `new_values`, and returns the factors
@@ -97,6 +102,51 @@ namespace Spacetime::Types
         }
 
         /**
+         * @brief Wrap an inner factor built on point-indexed interpolated keys (see
+         *        Types::InterpolatedKeyAt, e.g. WNOA::InterpolatedKeys::Pose(i)), where point
+         *        i is (time, arclengths[i]), plus any other key, which is passed through.
+         *
+         * The default resolves a factor on a single point: it renames that point's keys
+         * back to the plain interpolated keys and wraps the result with getOuterFactor at
+         * that point, so it matches a sensor's factor there exactly. A factor spanning
+         * several points needs a model that interpolates them jointly (e.g.
+         * Priors::GridPrior); the default drops it with a warning. A factor on no point is
+         * returned unchanged.
+         *
+         * @return nullptr if the factor cannot be resolved.
+         * @throws std::out_of_range for a point index past `arclengths`.
+         */
+        virtual std::shared_ptr<gtsam::NonlinearFactor> getMultiPointOuterFactor(
+            double time,
+            const std::vector<double> &arclengths,
+            const gtsam::NoiseModelFactor::shared_ptr &inner_factor) const
+        {
+            const std::vector<std::size_t> points = pointsOf(*inner_factor, arclengths.size());
+            if (points.empty())
+                return inner_factor;
+            if (points.size() > 1)
+            {
+                warning() << "StatefulModel: cannot resolve a factor spanning " << points.size()
+                          << " arclengths at t=" << time << ": this model only interpolates one point at a time.";
+                return nullptr;
+            }
+            return getOuterFactor(time, arclengths[points.front()], singlePointFactor(inner_factor));
+        }
+
+        /**
+         * @brief `inner_factor`, whose point-indexed keys all belong to one point, as a factor
+         *        on the plain interpolated keys (see placeholderOf), for getOuterFactor.
+         */
+        static gtsam::NoiseModelFactor::shared_ptr singlePointFactor(const gtsam::NoiseModelFactor::shared_ptr &inner_factor)
+        {
+            std::vector<std::pair<gtsam::Key, gtsam::Key>> to_plain;
+            for (const gtsam::Key key : inner_factor->keys())
+                if (isPointKey(key))
+                    to_plain.emplace_back(key, placeholderOf(key));
+            return std::make_shared<NearestNodeFactor>(inner_factor, to_plain);
+        }
+
+        /**
          * @brief Resolve this model's node state at an arbitrary (time, arclength),
          *        interpolating or extrapolating as the estimated state's current extent
          *        requires, so callers never have to track where that extent ends.
@@ -126,7 +176,7 @@ namespace Spacetime::Types
          *         getOuterFactor), or when a required bordering node is absent from `values`
          *         (e.g. already marginalized out by a fixed-lag smoother).
          */
-        virtual std::shared_ptr<NodeValues> query(
+        virtual std::shared_ptr<NodeValuesBase> query(
             double time,
             double arclength,
             const gtsam::Values &values,
@@ -149,7 +199,7 @@ namespace Spacetime::Types
                 node_dim += values.at(key).dim();
             }
 
-            std::shared_ptr<NodeValues> result = node->getValuesBase(values);
+            std::shared_ptr<NodeValuesBase> result = node->getValuesBase(values);
             if (!result)
                 return nullptr;
 

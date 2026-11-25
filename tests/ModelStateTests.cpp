@@ -14,6 +14,7 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
 #include <spacetime/estimator/types/Robot.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -22,7 +23,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using PriorType = Priors::WNOA::Prior<Pose>;
         using Factors = Types::Model::Factors;
 
@@ -138,7 +139,7 @@ namespace Spacetime
         robot.addModel(sensor);
         robot.addModel(std::make_shared<RecordingModel>("b", log));
 
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addModel(std::make_shared<RecordingModel>("first", log));
         estimator.addRobot(robot);
         ASSERT_EQ(estimator.getMeasurementQueues().size(), 1u);
@@ -153,7 +154,7 @@ namespace Spacetime
     {
         auto state = makeState();
         auto prior = makePrior(state);
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
         EXPECT_THROW(estimator.addPrior(makePrior(state)), std::invalid_argument);
         EXPECT_THROW(estimator.addModel(std::make_shared<RowModel>(state)), std::invalid_argument);
@@ -175,7 +176,7 @@ namespace Spacetime
     TEST(EstimatorAddModel, AnEndEffectorAndItsOwnPriorCannotBothBeAdded)
     {
         auto ee = std::make_shared<Joints::EndEffector<Pose>>(Pose());
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addModel(ee);
         EXPECT_THROW(estimator.addModel(ee->endEffectorPrior()), std::invalid_argument);
     }

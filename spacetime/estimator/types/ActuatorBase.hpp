@@ -1,6 +1,7 @@
 #ifndef ACTUATORBASE_HPP
 #define ACTUATORBASE_HPP
 
+#include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -13,6 +14,7 @@
 #include <gtsam/nonlinear/Values.h>
 
 #include <spacetime/estimator/types/ActuatorState.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
 #include <spacetime/estimator/types/Measurement.hpp>
 #include <spacetime/estimator/types/MeasurementQueue.hpp>
 #include <spacetime/estimator/types/Model.hpp>
@@ -24,23 +26,31 @@ namespace Spacetime::Types
 {
     /**
      * @brief A model of an input acting along the robot, e.g. tendon tensions: each measured
-     *        input becomes an estimated variable u_k, shared by the factors at every one of
-     *        the actuator's arclengths. The input's measurement uncertainty is then counted
-     *        once, and correlates those factors, rather than being counted again at every
-     *        arclength as independent sensor measurements of the same reading would be.
+     *        input becomes an estimated variable u_k, shared by every factor it enters. The
+     *        input's measurement uncertainty is then counted once, and correlates those
+     *        factors, rather than being counted again at every arclength as independent
+     *        sensor measurements of the same reading would be.
+     *
+     *        A derived actuator overrides one function, getFactors, which only describes the
+     *        physics: the inner factors of one input u_k. Each may reference
+     *          - the stateful model's interpolated keys at any of the actuator's points
+     *            (time, arclengths()[i]), as point-indexed keys (e.g.
+     *            WNOA::InterpolatedKeys::Pose(i), see Types::InterpolatedKeyAt),
+     *          - u_k's key, and any other genuine variable, which is passed through.
+     *        One factor per point models an input acting at each point independently; one
+     *        factor on several points models an input acting on all of them at once (e.g.
+     *        Actuators::KinematicTendon's length over its routing disks); a factor on no
+     *        point constrains u_k alone. The base resolves every factor on the state (see
+     *        StatefulModel::getMultiPointOuterFactor) and drops, with a warning, any that
+     *        cannot be (e.g. outside the estimated state's extent).
      *
      *        In extendState (phase 1 of Types::Model), every queued measurement up to the
      *        current time adds u_k, timestamped at the measurement, initialized at its value
-     *        and tied to it by its covariance. In getNewFactors (phase 2), getFactor builds
-     *        each input's factor at each arclength on the interpolated keys of the stateful
-     *        model's node type (see Types::InterpolatedKeyMap) and on u_k, which is wrapped
-     *        in that model's outer factor there (see StatefulModel::getOuterFactor), with u_k
-     *        passed through. The node type is not otherwise assumed.
+     *        and tied to it by its covariance. Its factors are added in getNewFactors (phase 2).
      *
      *        Measurement values hold the input, as a column or row vector of input_dim
      *        entries, with an input_dim x input_dim covariance; their arclength is unused.
-     *        An input whose factors all lie outside the estimated state's extent is
-     *        constrained by its measurement alone.
+     *        An input whose factors are all dropped is constrained by its measurement alone.
      *
      *        Since its inputs are variables of the estimation problem, an actuator is a
      *        stateful model: its own Types::ActuatorState holds one input node per input
@@ -73,12 +83,17 @@ namespace Spacetime::Types
 
         virtual ~ActuatorBase() = default;
 
+        /// Inner factors of one input (see getFactors).
+        using InnerFactors = std::vector<gtsam::NoiseModelFactor::shared_ptr>;
+
         /**
-         * @brief The factor of `measurement`'s input, the variable `input_key`, at
-         *        `arclength`: on (a subset of) the stateful model's node type's interpolated keys and
-         *        `input_key`, with its own noise model. nullptr drops it.
+         * @brief The inner factors of `measurement`'s input, the variable `input_key`: on
+         *        point-indexed interpolated keys of the stateful model's node type (point i
+         *        is arclengths()[i]), `input_key` and any other genuine variable, each with
+         *        its own (Gaussian) noise model. Null factors are ignored; return none to add
+         *        nothing but the input's measurement.
          */
-        virtual gtsam::NoiseModelFactor::shared_ptr getFactor(const MeasurementBase &measurement, gtsam::Key input_key, double arclength) const = 0;
+        virtual InnerFactors getFactors(const MeasurementBase &measurement, gtsam::Key input_key) const = 0;
 
         /**
          * @brief Adds an input node u_k to the actuator's state, with a prior factor from its
@@ -102,29 +117,15 @@ namespace Spacetime::Types
             return factors;
         }
 
-        /// The factors, at every arclength, of the inputs added by the last extendState.
+        /// The factors of the inputs added by the last extendState (see getFactors).
         Factors getNewFactors(double time, gtsam::Values &new_values) override
         {
             (void)time, (void)new_values;
             Factors factors;
             for (const auto &[measurement, key] : m_pending)
-                for (const double arclength : m_arclengths)
-                {
-                    auto inner_factor = getFactor(*measurement, key, arclength);
-                    if (!inner_factor)
-                    {
-                        warning() << "Dropping the input at (t=" << measurement->time << ", s=" << arclength << "): actuator produced no factor.";
-                        continue;
-                    }
-                    auto factor = mp_stateful->getOuterFactor(measurement->time, arclength, inner_factor);
-                    if (!factor)
-                    {
-                        warning() << "Dropping the input at (t=" << measurement->time << ", s=" << arclength
-                                  << "): outside the estimated state's extent.";
-                        continue;
-                    }
-                    factors.push_back(factor);
-                }
+                for (const auto &inner_factor : getFactors(*measurement, key))
+                    if (auto factor = outerFactor(*measurement, inner_factor))
+                        factors.push_back(std::move(factor));
             m_pending.clear();
             return factors;
         }
@@ -148,6 +149,27 @@ namespace Spacetime::Types
         }
 
     private:
+        /**
+         * @brief `inner_factor` resolved on the stateful model's state at `measurement`'s
+         *        time (see StatefulModel::getMultiPointOuterFactor); nullptr, with a
+         *        warning, if it cannot be. A factor on no point is returned unchanged.
+         * @throws std::out_of_range for a point index past arclengths().
+         */
+        std::shared_ptr<gtsam::NonlinearFactor> outerFactor(const MeasurementBase &measurement,
+                                                            const gtsam::NoiseModelFactor::shared_ptr &inner_factor) const
+        {
+            if (!inner_factor)
+                return nullptr;
+            const std::vector<std::size_t> points = pointsOf(*inner_factor, m_arclengths.size());
+            if (points.empty())
+                return inner_factor;
+            auto factor = mp_stateful->getMultiPointOuterFactor(measurement.time, m_arclengths, inner_factor);
+            if (!factor)
+                warning() << "Dropping an input factor at t=" << measurement.time << " on " << points.size()
+                          << " point(s) from s=" << m_arclengths[points.front()] << ": it cannot be resolved on the estimated state.";
+            return factor;
+        }
+
         /// @throws std::invalid_argument if `measurement` is not an input_dim vector with an input_dim x input_dim covariance.
         void validate(const MeasurementBase &measurement) const
         {

@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+import spacetime as st
 from spacetime import interface
 
 from conftest import batch_estimator, make_wnoa_robot, run_session
@@ -47,13 +48,13 @@ def test_tick_callback_sees_every_estimate():
     _, prior = make_wnoa_robot()
     estimator = batch_estimator()
     estimator.addModel(prior)
-    options = interface.SessionOptions()
+    options = st.SessionOptions()
     options.end_time = 0.5
     options.period = 0.25
-    session = interface.Session(estimator, options)
+    session = st.Session(options)
     times = []
     session.setTickCallback(lambda t: times.append(t))
-    session.start()
+    session.start(estimator)
     session.join()
     assert times == pytest.approx([0.0, 0.25, 0.5])
 

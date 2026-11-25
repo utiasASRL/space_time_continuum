@@ -1,0 +1,27 @@
+// -*- C++ -*-
+/**
+ * @file estimator
+ * @brief Aggregation header of spacetime/estimator/: the estimator core: the estimator and its results, and every model folder.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR
+
+#include <spacetime/estimator/Estimator.hpp>
+#include <spacetime/estimator/EstimatorSnapshot.hpp>
+#include <spacetime/estimator/LockedFactor.hpp>
+#include <spacetime/estimator/PosteriorCovariance.hpp>
+#include <spacetime/estimator/RuntimeStatistics.hpp>
+
+#include <spacetime/estimator/types/types>
+#include <spacetime/estimator/prior_models/prior_models>
+#include <spacetime/estimator/sensor_models/sensor_models>
+#include <spacetime/estimator/actuation_models/actuation_models>
+#include <spacetime/estimator/joint_models/joint_models>
+#include <spacetime/estimator/bias_models/bias_models>
+#include <spacetime/estimator/utilities/utilities>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR

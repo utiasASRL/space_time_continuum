@@ -18,7 +18,11 @@
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/slam/BetweenFactor.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/PosteriorCovariance.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
@@ -31,21 +35,21 @@ namespace Spacetime::Biases
     /**
      * @brief Values of a bias node: the bias, of any gtsam manifold type T (e.g. a
      *        gtsam::Vector3 accelerometer bias, or a gtsam::Pose3 sensor extrinsic). Stored
-     *        in Types::NodeValues::values as its matrix.
+     *        in Types::NodeValuesBase::values as its matrix.
      * @tparam T The bias type.
      */
     template <typename T>
-    struct BiasValues : public Types::NodeValues
+    struct BiasNodeValues : public Types::NodeValuesBase
     {
         using BiasType = T;                                              ///< The bias type.
         using InterpolatedKeys = BiasKeys<T>;                            ///< The bias's interpolated key map.
         static constexpr unsigned int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
 
         /// The identity bias.
-        BiasValues() : BiasValues(gtsam::traits<T>::Identity()) {}
+        BiasNodeValues() : BiasNodeValues(gtsam::traits<T>::Identity()) {}
 
         /// Holds `value`.
-        explicit BiasValues(const T &value)
+        explicit BiasNodeValues(const T &value)
         {
             values.resize(1);
             bias(value);
@@ -61,7 +65,7 @@ namespace Spacetime::Biases
     template <typename T>
     struct BiasKeys
     {
-        using ValuesType = BiasValues<T>;                       ///< The node-values type.
+        using ValuesType = BiasNodeValues<T>;                       ///< The node-values type.
         static constexpr int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
 
         /// Interpolated bias key. Only needs to be distinct from the other keys of an inner factor.
@@ -95,7 +99,7 @@ namespace Spacetime::Biases
     template <typename T>
     struct BiasNode : public Types::NodeBase
     {
-        using ValuesType = BiasValues<T>;                                ///< The node-values type.
+        using ValuesType = BiasNodeValues<T>;                                ///< The node-values type.
         static constexpr unsigned int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
 
         /// Registers the bias variable with `km`, timestamped at `time`.
@@ -111,7 +115,7 @@ namespace Spacetime::Biases
         std::vector<std::pair<gtsam::Key, gtsam::Key>> interpolatedKeys() const override { return {{BiasKeys<T>::Bias(), m_bias_key}}; }
 
         /// The bias read from `values` (gtsam's error if absent).
-        std::shared_ptr<Types::NodeValues> getValuesBase(const gtsam::Values &values) const override
+        std::shared_ptr<Types::NodeValuesBase> getValuesBase(const gtsam::Values &values) const override
         {
             return std::make_shared<ValuesType>(values.at<T>(m_bias_key));
         }
@@ -184,7 +188,7 @@ namespace Spacetime::Biases
     public:
         using BiasType = T;                                     ///< The bias type.
         using NodeType = BiasNode<T>;                           ///< A bias node.
-        using ValuesType = BiasValues<T>;                       ///< A bias node's values.
+        using ValuesType = BiasNodeValues<T>;                       ///< A bias node's values.
         using StateType = BiasState<T>;                         ///< The bias's state.
         using Options = BiasOptions<T>;                         ///< The model's parameters.
         static constexpr int dim = gtsam::traits<T>::dimension; ///< Tangent dimension of T.
@@ -279,7 +283,7 @@ namespace Spacetime::Biases
          *        bordering nodes (see StatefulModel::query). The conditional covariance is the
          *        random walk's, conditioned on both nodes: tau (1 - tau) dt Q_c.
          */
-        std::shared_ptr<Types::NodeValues> query(
+        std::shared_ptr<Types::NodeValuesBase> query(
             double time,
             double arclength,
             const gtsam::Values &values,

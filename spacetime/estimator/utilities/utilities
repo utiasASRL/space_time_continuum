@@ -1,0 +1,20 @@
+// -*- C++ -*-
+/**
+ * @file utilities
+ * @brief Aggregation header of spacetime/estimator/utilities/: configuration loading, result export and the other user-facing utilities.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_UTILITIES
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_UTILITIES
+
+#include <spacetime/estimator/utilities/ConfigLoader.hpp>
+#include <spacetime/estimator/utilities/Ellipsoid.hpp>
+#include <spacetime/estimator/utilities/GroundTruthExport.hpp>
+#include <spacetime/estimator/utilities/KeyManager.hpp>
+#include <spacetime/estimator/utilities/RobotShape.hpp>
+#include <spacetime/estimator/utilities/WindowHistory.hpp>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_UTILITIES

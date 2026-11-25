@@ -10,12 +10,16 @@
 #include <gtsam/nonlinear/Values.h>
 
 #include <spacetime/estimator/utilities/KeyManager.hpp>
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 
 namespace Spacetime::Priors::WNOV
 {
     // Forward declaration: the concrete key layout lives in WNOV/InterpolatedKeys.hpp;
-    // Values<Pose> only needs to name it here, not use it, so this avoids a cycle.
+    // NodeValues<Pose> only needs to name it here, not use it, so this avoids a cycle.
     template <typename Pose>
     struct InterpolatedKeys;
 
@@ -26,9 +30,9 @@ namespace Spacetime::Priors::WNOV
      * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
-    struct Values : public Types::NodeValues
+    struct NodeValues : public Types::NodeValuesBase
     {
-        using Base = Types::NodeValues;
+        using Base = Types::NodeValuesBase;
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
         using PoseType = Pose;
         using InterpolatedKeys = WNOV::InterpolatedKeys<Pose>; ///< This node type's interpolated-key layout.
@@ -36,21 +40,21 @@ namespace Spacetime::Priors::WNOV
         static constexpr unsigned int dim = gtsam::traits<Pose>::dimension;
 
         /// Identity pose.
-        Values()
+        NodeValues()
         {
             values.resize(1);
             pose(Pose());
         }
 
         /// Values holding pose `value` (T_ib).
-        explicit Values(const Pose &value)
+        explicit NodeValues(const Pose &value)
         {
             values.resize(1);
             pose(value);
         }
 
         /// Copy constructor.
-        Values(const Values &other) = default;
+        NodeValues(const NodeValues &other) = default;
 
         /// Pose T_ib.
         Pose pose() const
@@ -70,20 +74,20 @@ namespace Spacetime::Priors::WNOV
             pose(gtsam::traits<Pose>::Expmap(TangentVector::Random()));
         }
 
-        /// Copy from another WNOV::Values; throws std::runtime_error for any other NodeValues type.
-        Values &operator=(const Base &other) override
+        /// Copy from another WNOV::NodeValues; throws std::runtime_error for any other NodeValuesBase type.
+        NodeValues &operator=(const Base &other) override
         {
-            const auto *typed_other = dynamic_cast<const Values *>(&other);
+            const auto *typed_other = dynamic_cast<const NodeValues *>(&other);
             if (!typed_other)
-                throw std::runtime_error("WNOV::Values::operator= received incompatible node values type.");
+                throw std::runtime_error("WNOV::NodeValues::operator= received incompatible node values type.");
 
             Base::operator=(other);
             return *this;
         }
         /// Copy assignment.
-        Values &operator=(const Values &other)
+        NodeValues &operator=(const NodeValues &other)
         {
-            return static_cast<Values &>(Base::operator=(other));
+            return static_cast<NodeValues &>(Base::operator=(other));
         }
     };
 
@@ -96,7 +100,7 @@ namespace Spacetime::Priors::WNOV
     {
         /// Tangent dimension (the pose's).
         static constexpr unsigned int dim = gtsam::traits<Pose>::dimension;
-        using ValuesType = Values<Pose>; ///< This node's values.
+        using ValuesType = NodeValues<Pose>; ///< This node's values.
 
         /// Register this node's pose variable ('p') with `km`.
         Node(KeyManager &km, double arclength, double time) : Types::NodeBase(km, arclength, time)
@@ -114,7 +118,7 @@ namespace Spacetime::Priors::WNOV
         }
 
         /// This node's values read from `values` (throws if the pose is absent).
-        std::shared_ptr<Types::NodeValues> getValuesBase(const gtsam::Values &values) const override
+        std::shared_ptr<Types::NodeValuesBase> getValuesBase(const gtsam::Values &values) const override
         {
             return std::make_shared<ValuesType>(values.at<Pose>(poseKey_));
         }

@@ -18,7 +18,7 @@ namespace Spacetime::Priors::WNOA
 {
     using Pose = gtsam::Pose3;
     using NodeType = Node<Pose>;
-    using ValuesType = Values<Pose>;
+    using ValuesType = NodeValues<Pose>;
     using StateType = Types::ContinuumRobotState<NodeType>;
     using InterpolatorType = Interpolator<Pose>;
     using NumDiff = Spacetime::Testing::NumericalDifferentiation<Pose>;

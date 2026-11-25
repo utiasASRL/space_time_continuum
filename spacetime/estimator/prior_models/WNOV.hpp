@@ -6,6 +6,7 @@
 #ifndef WNOV_HPP
 #define WNOV_HPP
 
+#include <spacetime/estimator/prior_models/WNOV/Covariances.hpp>
 #include <spacetime/estimator/prior_models/WNOV/WNOVState.hpp>
 #include <spacetime/estimator/prior_models/WNOV/InterpolatedKeys.hpp>
 #include <spacetime/estimator/prior_models/WNOV/Interpolator.hpp>

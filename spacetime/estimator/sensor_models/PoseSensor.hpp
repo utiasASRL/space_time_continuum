@@ -9,7 +9,11 @@
 #include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 
 namespace Spacetime::Sensors
 {
@@ -31,7 +35,7 @@ namespace Spacetime::Sensors
      *        pose T_ib of the robot at a given arclength and time. Measurement values are
      *        pose matrices (e.g. 4x4), covariances dim x dim in the pose's tangent order
      *        (GTSAM [rotational, translational] for Pose3).
-     * @tparam ValuesT The measured prior's node-values type (e.g. WNOA::Values<gtsam::Pose3>),
+     * @tparam ValuesT The measured prior's node-values type (e.g. WNOA::NodeValues<gtsam::Pose3>),
      *         providing a pose() of a gtsam Lie group type and an interpolated Pose() key.
      */
     template <PoseSensorValuesType ValuesT>

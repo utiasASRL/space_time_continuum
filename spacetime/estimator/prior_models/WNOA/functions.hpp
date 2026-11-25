@@ -11,7 +11,11 @@
 #include <gtsam/base/Matrix.h>
 #include <gtsam/geometry/Pose3.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
 
@@ -130,7 +134,7 @@ namespace Spacetime::Priors::WNOA
             return Phi_s;
         }
 
-        // static void globalToLocal(const Values<Pose> &node0, const Values<Pose> &node1, Vector3N &gamma, Jacobian H_0 = Jacobian(), Jacobian H_1 = Jacobian())
+        // static void globalToLocal(const NodeValues<Pose> &node0, const NodeValues<Pose> &node1, Vector3N &gamma, Jacobian H_0 = Jacobian(), Jacobian H_1 = Jacobian())
         // {
         //     Jacobian dT01_d0, dT01_d1;
         //     gtsam::Pose3 T01 = node0.pose.between(node1.pose, dT01_d0, dT01_d1);
@@ -157,19 +161,19 @@ namespace Spacetime::Priors::WNOA
         //     }
         // }
 
-        // static void globalToLocal(const Values<Pose> &node, const Values<Pose> &node_nk, Vector3N &gamma, Jacobian dgdx0)
+        // static void globalToLocal(const NodeValues<Pose> &node, const NodeValues<Pose> &node_nk, Vector3N &gamma, Jacobian dgdx0)
         // {
         //     Matrix3N dump = Matrix3N::Zero();
         //     globalToLocal(node, node_nk, gamma, dgdx0, dump);
         // }
 
-        // static void globalToLocal(const Values<Pose> &node, const Values<Pose> &node_nk, Vector3N &gamma)
+        // static void globalToLocal(const NodeValues<Pose> &node, const NodeValues<Pose> &node_nk, Vector3N &gamma)
         // {
         //     Matrix3N dump = Matrix3N::Zero();
         //     globalToLocal(node, node_nk, gamma, dump, dump);
         // }
 
-        // static void localToGlobal(const Vector3N &gamma, const Values<Pose> &node_nk, Values<Pose> &node)
+        // static void localToGlobal(const Vector3N &gamma, const NodeValues<Pose> &node_nk, NodeValues<Pose> &node)
         // {
         //     // throw std::runtime_error("localToGlobal not implemented.");
         //     gtsam::Vector6 xi = gamma.block<dim, 1>(0, 0);
@@ -181,9 +185,9 @@ namespace Spacetime::Priors::WNOA
         // }
 
         /// Midpoint of two node values (pose via Pose::interpolateRt, tangents arithmetically); used for initial guesses.
-        static Values<Pose> average(const Values<Pose> &values1, const Values<Pose> &values2)
+        static NodeValues<Pose> average(const NodeValues<Pose> &values1, const NodeValues<Pose> &values2)
         {
-            Values<Pose> return_values;
+            NodeValues<Pose> return_values;
             return_values.pose(values1.pose().interpolateRt(values2.pose(), 0.5));
             return_values.epsilon(0.5 * (values1.epsilon() + values2.epsilon()));
             return_values.varpi(0.5 * (values1.varpi() + values2.varpi()));
@@ -191,9 +195,9 @@ namespace Spacetime::Priors::WNOA
         }
 
         /// Midpoint of two nodes' values read from `values`.
-        static Values<Pose> average(const gtsam::Values &values, const NodeType &node1, const NodeType &node2)
+        static NodeValues<Pose> average(const gtsam::Values &values, const NodeType &node1, const NodeType &node2)
         {
-            Values<Pose> return_values = average(node1.getValues(values), node2.getValues(values));
+            NodeValues<Pose> return_values = average(node1.getValues(values), node2.getValues(values));
             return return_values;
         }
     };

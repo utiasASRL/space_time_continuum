@@ -20,8 +20,8 @@ namespace SpacetimePython
         class Session
         {
         public:
-            Session(Spacetime::Estimator &estimator, const Spacetime::Interface::SessionOptions &options)
-                : m_session(std::make_unique<Spacetime::Standalone::Session>(estimator, options)) {}
+            explicit Session(const Spacetime::Interface::SessionOptions &options)
+                : m_session(std::make_unique<Spacetime::Interface::Standalone::Session>(options)) {}
 
             ~Session()
             {
@@ -38,11 +38,11 @@ namespace SpacetimePython
                 m_session.reset();
             }
 
-            Spacetime::Standalone::Session &operator*() { return *m_session; }
-            Spacetime::Standalone::Session *operator->() { return m_session.get(); }
+            Spacetime::Interface::Standalone::Session &operator*() { return *m_session; }
+            Spacetime::Interface::Standalone::Session *operator->() { return m_session.get(); }
 
         private:
-            std::unique_ptr<Spacetime::Standalone::Session> m_session;
+            std::unique_ptr<Spacetime::Interface::Standalone::Session> m_session;
         };
     } // namespace
 
@@ -58,22 +58,18 @@ namespace SpacetimePython
             .def_readwrite("real_time", &SessionOptions::real_time, "Paced by the wall clock, or as fast as possible (deterministic).");
 
         py::class_<Session>(m, "Session",
-                            "Runs `estimator` (kept alive by the session) on its own estimator and dataloader threads, delivering the "
+                            "Runs an estimator, given to start(), on its own estimator and dataloader threads, delivering the "
                             "measurements loaded into its queues as if live: as fast as possible, waiting for every dataloader, or in real time. "
                             "Dropping the session stops and joins it.")
-            .def(py::init<Spacetime::Estimator &, const SessionOptions &>(), py::arg("estimator"), py::arg("options"), py::keep_alive<1, 2>())
-            .def(
-                "addMeasurementQueues", [](Session &self, const std::vector<Spacetime::Types::pMeasurementQueueType> &queues)
-                { self->addMeasurementQueues(queues); },
-                py::arg("queues"),
-                "Replays what is already loaded into `queues` (typically Estimator.getMeasurementQueues()) on a dataloader thread. "
-                "Empties the queues at once: call before start() and before any measurement callback subscribes.")
+            .def(py::init<const SessionOptions &>(), py::arg("options") = SessionOptions())
             .def(
                 "setTickCallback", [](Session &self, std::function<void(double)> callback) { self->setTickCallback(std::move(callback)); },
                 py::arg("callback"), "Calls `callback(time)` on the estimator thread after every estimate.")
-            .def("start", [](Session &self) { self->start(); }, py::call_guard<py::gil_scoped_release>(),
-                 "Starts the estimator and dataloader threads. Raises ValueError for invalid options (e.g. a non-positive period, "
-                 "or a batch-mode estimator in real time).")
+            .def("start", [](Session &self, Spacetime::Estimator &estimator) { self->start(estimator); }, py::arg("estimator"),
+                 py::call_guard<py::gil_scoped_release>(), py::keep_alive<1, 2>(),
+                 "Starts estimating with `estimator` (kept alive by the session): replays what is loaded into its measurement queues "
+                 "on a dataloader thread, and starts the estimator thread. Raises ValueError for invalid options (e.g. a non-positive "
+                 "period, or a batch-mode estimator in real time), RuntimeError if already started.")
             .def("requestStop", [](Session &self) { self->requestStop(); }, "Asks the run to end as soon as possible; safe from any thread.")
             .def("join", [](Session &self) { self->join(); }, py::call_guard<py::gil_scoped_release>(),
                  "Waits for the session to finish; raises the first error of any of its threads.")

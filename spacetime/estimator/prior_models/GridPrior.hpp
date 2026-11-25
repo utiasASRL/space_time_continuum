@@ -2,6 +2,7 @@
 #define GRIDPRIOR_HPP
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -15,12 +16,17 @@
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/nonlinear/Values.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/PosteriorCovariance.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 #include <spacetime/estimator/utilities/logger.hpp>
 #include <spacetime/estimator/prior_models/InterpolatedNode.hpp>
 #include <spacetime/estimator/prior_models/InterpolationFactor.hpp>
+#include <spacetime/estimator/prior_models/MultiInterpolationFactor.hpp>
 
 namespace Spacetime::Priors
 {
@@ -137,12 +143,55 @@ namespace Spacetime::Priors
         }
 
         /**
+         * @brief Wrap an inner factor on point-indexed interpolated keys (see
+         *        StatefulModel::getMultiPointOuterFactor). A single point is resolved exactly
+         *        as getOuterFactor does; several are interpolated jointly by one
+         *        MultiInterpolationFactor on the nodes bordering each (time, arclengths[i]).
+         * @return nullptr, with a warning, if the bordering nodes were already marginalized
+         *         or a point precedes the earliest node.
+         * @throws std::out_of_range for a point index past `arclengths`.
+         */
+        std::shared_ptr<gtsam::NonlinearFactor> getMultiPointOuterFactor(
+            double time,
+            const std::vector<double> &arclengths,
+            const gtsam::NoiseModelFactor::shared_ptr &inner_factor) const override
+        {
+            const std::vector<std::size_t> points = Types::pointsOf(*inner_factor, arclengths.size());
+            if (points.size() <= 1)
+                return Types::StatefulModel<StateType>::getMultiPointOuterFactor(time, arclengths, inner_factor);
+
+            if (time < m_window_start - TOLERANCE)
+            {
+                warning() << m_name << ": cannot attach a factor at t=" << time
+                          << ": its nodes were already marginalized (the window starts at t=" << m_window_start << ").";
+                return nullptr;
+            }
+            using Node = InterpolatedNode<InterpolatorT>;
+            std::vector<Node> nodes;
+            for (const std::size_t point : points)
+            {
+                typename Node::KeyMap key_map;
+                for (const gtsam::Key key : InterpolatorT::InterpolatedKeys::keys())
+                    key_map[key] = Types::InterpolatedKeyAt(key, point);
+                auto node = interpolatedNode(time, arclengths[point], key_map);
+                if (!node)
+                {
+                    warning() << m_name << ": cannot resolve (t=" << time << ", s=" << arclengths[point]
+                              << "): it lies before the estimated state's earliest node.";
+                    return nullptr;
+                }
+                nodes.push_back(std::move(*node));
+            }
+            return std::make_shared<MultiInterpolationFactor<InterpolatorT>>(inner_factor, std::move(nodes), m_cache_noise_model);
+        }
+
+        /**
          * @brief Interpolate (or extrapolate) the node state at (time, arclength) from
          *        `values` (see StatefulModel::query for the outputs).
          * @return nullptr if the query precedes the earliest node or a bordering node's
          *         variables are absent from `values` (e.g. marginalized).
          */
-        std::shared_ptr<Types::NodeValues> query(
+        std::shared_ptr<Types::NodeValuesBase> query(
             double time,
             double arclength,
             const gtsam::Values &values,
@@ -159,7 +208,7 @@ namespace Spacetime::Priors
          * @param jacobians Output, cleared first: corner key -> node_dim x (that key's dim) block.
          * @return nullptr (with `jacobians` left empty) when query() would return nullptr.
          */
-        std::shared_ptr<Types::NodeValues> queryJacobians(
+        std::shared_ptr<Types::NodeValuesBase> queryJacobians(
             double time,
             double arclength,
             const gtsam::Values &values,
@@ -280,7 +329,7 @@ namespace Spacetime::Priors
 
     private:
         /// query()'s body, with the interpolator's optional per-key Jacobians output.
-        std::shared_ptr<Types::NodeValues> resolveQuery(
+        std::shared_ptr<Types::NodeValuesBase> resolveQuery(
             double time,
             double arclength,
             const gtsam::Values &values,

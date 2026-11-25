@@ -39,6 +39,7 @@ namespace Spacetime
         const VisualizerOptions defaults;
         EXPECT_TRUE(options.cameras.empty());
         EXPECT_DOUBLE_EQ(options.robot.radius, defaults.robot.radius);
+        EXPECT_EQ(options.robot.spatial_interpolation_points, 0u);
     }
 
     TEST(ConfigLoaderVisualizer, ReadsEveryCameraInOrder)
@@ -114,6 +115,78 @@ namespace Spacetime
             Json::Value visualizer(Json::objectValue);
             visualizer["robot"]["radius"] = radius;
             EXPECT_THROW(loaderWith(visualizer).loadVisualizerOptions(), std::invalid_argument);
+        }
+    }
+
+    TEST(ConfigLoaderVisualizer, ReadsTheSpatialInterpolationPoints)
+    {
+        Json::Value visualizer(Json::objectValue);
+        visualizer["robot"]["spatial_interpolation_points"] = 4;
+        EXPECT_EQ(loaderWith(visualizer).loadVisualizerOptions().robot.spatial_interpolation_points, 4u);
+    }
+
+    TEST(ConfigLoaderVisualizer, OutOfRangeSpatialInterpolationPointsAreRejected)
+    {
+        for (const int points : {-1, 11})
+        {
+            Json::Value visualizer(Json::objectValue);
+            visualizer["robot"]["spatial_interpolation_points"] = points;
+            EXPECT_THROW(loaderWith(visualizer).loadVisualizerOptions(), std::invalid_argument) << points;
+        }
+    }
+
+    TEST(ConfigLoaderVisualizer, GroundPlaneIsAbsentUnlessConfigured)
+    {
+        EXPECT_FALSE(Utilities::ConfigLoader().loadGroundPlaneOptions().has_value());
+        Json::Value visualizer(Json::objectValue);
+        visualizer["robot"]["radius"] = 0.02;
+        EXPECT_FALSE(loaderWith(visualizer).loadGroundPlaneOptions().has_value());
+    }
+
+    TEST(ConfigLoaderVisualizer, ReadsTheGroundPlane)
+    {
+        Json::Value visualizer(Json::objectValue);
+        visualizer["ground_plane"]["normal"] = array3({0, 1, 1});
+        visualizer["ground_plane"]["position"] = array3({0.1, 0.2, 0.3});
+        visualizer["ground_plane"]["size"] = 0.7;
+        const auto plane = loaderWith(visualizer).loadGroundPlaneOptions();
+        ASSERT_TRUE(plane.has_value());
+        EXPECT_TRUE(plane->normal.isApprox(Eigen::Vector3d(0, 1, 1)));
+        EXPECT_TRUE(plane->position.isApprox(Eigen::Vector3d(0.1, 0.2, 0.3)));
+        EXPECT_DOUBLE_EQ(plane->size, 0.7);
+    }
+
+    TEST(ConfigLoaderVisualizer, GroundPlaneFieldsDefault)
+    {
+        Json::Value visualizer(Json::objectValue);
+        visualizer["ground_plane"]["size"] = 2.0;
+        const auto plane = loaderWith(visualizer).loadGroundPlaneOptions();
+        ASSERT_TRUE(plane.has_value());
+        const Visualization::GroundPlaneOptions defaults;
+        EXPECT_TRUE(plane->normal.isApprox(defaults.normal));
+        EXPECT_TRUE(plane->position.isApprox(defaults.position));
+        EXPECT_DOUBLE_EQ(plane->size, 2.0);
+    }
+
+    TEST(ConfigLoaderVisualizer, MalformedGroundPlaneThrows)
+    {
+        Json::Value not_an_object(Json::objectValue);
+        not_an_object["ground_plane"] = 1.0;
+        EXPECT_THROW(loaderWith(not_an_object).loadGroundPlaneOptions(), std::invalid_argument);
+
+        Json::Value short_vector(Json::objectValue);
+        short_vector["ground_plane"]["normal"].append(0.0);
+        EXPECT_THROW(loaderWith(short_vector).loadGroundPlaneOptions(), std::invalid_argument);
+
+        Json::Value zero_normal(Json::objectValue);
+        zero_normal["ground_plane"]["normal"] = array3({0, 0, 0});
+        EXPECT_THROW(loaderWith(zero_normal).loadGroundPlaneOptions(), std::invalid_argument);
+
+        for (double size : {0.0, -1.0})
+        {
+            Json::Value bad_size(Json::objectValue);
+            bad_size["ground_plane"]["size"] = size;
+            EXPECT_THROW(loaderWith(bad_size).loadGroundPlaneOptions(), std::invalid_argument) << size;
         }
     }
 } // namespace Spacetime

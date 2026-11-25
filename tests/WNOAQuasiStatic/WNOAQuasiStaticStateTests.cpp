@@ -16,7 +16,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
     {
         using Pose = gtsam::Pose3;
         using NodeType = Node<Pose>;
-        using ValuesType = Values<Pose>;
+        using ValuesType = NodeValues<Pose>;
         using Keys = InterpolatedKeys<Pose>;
         using Vector6 = Eigen::Matrix<double, 6, 1>;
 
@@ -36,13 +36,13 @@ namespace Spacetime::Priors::WNOAQuasiStatic
 
         const ValuesType identity;
         EXPECT_TRUE(identity.pose().equals(Pose()));
-        EXPECT_TRUE(identity.epsilon().isZero());
+        EXPECT_TRUE(identity.epsilon().isApprox(Priors::straightStrain<Pose>())); // straight by default
     }
 
     TEST(WNOAQuasiStaticState, AssigningAnotherNodeTypesValuesThrows)
     {
         ValuesType v;
-        Types::NodeValues other;
+        Types::NodeValuesBase other;
         EXPECT_THROW(v = other, std::runtime_error);
     }
 

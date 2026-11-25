@@ -48,7 +48,7 @@ namespace Spacetime::Joints
          * @param initial_pose Initial guess of the end effector's pose (T_ib).
          * @param q_psd_diag Diagonal of the WNOA power spectral density of its motion.
          */
-        explicit EndEffector(const Pose &initial_pose, const TangentVector &q_psd_diag = TangentVector::Ones())
+        explicit EndEffector(const Pose &initial_pose, const TangentVector &q_psd_diag = EndEffectorPrior<Pose>::DefaultCovariances())
             : Types::StatefulModel<StateType>(std::make_shared<StateType>(std::vector<double>{0.0})),
               m_prior(std::make_shared<PriorType>(this->state(), initial_pose, q_psd_diag)) {}
 
@@ -71,7 +71,7 @@ namespace Spacetime::Joints
         }
 
         /// The joints attached so far, in attach() order.
-        const std::vector<std::shared_ptr<Types::Model>> &joints() const { return m_joints; }
+        const std::vector<std::shared_ptr<JointBase>> &joints() const { return m_joints; }
 
         /// The prior extending the end effector's state.
         std::shared_ptr<PriorType> endEffectorPrior() const { return m_prior; }
@@ -117,8 +117,15 @@ namespace Spacetime::Joints
             return m_prior->getOuterFactor(time, arclength, inner_factor);
         }
 
+        /// Its prior's multi-point outer factor (see StatefulModel::getMultiPointOuterFactor).
+        std::shared_ptr<gtsam::NonlinearFactor> getMultiPointOuterFactor(double time, const std::vector<double> &arclengths,
+                                                                         const gtsam::NoiseModelFactor::shared_ptr &inner_factor) const override
+        {
+            return m_prior->getMultiPointOuterFactor(time, arclengths, inner_factor);
+        }
+
         /// Its prior's query (see StatefulModel::query).
-        std::shared_ptr<Types::NodeValues> query(double time, double arclength, const gtsam::Values &values,
+        std::shared_ptr<Types::NodeValuesBase> query(double time, double arclength, const gtsam::Values &values,
                                                  Eigen::MatrixXd *conditionalCovariance = nullptr,
                                                  const PosteriorCovariance *posterior = nullptr,
                                                  Eigen::MatrixXd *posteriorCovariance = nullptr) const override
@@ -128,7 +135,7 @@ namespace Spacetime::Joints
 
     private:
         std::shared_ptr<PriorType> m_prior;
-        std::vector<std::shared_ptr<Types::Model>> m_joints;
+        std::vector<std::shared_ptr<JointBase>> m_joints;
     };
 } // namespace Spacetime::Joints
 

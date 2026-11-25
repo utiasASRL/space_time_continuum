@@ -6,7 +6,7 @@
 
 #include <spacetime/interface/standalone/Clock.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     namespace
     {
@@ -104,4 +104,4 @@ namespace Spacetime::Standalone
             clock.start(static_cast<double>(i));
         reader.join();
     }
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone

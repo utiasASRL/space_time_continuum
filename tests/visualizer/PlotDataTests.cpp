@@ -158,7 +158,7 @@ namespace Spacetime
 
     TEST(PlotData, PoseAngleSigmasAreNaNAtGimbalLockButPositionSigmasAreNot)
     {
-        const Pose pose(gtsam::Rot3::Ypr(0.0, M_PI / 2, 0.0), gtsam::Point3());
+        const Pose pose(gtsam::Rot3::Ypr(0.0, M_PI / 2, 0.0), gtsam::Point3::Zero());
         const auto sigmas = poseSigmas(pose, Eigen::MatrixXd::Identity(6, 6) * 1e-4);
         for (int i = 0; i < 3; i++)
             EXPECT_TRUE(std::isfinite(sigmas[i]));

@@ -17,6 +17,7 @@
 #include <spacetime/estimator/utilities/GroundTruthExport.hpp>
 #include <spacetime/estimator/utilities/WindowHistory.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime::Utilities
 {
@@ -25,7 +26,7 @@ namespace Spacetime::Utilities
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
 
         constexpr unsigned int kSpatialDim = 3;
         constexpr double kPeriod = 0.1;
@@ -46,8 +47,7 @@ namespace Spacetime::Utilities
 
         EstimatorOptions options(double lag)
         {
-            EstimatorOptions o;
-            o.smootherLag = lag;
+            EstimatorOptions o = Testing::estimatorOptions(lag);
             o.lm_params = gaussNewtonParams();
             o.compute_covariance = true;
             return o;

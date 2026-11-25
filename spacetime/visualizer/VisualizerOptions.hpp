@@ -13,6 +13,18 @@
 
 namespace Spacetime::Visualization
 {
+    /**
+     * @brief A square ground plane, drawn only where a program adds one (e.g.
+     *        Default::GroundPlane, or visualizer.ground_plane in a config, see
+     *        Utilities::ConfigLoader::loadGroundPlaneOptions).
+     */
+    struct GroundPlaneOptions
+    {
+        Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();    ///< Plane normal (world frame); need not be unit length, but must be nonzero.
+        Eigen::Vector3d position = Eigen::Vector3d::Zero();   ///< Centre of the plane [m].
+        double size = 1.0;                                    ///< Side length of the square [m]; must be positive.
+    };
+
     /// Runtime options shared by every visualizer backend. Backends ignore the fields that don't apply to them.
     struct VisualizerOptions
     {
@@ -31,10 +43,12 @@ namespace Spacetime::Visualization
         {
             /// Backbone tube radius [m]; also scales the node frames.
             double radius = 0.01;
+            /// Extra backbone points drawn between each pair of adjacent nodes at startup ([ / ] adjust it at runtime);
+            /// at most Default::ContinuumRobot::kMaxSpatialInterpolationPoints (10).
+            unsigned int spatial_interpolation_points = 0;
         };
         RobotOptions robot; ///< See RobotOptions.
 
-        bool show_floor = true;              ///< Draw a ground plane.
         bool show_world_frame = true;        ///< Draw the world coordinate frame.
         bool show_info_label = false;        ///< Currently unused by the default backend (its message label is shown on demand).
         bool show_diagnostics_label = false; ///< Show the diagnostics overlay at startup.

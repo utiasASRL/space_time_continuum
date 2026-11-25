@@ -15,6 +15,7 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/bias_models/Bias.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -208,14 +209,14 @@ namespace Spacetime
         values.update(nodes[1]->biasKey(), Vector3(3.0, 2.0, 1.0));
 
         Eigen::MatrixXd conditional;
-        auto queried = std::dynamic_pointer_cast<Biases::BiasValues<Vector3>>(model->query(0.05, 0.0, values, &conditional));
+        auto queried = std::dynamic_pointer_cast<Biases::BiasNodeValues<Vector3>>(model->query(0.05, 0.0, values, &conditional));
         ASSERT_NE(queried, nullptr);
         EXPECT_TRUE(gtsam::assert_equal(Vector3(1.5, 0.5, -0.5), queried->bias(), 1e-12));
         // A random walk conditioned on both ends: tau (1 - tau) dt Q.
         EXPECT_TRUE(gtsam::assert_equal(gtsam::Matrix(0.25 * 0.75 * 0.2 * options.random_walk_psd), gtsam::Matrix(conditional), 1e-12));
 
         // On a node, the node itself with no added uncertainty.
-        auto on_node = std::dynamic_pointer_cast<Biases::BiasValues<Vector3>>(model->query(0.2, 0.0, values, &conditional));
+        auto on_node = std::dynamic_pointer_cast<Biases::BiasNodeValues<Vector3>>(model->query(0.2, 0.0, values, &conditional));
         ASSERT_NE(on_node, nullptr);
         EXPECT_TRUE(gtsam::assert_equal(Vector3(3.0, 2.0, 1.0), on_node->bias(), 1e-12));
         EXPECT_TRUE(conditional.isZero(1e-15));
@@ -279,7 +280,7 @@ namespace Spacetime
         auto model = std::make_shared<Model3>(options);
         auto sensor = std::make_shared<DirectBiasSensor>(model);
 
-        Estimator estimator(10.0);
+        Estimator estimator(Testing::estimatorOptions(10.0));
         estimator.addModel(model);
         estimator.addSensor(sensor);
 
@@ -289,7 +290,7 @@ namespace Spacetime
         for (int k = 0; k <= 10; k++)
             estimator.estimate(0.1 * k);
 
-        auto queried = std::dynamic_pointer_cast<Biases::BiasValues<Vector3>>(model->query(1.0, 0.0, estimator.getCurrentValues()));
+        auto queried = std::dynamic_pointer_cast<Biases::BiasNodeValues<Vector3>>(model->query(1.0, 0.0, estimator.getCurrentValues()));
         ASSERT_NE(queried, nullptr);
         EXPECT_TRUE(gtsam::assert_equal(bias, queried->bias(), 1e-3));
     }

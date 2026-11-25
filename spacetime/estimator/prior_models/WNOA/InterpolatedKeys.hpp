@@ -1,6 +1,7 @@
 #ifndef WNOA_INTERPOLATEDKEYS_HPP
 #define WNOA_INTERPOLATEDKEYS_HPP
 
+#include <cstddef>
 #include <stdexcept>
 #include <utility>
 
@@ -9,6 +10,7 @@
 #include <gtsam/nonlinear/Values.h>
 
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
 
 namespace Spacetime::Priors::WNOA
 {
@@ -18,7 +20,7 @@ namespace Spacetime::Priors::WNOA
      *        pose, strain, and velocity components.
      *
      * This is where the WNOA node type's own interpolated-key layout is defined
-     * (see WNOA::Values<Pose>/WNOA::Node<Pose> in WNOAState.hpp) -- the generic
+     * (see WNOA::NodeValues<Pose>/WNOA::Node<Pose> in WNOAState.hpp) -- the generic
      * Priors::InterpolationFactor and Types::SensorBase never hardcode "pose",
      * "strain", or "velocity" themselves; they only require whatever type is named
      * by `InterpolatorT::InterpolatedKeys` / `ValuesT::InterpolatedKeys` to satisfy
@@ -42,7 +44,7 @@ namespace Spacetime::Priors::WNOA
     template <typename PoseT>
     struct InterpolatedKeys
     {
-        using ValuesType = Values<PoseT>; ///< The node values these keys index.
+        using ValuesType = NodeValues<PoseT>; ///< The node values these keys index.
         /// Dimension of each component (pose, strain and velocity all have the pose's tangent dimension).
         static constexpr int dim = gtsam::traits<PoseT>::dimension;
 
@@ -55,6 +57,12 @@ namespace Spacetime::Priors::WNOA
 
         /// The full set of interpolated keys this node type defines.
         static gtsam::KeyVector keys() { return {Pose(), Strain(), Velocity()}; }
+
+        /// The interpolated keys at the `point`-th arclength of a multi-point factor (see Types::InterpolatedKeyAt).
+        static gtsam::Key Pose(std::size_t point) { return Types::InterpolatedKeyAt(Pose(), point); }
+        static gtsam::Key Strain(std::size_t point) { return Types::InterpolatedKeyAt(Strain(), point); }
+        static gtsam::Key Velocity(std::size_t point) { return Types::InterpolatedKeyAt(Velocity(), point); }
+        static gtsam::KeyVector keys(std::size_t point) { return Types::InterpolatedKeysAt(keys(), point); }
 
         /// Insert the piece of `node` that `key` stands in for into `values`, at `key`; throws std::runtime_error for any other key.
         static void insert(gtsam::Key key, const ValuesType &node, gtsam::Values &values)

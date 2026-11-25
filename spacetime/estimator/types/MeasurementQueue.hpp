@@ -35,11 +35,43 @@ namespace Spacetime::Types
         template <MeasurementType T>
         void addMeasurement(const std::shared_ptr<T> measurement)
         {
+            push(std::static_pointer_cast<MeasurementBase>(measurement), 0);
+        }
+
+        /**
+         * @brief A measurement taken out by withholdAll, with the number of callbacks that
+         *        had already seen it (the callbacks registered by then, which every queued
+         *        measurement has been passed to).
+         */
+        struct Withheld
+        {
+            pMeasurementType measurement; ///< The withheld measurement.
+            std::size_t notified = 0;     ///< How many of the queue's callbacks (in registration order) have seen it.
+        };
+
+        /**
+         * @brief Removes and returns every queued measurement, oldest first, to hand back later
+         *        with redeliver (e.g. by Interface::Standalone::FileDataloader, which replays
+         *        pre-loaded data as if it arrived live). Calls no callback.
+         */
+        std::vector<Withheld> withholdAll()
+        {
+            std::vector<Withheld> all;
             std::lock_guard<std::mutex> lock(m_measurement_mutex);
-            pMeasurementType typed = std::static_pointer_cast<MeasurementBase>(measurement);
-            m_measurement_queue.push(typed);
-            for (const auto &callback : m_measurement_callbacks)
-                callback(typed);
+            all.reserve(m_measurement_queue.size());
+            for (; !m_measurement_queue.empty(); m_measurement_queue.pop())
+                all.push_back({m_measurement_queue.front(), m_measurement_callbacks.size()});
+            return all;
+        }
+
+        /**
+         * @brief Queues a measurement taken out by withholdAll again, notifying only the
+         *        callbacks registered since: the others saw it while it was first queued, so
+         *        every callback sees each measurement exactly once, whenever it registered.
+         */
+        void redeliver(const Withheld &withheld)
+        {
+            push(withheld.measurement, withheld.notified);
         }
 
         /**
@@ -72,7 +104,7 @@ namespace Spacetime::Types
             return ready;
         }
 
-        /// Removes and returns every queued measurement, oldest first, without notifying the callbacks (see Standalone::FileDataloader).
+        /// Removes and returns every queued measurement, oldest first, without notifying the callbacks (to hand them back later, see withholdAll).
         std::vector<pMeasurementType> takeAll()
         {
             std::vector<pMeasurementType> all;
@@ -127,6 +159,15 @@ namespace Spacetime::Types
         }
 
     private:
+        /// Queues `measurement` and passes it to every callback from index `first_callback` on.
+        void push(pMeasurementType measurement, std::size_t first_callback)
+        {
+            std::lock_guard<std::mutex> lock(m_measurement_mutex);
+            m_measurement_queue.push(measurement);
+            for (std::size_t i = first_callback; i < m_measurement_callbacks.size(); i++)
+                m_measurement_callbacks[i](measurement);
+        }
+
         std::queue<pMeasurementType> m_measurement_queue; // oldest first (expected in time order)
         mutable std::mutex m_measurement_mutex;
         std::vector<MeasurementCallback> m_measurement_callbacks;

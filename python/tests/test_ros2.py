@@ -11,9 +11,9 @@ import pytest
 ros2 = pytest.importorskip("spacetime.interface.ros2", reason="built without the ROS2 interface")
 
 import spacetime as st  # noqa: E402
-from spacetime import sensors  # noqa: E402
+from spacetime import actuators, sensors  # noqa: E402
 
-from conftest import make_wnoa_robot  # noqa: E402
+from conftest import estimator_options, make_wnoa_robot  # noqa: E402
 
 LENGTH = 0.2
 
@@ -21,7 +21,9 @@ LENGTH = 0.2
 @pytest.fixture(scope="module", autouse=True)
 def rclcpp_context():
     ros2.init([])
+    st.setInterface("ros2")  # st.Session creates ROS2 sessions in this module
     yield
+    st.setInterface("default")
     ros2.shutdown()
 
 
@@ -31,8 +33,7 @@ def unique(prefix):
 
 
 def sliding_estimator(smoother_lag=0.3):
-    options = st.EstimatorOptions()
-    options.smootherLag = smoother_lag
+    options = estimator_options(smoother_lag)
     return st.Estimator(options)
 
 
@@ -43,7 +44,7 @@ def ros_options():
 
 
 def session_options(end_time, period=0.02):
-    options = st.interface.SessionOptions()
+    options = st.SessionOptions()
     options.end_time = end_time
     options.period = period
     options.real_time = True
@@ -73,24 +74,23 @@ def test_body_pose_applies_the_offset():
 
 def test_batch_estimator_cannot_start():
     _, prior = make_wnoa_robot(lock_base=False)
-    options = st.EstimatorOptions()
-    options.smootherLag = st.Estimator.BATCH_LAG
+    options = estimator_options(st.Estimator.BATCH_LAG)
     estimator = st.Estimator(options)
     estimator.addModel(prior)
-    session = ros2.Session(estimator, session_options(-1.0), ros_options())
+    session = st.Session(session_options(-1.0), ros_options())
     with pytest.raises(ValueError):
-        session.start()
+        session.start(estimator)
 
 
 def test_session_estimates_every_period_until_the_end_time():
     _, prior = make_wnoa_robot(lock_base=False)
     estimator = sliding_estimator()
     estimator.addModel(prior)
-    session = ros2.Session(estimator, session_options(0.2), ros_options())
+    session = st.Session(session_options(0.2), ros_options())
     times = []
     session.setTickCallback(lambda t: times.append(t))
 
-    session.start()
+    session.start(estimator)
     session.join()
 
     assert session.finished()
@@ -106,11 +106,11 @@ def test_request_stop_ends_a_live_run():
     _, prior = make_wnoa_robot(lock_base=False)
     estimator = sliding_estimator()
     estimator.addModel(prior)
-    session = ros2.Session(estimator, session_options(-1.0), ros_options())
+    session = st.Session(session_options(-1.0), ros_options())
     ticked = threading.Event()
     session.setTickCallback(lambda t: ticked.set())
 
-    session.start()
+    session.start(estimator)
     assert ticked.wait(2.0)
     assert session.now() > 0.0
     session.requestStop()
@@ -122,13 +122,13 @@ def test_join_raises_an_error_from_the_tick_callback():
     _, prior = make_wnoa_robot(lock_base=False)
     estimator = sliding_estimator()
     estimator.addModel(prior)
-    session = ros2.Session(estimator, session_options(-1.0), ros_options())
+    session = st.Session(session_options(-1.0), ros_options())
 
     def fail(_):
         raise RuntimeError("tick failed")
 
     session.setTickCallback(fail)
-    session.start()
+    session.start(estimator)
     with pytest.raises(RuntimeError, match="tick failed"):
         session.join()
 
@@ -139,16 +139,15 @@ def test_unfed_queues_are_reported():
     estimator.addModel(prior)
     sensor = sensors.PoseSensor(prior)
     estimator.addSensor(sensor)
-    session = ros2.Session(estimator, session_options(-1.0), ros_options())
-    session.addMeasurementQueues(estimator.getMeasurementQueues())
-    assert len(session.unfedQueues()) == 1
+    session = st.Session(session_options(-1.0), ros_options())
+    assert len(session.unfedQueues(estimator)) == 1
 
     options = ros2.PoseSensorOptions()
     options.parent_frame = unique("field")
     options.child_frame = unique("sensor")
     options.topic = "/" + unique("tf")
     node = session.addPoseSensor(sensor, options)
-    assert session.unfedQueues() == []
+    assert session.unfedQueues(estimator) == []
     assert node.measurementsAdded() == 0
     assert node.options().child_frame == options.child_frame
 
@@ -158,7 +157,7 @@ def test_invalid_pose_sensor_options_raise():
     estimator = sliding_estimator()
     estimator.addModel(prior)
     sensor = sensors.PoseSensor(prior)
-    session = ros2.Session(estimator, session_options(-1.0), ros_options())
+    session = st.Session(session_options(-1.0), ros_options())
     with pytest.raises(ValueError):
         session.addPoseSensor(sensor, ros2.PoseSensorOptions())  # no frames
 
@@ -221,8 +220,7 @@ def test_estimates_a_robot_from_transforms(rclpy_node):
     estimator.addSensor(base_sensor)
     estimator.addSensor(tip_sensor)
 
-    session = ros2.Session(estimator, session_options(1.0), ros_options())
-    session.addMeasurementQueues(estimator.getMeasurementQueues())
+    session = st.Session(session_options(1.0), ros_options())
     topic, field = "/" + unique("tf"), unique("field")
     base_options = ros2.PoseSensorOptions()
     base_options.parent_frame = field
@@ -256,7 +254,7 @@ def test_estimates_a_robot_from_transforms(rclpy_node):
     broadcaster = threading.Thread(target=broadcast)
     broadcaster.start()
     try:
-        session.start()
+        session.start(estimator)
         session.join()
     finally:
         stop.set()
@@ -270,3 +268,38 @@ def test_estimates_a_robot_from_transforms(rclpy_node):
     tip = prior.query(snapshot.time, LENGTH, snapshot.values)
     assert np.linalg.norm(base.pose().translation() - T_base.translation()) < 1e-3
     assert np.linalg.norm(tip.pose().translation() - T_tip.translation()) < 1e-3
+
+
+def test_imu_and_tendon_nodes_feed_their_queues():
+    _, prior = make_wnoa_robot(lock_base=False)
+    estimator = sliding_estimator()
+    estimator.addModel(prior)
+    gyro = sensors.GyroSensor(prior)
+    accelerometer = sensors.AccelerometerSensor(prior, LENGTH)
+    imu = sensors.IMUSensor(prior, LENGTH)
+    tendon = actuators.KinematicTendon(prior, 0.01, 0.0, LENGTH, LENGTH / 2)
+    for sensor in (gyro, accelerometer, imu):
+        estimator.addSensor(sensor)
+    estimator.addActuator(tendon)
+    session = st.Session(session_options(-1.0), ros_options())
+    assert len(session.unfedQueues(estimator)) == 4
+
+    imu_options = ros2.ImuSensorOptions()
+    imu_options.topic = "/" + unique("imu")
+    imu_options.arclength = LENGTH
+    assert session.addGyro(gyro, imu_options).measurement() == ros2.ImuMeasurement.Gyro
+    assert session.addAccelerometer(accelerometer, imu_options).measurement() == ros2.ImuMeasurement.Accelerometer
+    node = session.addIMU(imu, imu_options)
+    assert isinstance(node, ros2.SensorNode)
+    assert node.measurement() == ros2.ImuMeasurement.IMU
+    assert node.options().topic == imu_options.topic
+
+    tendon_options = ros2.KinematicTendonOptions()
+    tendon_options.topic = "/" + unique("joint_states")
+    tendon_options.joint_name = "tendon"
+    tendon_node = session.addKinematicTendon(tendon, tendon_options)
+    assert tendon_node.options().joint_name == "tendon"
+    assert session.unfedQueues(estimator) == []
+
+    with pytest.raises(ValueError):
+        session.addKinematicTendon(tendon, ros2.KinematicTendonOptions())  # no joint name

@@ -28,10 +28,10 @@ namespace Spacetime::Types
     };
 
     /// The values of one input node: its input vector, the node's single component.
-    struct InputValues : public NodeValues
+    struct InputNodeValues : public NodeValuesBase
     {
         /// A zero input of `dim` entries.
-        explicit InputValues(unsigned int dim) : NodeValues()
+        explicit InputNodeValues(unsigned int dim) : NodeValuesBase()
         {
             values.resize(1); // one component, the input
             input(Eigen::VectorXd::Zero(dim));
@@ -62,13 +62,13 @@ namespace Spacetime::Types
         std::vector<std::pair<gtsam::Key, gtsam::Key>> interpolatedKeys() const override { return {{InputKeys::Input(), m_input_key}}; }
 
         /// The input read from `values`. @throws std::runtime_error if it is not dim() entries (gtsam's error if it is absent).
-        std::shared_ptr<NodeValues> getValuesBase(const gtsam::Values &values) const override
+        std::shared_ptr<NodeValuesBase> getValuesBase(const gtsam::Values &values) const override
         {
             const gtsam::Vector &input = values.at<gtsam::Vector>(m_input_key);
             if (input.size() != static_cast<Eigen::Index>(m_dim))
                 throw std::runtime_error("InputNode: the input " + gtsam::DefaultKeyFormatter(m_input_key) + " has " + std::to_string(input.size()) +
                                          " entries, not " + std::to_string(m_dim) + ".");
-            auto result = std::make_shared<InputValues>(m_dim);
+            auto result = std::make_shared<InputNodeValues>(m_dim);
             result->input(input);
             return result;
         }

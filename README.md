@@ -96,9 +96,10 @@ The sliding-window modes run GTSAM's fixed-lag smoothers. `EstimatorOptions::smo
 | Kind | Models |
 |---|---|
 | Priors (`spacetime/estimator/prior_models/`) | `WNOA` (white-noise-on-acceleration, dynamic), `WNOV` (white-noise-on-velocity), `WNOAQuasiStatic` (quasi-static, no velocity) |
-| Sensors (`spacetime/estimator/sensor_models/`) | `PoseSensor` (full or masked 6-DoF pose, e.g. electromagnetic trackers or motion capture), `GyroSensor`, `AccelerometerSensor`, `FBGSensor` (strain, e.g. fiber Bragg gratings) |
+| Sensors (`spacetime/estimator/sensor_models/`) | `PoseSensor` (full or masked 6-DoF pose, e.g. electromagnetic trackers or motion capture), `GyroSensor` (optional bias), `AccelerometerSensor`, `IMUSensor` (a gyroscope and an accelerometer sharing one frame), `FBGSensor` (strain, e.g. fiber Bragg gratings) |
 | Joints (`spacetime/estimator/joint_models/`) | `Joint` (rigid or spherical joint between two robots), `EndEffector` (a rigid body several robots attach to) |
-| Other | Actuators (`Types::ActuatorBase`), estimated biases (`bias_models/Bias.hpp`, e.g. an accelerometer bias or a sensor extrinsic), locked (known) states |
+| Actuators (`spacetime/estimator/actuation_models/`) | `KinematicTendon` (a single tendon: its measured length is compared with the straight-line path through its routing disks, evenly spaced or at given arclengths), or your own `Types::ActuatorBase` |
+| Other | Estimated biases (`bias_models/Bias.hpp`, e.g. an accelerometer bias or a sensor extrinsic), locked (known) states |
 
 The `WNOA` prior can build three kinds of factors, selected with `WNOA::PriorOptions::factor_type` (or `prior.wnoa.factor_type` in a config file):
 
@@ -209,6 +210,14 @@ if(spacetime_VISUALIZER)
 endif()
 ```
 
+and includes the whole library, as the targets it links provide it, with one package-level header (the C++ counterpart of Python's `import spacetime`):
+
+```cpp
+#include <spacetime>
+```
+
+Every folder under `spacetime/` also has an aggregation header named after it, to include only part of the library, e.g. `#include <spacetime/estimator/sensor_models/sensor_models>` or `#include <spacetime/estimator/prior_models/WNOA/WNOA>`.
+
 When configuring it, put spacetime on the search path. This isn't needed if spacetime was installed to a default prefix such as `/usr/local`:
 
 ```bash
@@ -229,7 +238,8 @@ Notes:
 
 ### Core concepts
 
-- **State and prior.** A robot is a grid *state*, for example `Priors::WNOA::ContinuumRobotState(length, nodes)`, plus the *prior* that extends it over time. The state has a fixed number of nodes along its arclength, and it also holds *locks*, which fix a variable to a known value (e.g. a fixed base pose). The prior adds a new row of nodes at every estimation step and the factors that link them. The state does not own its prior, so keep a reference to the prior while it is in use.
+- **State and prior.** A robot is a grid *state*, for example `Priors::WNOA::ContinuumRobotState(length, nodes)`, plus the *prior* that extends it over time. The state has a fixed number of nodes along its arclength, and it also holds *locks*, which fix a variable to a known value (e.g. a fixed base pose, `state->lock("pose", 0.0, Pose())`), or, without a value, to the initial guess the prior gives it when the node is first added (`state->lock("strain", 1.0)`). The prior adds a new row of nodes at every estimation step and the factors that link them. Each prior's `DefaultCovariances()` gives tuned covariances for its constructor (for WNOA, the experiment tuning of [1]); a prior constructed without covariances uses them, otherwise all of its covariances are passed. The state does not own its prior, so keep a reference to the prior while it is in use.
+- **Node values.** Each node type's values derive from `Types::NodeValuesBase`; a prior's own are `<Prior>::NodeValues` (e.g. `Priors::WNOA::NodeValues<Pose>`, also `Prior::ValuesType`). The backbone runs along each node's body x axis: a straight robot has strain `[0, 0, 0, 1, 0, 0]` (`Priors::straightStrain<Pose>()`), which is the default strain of the node values, and a prior warns when its nominal strain has another tangent axis.
 - **Models.** Everything the estimator builds factors from is a `Types::Model`: priors, sensors, actuators, joints and end effectors. Each `Estimator::estimate(time)` call runs two phases over the models, in the order they were added. First, `extendState` adds new variables (and optionally, prior factors). Then `getNewFactors` adds factors on variables that now exist. See `spacetime/estimator/types/Model.hpp`.
 - **Measurements.** A sensor measures a prior's state at any (time, arclength), and is given measurements through its measurement queue (`addMeasurement`). It returns an *inner factor* on the interpolated state, and the prior wraps that in the interpolation between its neighbouring nodes. 6-vectors use GTSAM's [rotational, translational] ordering.
 - **Results.** `Estimator::getCurrentValues()` returns the latest estimate. `getSnapshot()` and `waitForSnapshotNewerThan()` give thread-safe access to published results, including covariances when `compute_covariance` is set. A prior's interpolator queries its state at any (time, arclength).
@@ -239,21 +249,16 @@ Notes:
 This example estimates one robot with a fixed base, a WNOA prior, and a pose sensor at its tip, in batch mode, through the standalone interface. The demos in `examples/` are complete versions of it (start with `examples/JointDemo.hpp`).
 
 ```cpp
-#include <spacetime/estimator/Estimator.hpp>
-#include <spacetime/estimator/prior_models/WNOA.hpp>
-#include <spacetime/estimator/sensor_models/PoseSensor.hpp>
-#include <spacetime/interface/Interfaces.hpp>
+#include <spacetime> // the whole library: the estimator, priors, sensors, joints and Spacetime::Session
 
 using Pose = gtsam::Pose3;
 using Prior = Spacetime::Priors::WNOA::Prior<Pose>;
 
 // The robot: 0.4 m long with 5 nodes, its base fixed at the origin.
 auto state = std::make_shared<Prior::StateType>(0.4, 5);
-Prior::ValuesType reference;                                       // the prior mean
-reference.pose(Pose());
-reference.epsilon((Eigen::Matrix<double, 6, 1>() << 0, 0, 0, 1, 0, 0).finished()); // straight
-auto prior = std::make_shared<Prior>(state, reference, Prior::Matrix3N::Identity(), Prior::MatrixN::Identity(),
-                                     Prior::MatrixN::Identity(), Prior::MatrixN::Identity()); // Q0..Q3 weights
+Prior::ValuesType reference;                                       // the prior mean: identity pose, straight strain, at rest
+auto prior = std::make_shared<Prior>(state, reference);            // the tuned weights, Prior::DefaultCovariances()
+// or your own weights: std::make_shared<Prior>(state, reference, Q0, Q1, Q2, Q3, Q4)
 state->lock("pose", 0.0, Pose());
 
 // A pose sensor at the tip.
@@ -270,17 +275,16 @@ estimator.addPrior(prior);
 estimator.addSensor(sensor);
 
 // Run it offline over [0, 1] s, one node row every 1/30 s.
-Spacetime::Interface::SessionOptions session_options;
+Spacetime::SessionOptions session_options;
 session_options.end_time = 1.0;
 session_options.period = 1.0 / 30.0;
-Spacetime::Interfaces::Standalone::Session session(estimator, session_options);
-session.addMeasurementQueues(estimator.getMeasurementQueues());
-session.start();
+Spacetime::Session session(session_options);                         // the default (standalone) interface
+session.start(estimator);                                             // replays what is loaded into its sensors' queues
 session.join();                                                       // batch mode is solved here
 const gtsam::Values &estimate = estimator.getCurrentValues();
 ```
 
-Priors, estimator options and sensor data can also be loaded from JSON configuration files with `Utilities::ConfigLoader` (`spacetime/estimator/utilities/ConfigLoader.hpp`) and replayed from CSV files with `Standalone::FileDataloader`. The paper reproduction in `papers/` is set up this way.
+Priors, estimator options and sensor data can also be loaded from JSON configuration files with `Utilities::ConfigLoader` (`spacetime/estimator/utilities/ConfigLoader.hpp`) and replayed from CSV files with `Interface::Standalone::FileDataloader`. The paper reproduction in `papers/` is set up this way.
 
 ### Threading and interfaces
 
@@ -304,39 +308,44 @@ Interfaces are build-time options, each implementing the layer under `spacetime/
 | `InterfaceROS2` | `OFF` | Live (or rosbag) estimation on ROS2 nodes: an estimator node, one node per sensor, and a snapshot publisher for rviz2, all in one process. ROS executors own the threads. |
 | `InterfaceMujoco` | `OFF` | Live, through Mujoco. Not implemented yet. |
 
-**Selecting an interface.** You can swap interfaces by changing one line. Each interface declares a bundle `Spacetime::Interfaces::<Name>` that satisfies the `Spacetime::Interface::InterfaceType` concept (`spacetime/interface/InterfaceConcept.hpp`, which documents every hook). The bundle has a `name` and a `Session`. A `Session` is constructed from the estimator and `Interface::SessionOptions`, is given the models' measurement queues, and is run with `start()` / `requestStop()` / `join()`. Downstream code links `spacetime::interfaces`, includes every built interface at once, and selects one:
+**Selecting an interface.** Downstream code links `spacetime::interfaces`, includes the package-level `<spacetime>` header, and runs the estimator through `Spacetime::Session`. The interface is chosen at compile time by its template argument, one of `Spacetime::INTERFACE_STANDALONE` (the default), `Spacetime::INTERFACE_ROS2` and `Spacetime::INTERFACE_MUJOCO` (not implemented yet). Selecting an interface spacetime was built without is a compile error. A `Session` is constructed from `Spacetime::SessionOptions` and is run with `start(estimator)` / `requestStop()` / `join()` (`spacetime/interface/InterfaceConcept.hpp` documents every hook). `start(estimator)` reads the estimator's measurement queues itself, so every model and measurement added before it is covered. Measurement observers (e.g. a visualizer) can subscribe at any point and see each measurement exactly once:
 
 ```cpp
-#include <spacetime/interface/Interfaces.hpp>
-using SelectedInterface = Spacetime::Interfaces::Standalone; // the only interface-specific line
+#include <spacetime>
 
-Spacetime::Interface::SessionOptions options; // start_time, end_time, period, real_time
-SelectedInterface::Session session(estimator, options);
-session.addMeasurementQueues(estimator.getMeasurementQueues());
-session.start();
+Spacetime::SessionOptions options; // start_time, end_time, period, real_time
+Spacetime::Session session(options); // the default interface; Spacetime::Session<Spacetime::INTERFACE_ROS2> for ROS2
+session.start(estimator);
 session.join();
 ```
 
+`Spacetime::Session<I>` is that interface's own session (it derives from e.g. `Interface::Ros2::Session`), so interface-specific constructor arguments and methods are available too. In Python, `spacetime.Session` and `spacetime.SessionOptions` work the same way, and `spacetime.setInterface("ros2")` (`"default"`, `"ros2"` or `"mujoco"`) selects the interface at runtime.
+
 #### ROS2
 
-With `-DInterfaceROS2=ON` (build in a shell where a ROS2 distribution is sourced), `Spacetime::Ros2::Session` (`spacetime/interface/ros2/Interface.hpp`) runs the estimator on ROS2 nodes. It is provided as a library, with no launch files or ROS package: you write your own `main()`, which:
+With `-DInterfaceROS2=ON` (build in a shell where a ROS2 distribution is sourced), `Spacetime::Session<Spacetime::INTERFACE_ROS2>` (`spacetime/interface/ros2/Interface.hpp`) runs the estimator on ROS2 nodes. It is provided as a library, with no launch files or ROS package: you write your own `main()`, which:
 
-- calls `rclcpp::init`, builds the estimator, and creates `Spacetime::Ros2::Session(estimator, options, ros_options)`
+- calls `rclcpp::init`, builds the estimator, and creates `Spacetime::Session<Spacetime::INTERFACE_ROS2> session(options, ros_options)` (`ros_options` is an `Interface::Ros2::SessionRosOptions`)
 - calls `session.addPoseSensor(...)` once per pose sensor, given the sensor's measurement queue and its `PoseSensorOptions` (parent and child TF frames, offset, arclength, covariance and mask)
+- calls `session.addGyro(...)`, `session.addAccelerometer(...)` or `session.addIMU(...)` once per gyroscope, accelerometer or IMU sensor, given its queue and its `ImuSensorOptions` (topic, optional frame id, arclength, covariances and mask), and `session.addKinematicTendon(...)` once per `KinematicTendon`, given its queue and its `KinematicTendonOptions` (topic, joint name, variance, and the scale and offset from joint position to tendon length)
 - optionally adds a `Spacetime::Visualization::Rviz::SnapshotPublisherNode` with `session.addNode(...)`
-- then calls `start()` and `join()`
+- then calls `start(estimator)` and `join()`
 
 What runs:
 
 - **Estimator node.** It estimates on a timer of the ROS clock, so it follows `use_sim_time` and a rosbag's `/clock`.
 - **Pose sensor nodes.** Each reads `tf2_msgs/TFMessage` on `/tf`. Only the direct parent→child transform is matched; there is no chain lookup.
+- **IMU sensor nodes.** Each reads `sensor_msgs/Imu` and queues the angular velocity (gyroscope), the linear acceleration (accelerometer) or both (IMU), in the message's sensor frame. The mounting offset belongs to the estimator sensor's options. The covariance comes from the options, or from each message with `use_message_covariance`.
+- **Tendon nodes.** Each reads `sensor_msgs/JointState` and queues the position of its named joint, scaled and offset to a tendon length.
 - **Snapshot publisher (optional).** It publishes `geometry_msgs/PoseArray` on `spacetime/<robot>/poses`, a `visualization_msgs/MarkerArray` on `spacetime/markers` (backbone tubes, joints, covariance ellipsoids), and the node frames on `/tf`, for rviz2.
 
-`Spacetime::Ros2::waitForTransform()` helps to initialise a prior from TF before starting. The same API is available from Python (`spacetime.interface.ros2`, `spacetime.visualizer.rviz`).
+`Spacetime::Interface::Ros2::waitForTransform()` helps to initialise a prior from TF before starting. The same API is available from Python: `spacetime.setInterface("ros2")` makes `spacetime.Session` the ROS2 session, and the ROS-specific helpers are in `spacetime.interface.ros2` and `spacetime.visualizer.rviz`.
 
 ### The visualizer
 
 The default visualizer (`-DVisualizer=ON`) is a Qt/VTK 3D view running on its own low-priority thread. It draws the robot backbones, node frames, covariance ellipsoids, STL meshes, joints, end effectors and pose sensors. Around the view are a diagnostics overlay, a timeline (highlighting the sliding window, if any), a runtime bar (solve, graph construction and covariance timings), and an optional plot panel of the state with ±3σ bounds and ground truth, against time or arclength.
+
+Nothing draws a ground plane by default. To get one, add a `Spacetime::Visualization::Default::GroundPlane(normal, position, size)` (position is the plane's centre, size the side of the square), call `Visualizer.addGroundPlane(visualizer.GroundPlaneOptions(...))` in Python, or set `visualizer.ground_plane` in a config and read it with `ConfigLoader::loadGroundPlaneOptions()`.
 
 | Keys | Action |
 |---|---|
@@ -352,6 +361,7 @@ The default visualizer (`-DVisualizer=ON`) is a Qt/VTK 3D view running on its ow
 | H, Y | Toggle the panels, the timeline |
 | `[` / `]`, T, C, A, G | Per robot: spatial interpolation points, temporal interpolation, covariance, node frames, meshes |
 | M, J / K | Plot panel: switch mode, pick the node (or click a frame) |
+| P | Toggle the ground plane (if one was added) |
 | Q | Quit |
 
 ### Joining robots
@@ -374,7 +384,7 @@ estimator.addModel(platform);
 
 ### Python
 
-The `spacetime` Python package exposes the library: the priors (`priors.wnoa`, `priors.wnov`, `priors.wnoa_quasi_static`) and their grid states, sensors, joints and end effectors, the estimator, the standalone session and the visualizer, with all of their options. GTSAM objects (`gtsam.Pose3`, `gtsam.Values`, factors, noise models) are GTSAM's own Python types. So GTSAM's Python module must be installed, and it must be built from the same GTSAM as the C++ library (`GTSAM_BUILD_PYTHON=ON`). The bindings must be built with the pybind11 version GTSAM's wrapper uses, which is pinned in `python/requirements.txt`.
+The `spacetime` Python package exposes the library: the priors (`priors.wnoa`, `priors.wnov`, `priors.wnoa_quasi_static`, each with its `NodeValues`, grid state, `Prior` and `DefaultCovariances()`), sensors, actuators (`actuators.KinematicTendon`), joints and end effectors, the estimator, the standalone session and the visualizer, with all of their options. GTSAM objects (`gtsam.Pose3`, `gtsam.Values`, factors, noise models) are GTSAM's own Python types. So GTSAM's Python module must be installed, and it must be built from the same GTSAM as the C++ library (`GTSAM_BUILD_PYTHON=ON`). The bindings must be built with the pybind11 version GTSAM's wrapper uses, which is pinned in `python/requirements.txt`.
 
 ```bash
 pip install -r python/requirements.txt
@@ -388,7 +398,7 @@ Every C++ base class can be subclassed in Python:
 - `types.SensorBase` (override `getFactor`)
 - `types.ActuatorBase`
 - `types.StatefulModel` (e.g. a prior: override `extendState`)
-- `types.State`, `types.NodeBase` and `types.NodeValues`
+- `types.State`, `types.NodeBase` and `types.NodeValuesBase`
 - the built-in priors and sensors
 
 `types.Robot` is a plain list of models, for `Estimator.addRobot`. Python models build their factors from existing C++ factors, either GTSAM's (e.g. `gtsam.PriorFactorPose3`) or the library's (`sensors.PoseFactor`, `sensors.StrainFactor`, `sensors.GyroFactor`), so factor evaluation stays in C++:
@@ -403,7 +413,27 @@ class MyPoseSensor(types.SensorBase):
         return sensors.PoseFactor(noise, gtsam.Pose3(measurement.value), measurement.mask)
 ```
 
-As in C++, a robot is its grid state (e.g. `wnoa.ContinuumRobotState(length, nodes)`, which holds its locks) plus the prior that extends it, and sensors and joints are built on the prior. A state does not own its prior, so keep a reference to each prior while it is in use.
+As in C++, a robot is its grid state (e.g. `wnoa.ContinuumRobotState(length, nodes)`, which holds its locks) plus the prior that extends it, and sensors, actuators and joints are built on the prior. A state does not own its prior, so keep a reference to each prior while it is in use. `python/examples/kinematic_tendon.py` puts these together:
+
+```python
+import numpy as np
+from spacetime import *
+
+estimator = Estimator()
+state = priors.wnoa.ContinuumRobotState(length=1.0, spatial_dim=5)
+state.lock("pose", 0.0)    # without a value: held at its initial guess
+prior = priors.wnoa.Prior(state, priors.wnoa.NodeValues())  # the default covariances, wnoa.DefaultCovariances()
+estimator.addPrior(prior)
+
+tendon = actuators.KinematicTendon(prior, radius=0.01, angle=0.0, termination=1.0, discretization=0.2)
+# or through disks at chosen arclengths: actuators.KinematicTendon(prior, radius=0.01, angle=0.0, arclengths=[0.0, 0.3, 0.8, 1.0])
+tendon.addMeasurement(types.MeasurementBase(time=0.0, value=1.1, covariance=1.0))  # a tendon length
+estimator.addActuator(tendon)
+
+session = Session()
+session.start(estimator)
+session.join()
+```
 
 <br>
 
@@ -420,7 +450,7 @@ The C++ demos are built into `build/examples/` along with the standalone interfa
 
 In the visualizer, a joint is drawn as a black cylinder between the joined points, or as a black sphere when it has no offset. An end effector is drawn as a coordinate frame. `N` toggles the joints, `E` the end-effector frames, `B` the robot backbones, and `S` the sensors.
 
-The demos have Python ports in `python/examples/` (`robot_joining.py`, `robot_joining_parallel.py`, `stewart_gough.py`, `bucky_ball.py`, with the same options). `custom_sensor.py` shows a sensor and a model written in Python. `python/tests/test_demo_regression.py` checks that the Python ports reproduce the C++ demos' estimates.
+The demos have Python ports in `python/examples/` (`robot_joining.py`, `robot_joining_parallel.py`, `stewart_gough.py`, `bucky_ball.py`, with the same options). `custom_sensor.py` shows a sensor and a model written in Python, and `kinematic_tendon.py` a robot with a pose sensor and a tendon. `python/tests/test_demo_regression.py` checks that the Python ports reproduce the C++ demos' estimates.
 
 `papers/` holds a self-contained reproduction of each publication's results, with its own data, configurations, runner and scripts. These build against the installed spacetime package (see [Using spacetime from another CMake project](#using-spacetime-from-another-cmake-project)). At present, it contains the reproduction of [1] (`papers/a-stochastic-framework-for-continuous-time-estimation-of-continuum-robots/`, see its README). Small changes to the code base since publication cause small deviations from the published numbers, but the conclusions of each work are unchanged. Older versions of the project used in each work are available on request.
 
@@ -438,6 +468,20 @@ If you have developed a new sensor model that you think others would find useful
 - Docstrings, including at the top of the file a description of what the sensor is for, and any requirements on the data format, hardware, etc.
 - Unit tests in `tests/<SensorName>Tests.cpp`
 - \[Optional\] Information at the top of the file on how to cite you
+
+### Adding a new actuator
+
+An actuator derives from `Spacetime::Types::ActuatorBase` (`spacetime/estimator/types/ActuatorBase.hpp`) and overrides one method, `getFactors(measurement, input_key)`. Each measurement becomes an input variable (`input_key`), and `getFactors` returns its inner factors: each on the prior's interpolated keys at any of the actuator's arclengths, through the point-indexed keys (`Keys::Pose(i)` is the pose at `arclengths()[i]`), and on the input. One factor per point acts at each point independently; one factor on several points acts on all of them at once, as `KinematicTendon`'s tendon length does over its routing disks; the base interpolates them for you. In Python:
+
+```python
+class StrainActuator(types.ActuatorBase):
+    def getFactors(self, measurement, input_key):
+        noise = gtsam.noiseModel.Isotropic.Sigma(6, 1e-3)
+        return [gtsam.CustomFactor(noise, [wnoa.InterpolatedKeys.Strain(i), input_key], strain_minus_input)
+                for i in range(len(self.arclengths()))]
+```
+
+Put it in `spacetime/estimator/actuation_models/<ActuatorName>.hpp` (and add it to that folder's `actuation_models` aggregation header), with unit tests in `tests/<ActuatorName>Tests.cpp`, as for a sensor.
 
 ### Other contributions
 

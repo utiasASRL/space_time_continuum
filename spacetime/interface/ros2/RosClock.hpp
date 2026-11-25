@@ -17,7 +17,7 @@
 
 #include <spacetime/interface/Clock.hpp>
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     /**
      * @brief An Interface::Clock reading a ROS2 clock (typically a node's, so it follows
@@ -72,6 +72,6 @@ namespace Spacetime::Ros2
         /// Throws std::logic_error naming `caller` if not started.
         void requireStarted(const char *caller) const;
     };
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2
 
 #endif // SPACETIME_ROS2_ROSCLOCK_HPP

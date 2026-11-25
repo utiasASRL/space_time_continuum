@@ -75,6 +75,13 @@ namespace Spacetime::Types
         }
 
         /**
+         * @brief Called by the Estimator after phase 1 with every new variable's initial
+         *        guess, so that variables locked without a value take theirs (see
+         *        Types::State::resolveLocks). Does nothing by default.
+         */
+        virtual void resolveLocks(const gtsam::Values &new_values) { (void)new_values; }
+
+        /**
          * @brief The key groups whose joint posterior covariance the estimator extracts
          *        after each solve (see PosteriorCovariance::compute), restricted to the
          *        variables still present in `values`. A model knows its own variables, so it

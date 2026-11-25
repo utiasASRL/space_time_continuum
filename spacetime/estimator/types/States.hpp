@@ -23,9 +23,9 @@
 namespace Spacetime::Types
 {
     /// Type-erased values of one node; derived types give `values` its layout.
-    struct NodeValues
+    struct NodeValuesBase
     {
-        virtual ~NodeValues() = default;
+        virtual ~NodeValuesBase() = default;
         std::vector<Eigen::MatrixXd> values; ///< One matrix per node component.
         /// Fills every component with random entries.
         virtual void setRandom()
@@ -34,19 +34,19 @@ namespace Spacetime::Types
                 value.setRandom();
         };
         /// Copies `other`'s values.
-        virtual NodeValues &operator=(const NodeValues &other)
+        virtual NodeValuesBase &operator=(const NodeValuesBase &other)
         {
-            const auto *typed_other = dynamic_cast<const NodeValues *>(&other);
+            const auto *typed_other = dynamic_cast<const NodeValuesBase *>(&other);
             if (!typed_other)
-                throw std::runtime_error("NodeValues::operator= received incompatible node values type.");
+                throw std::runtime_error("NodeValuesBase::operator= received incompatible node values type.");
 
             this->values = typed_other->values;
             return *this;
         }
     };
-    /// NodeValues types that declare a static `dim` (the node's tangent dimension). @tparam T The candidate values type.
+    /// NodeValuesBase types that declare a static `dim` (the node's tangent dimension). @tparam T The candidate values type.
     template <typename T>
-    concept ValuesType = std::derived_from<T, NodeValues> && requires(T n) { T::dim; };
+    concept ValuesType = std::derived_from<T, NodeValuesBase> && requires(T n) { T::dim; };
 
     /// A registered variable: its key and C++ type.
     struct VariableInfo
@@ -140,7 +140,7 @@ namespace Spacetime::Types
         virtual std::vector<std::pair<gtsam::Key, gtsam::Key>> interpolatedKeys() const { return {}; }
 
         /// This node's values read from `values`, type-erased. nullptr if the node type does not support it.
-        virtual std::shared_ptr<NodeValues> getValuesBase(const gtsam::Values &values) const
+        virtual std::shared_ptr<NodeValuesBase> getValuesBase(const gtsam::Values &values) const
         {
             (void)values;
             return nullptr;
@@ -280,8 +280,30 @@ namespace Spacetime::Types
          */
         const gtsam::Values &lockedValues() const { return locked_values_; }
 
+        /**
+         * @brief Locks every variable that was locked without a value (e.g.
+         *        ContinuumRobotState::lock(type, s)) at its initial guess in `new_values`,
+         *        the values added by the estimator's phase 1. Called by the Estimator after
+         *        phase 1 (see Types::Model::resolveLocks).
+         */
+        void resolveLocks(const gtsam::Values &new_values)
+        {
+            std::vector<gtsam::Key> unresolved;
+            for (const gtsam::Key key : pending_initial_locks_)
+            {
+                if (locked_values_.exists(key))
+                    continue;
+                if (new_values.exists(key))
+                    locked_values_.insert(key, new_values.at(key));
+                else
+                    unresolved.push_back(key); // not given a guess yet
+            }
+            pending_initial_locks_ = std::move(unresolved);
+        }
+
     protected:
         gtsam::Values locked_values_; ///< Locked variables by key; filled by derived states (see lockedValues).
+        std::vector<gtsam::Key> pending_initial_locks_; ///< Locked at their initial guess once it exists (see resolveLocks).
     };
     /// Types derived from State. @tparam T The candidate state type.
     template <typename T>

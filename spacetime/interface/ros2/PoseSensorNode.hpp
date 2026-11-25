@@ -8,10 +8,7 @@
 #ifndef SPACETIME_ROS2_POSESENSORNODE_HPP
 #define SPACETIME_ROS2_POSESENSORNODE_HPP
 
-#include <atomic>
-#include <cstddef>
 #include <memory>
-#include <optional>
 #include <string>
 
 #include <Eigen/Core>
@@ -22,8 +19,9 @@
 
 #include <spacetime/estimator/types/MeasurementQueue.hpp>
 #include <spacetime/interface/ros2/RosClock.hpp>
+#include <spacetime/interface/ros2/SensorNode.hpp>
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     /// What a PoseSensorNode listens to, and the measurements it makes of it.
     struct PoseSensorOptions
@@ -51,12 +49,10 @@ namespace Spacetime::Ros2
      * @brief Subscribes to TF and, for each transform of its edge, queues a pose measurement
      *        of the robot (see PoseSensorOptions) into `queue`, typically a
      *        Sensors::PoseSensor's, stamped with the transform's stamp in estimation time
-     *        (see RosClock). Stamps before the clock starts, before its start time, or not
-     *        newer than the last one queued are dropped: MeasurementQueue drains in insertion
-     *        order. Only the direct edge is matched (no TF chain lookup); frame ids are
-     *        compared without a leading '/'.
+     *        (see RosClock). Stamps are dropped as SensorNode describes. Only the direct
+     *        edge is matched (no TF chain lookup); frame ids are compared without a leading '/'.
      */
-    class PoseSensorNode : public rclcpp::Node
+    class PoseSensorNode : public SensorNode
     {
     public:
         /**
@@ -76,31 +72,18 @@ namespace Spacetime::Ros2
 
         /// The options the node was built with.
         const PoseSensorOptions &options() const { return m_options; }
-        /// The queue the node feeds.
-        const Types::pMeasurementQueueType &queue() const { return mp_queue; }
-
-        /// TF messages received, matching or not. The counters are atomic: safe to read from any thread.
-        std::size_t messagesReceived() const { return m_received.load(); }
-        /// Measurements queued.
-        std::size_t measurementsAdded() const { return m_added.load(); }
-        /// Transforms of the edge dropped (see the class comment).
-        std::size_t measurementsDropped() const { return m_dropped.load(); }
 
     private:
-        Types::pMeasurementQueueType mp_queue;
-        std::shared_ptr<const RosClock> mp_clock;
         PoseSensorOptions m_options;
         std::string m_parent, m_child; // without a leading '/'
         rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr mp_subscription;
         rclcpp::Publisher<tf2_msgs::msg::TFMessage>::SharedPtr mp_body_publisher;
-        std::optional<double> m_last_time;
-        std::atomic<std::size_t> m_received{0}, m_added{0}, m_dropped{0};
 
         /// Subscription callback: forwards each transform of the edge to onTransform.
         void onTransforms(const tf2_msgs::msg::TFMessage &message);
         /// Queues (or drops) one transform of the edge, and broadcasts the body pose if configured.
         void onTransform(const geometry_msgs::msg::TransformStamped &transform);
     };
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2
 
 #endif // SPACETIME_ROS2_POSESENSORNODE_HPP

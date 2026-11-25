@@ -1,0 +1,24 @@
+// -*- C++ -*-
+/**
+ * @file default
+ * @brief Aggregation header of spacetime/visualizer/default/: the default (Qt/VTK) visualizer backend: its visualizer, visualizer thread, video writer and object views.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_DEFAULT
+#define SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_DEFAULT
+
+#if defined(VISUALIZER) && defined(SPACETIME_VISUALIZER_BACKEND_DEFAULT)
+
+#include <spacetime/visualizer/default/Visualizable.hpp>
+#include <spacetime/visualizer/default/Visualizer.hpp>
+#include <spacetime/visualizer/default/VisualizerThread.hpp>
+#include <spacetime/visualizer/default/VideoWriter.hpp>
+
+#include <spacetime/visualizer/default/objects/objects>
+
+#endif
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_DEFAULT

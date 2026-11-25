@@ -1,4 +1,7 @@
+#include <cmath>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -8,15 +11,18 @@
 #include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
 #include <gtsam/nonlinear/PriorFactor.h>
+#include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/nonlinear/factorTesting.h>
 #include <gtest/gtest.h>
 
 #include <spacetime/Types.hpp>
 #include <spacetime/estimator/Estimator.hpp>
+#include <spacetime/estimator/prior_models/MultiInterpolationFactor.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/types/ActuatorBase.hpp>
 #include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -25,7 +31,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using Keys = ValueType::InterpolatedKeys;
         using Vector6 = gtsam::Vector6;
 
@@ -34,8 +40,8 @@ namespace Spacetime
         {
         public:
             using Base = gtsam::NoiseModelFactorN<Vector6, gtsam::Vector>;
-            StrainInputFactor(const gtsam::SharedNoiseModel &noise_model, gtsam::Key input_key)
-                : Base(noise_model, Keys::Strain(), input_key) {}
+            StrainInputFactor(const gtsam::SharedNoiseModel &noise_model, gtsam::Key strain_key, gtsam::Key input_key)
+                : Base(noise_model, strain_key, input_key) {}
 
             gtsam::Vector evaluateError(const Vector6 &strain, const gtsam::Vector &input,
                                         gtsam::OptionalMatrixType H_strain, gtsam::OptionalMatrixType H_input) const override
@@ -48,16 +54,19 @@ namespace Spacetime
             }
         };
 
-        /// A toy actuator whose 6-dim input is the strain it imposes.
+        /// A toy actuator whose 6-dim input is the strain it imposes, at each of its arclengths independently.
         class StrainActuator : public Types::ActuatorBase
         {
         public:
             StrainActuator(pStatefulType prior, std::vector<double> arclengths, double sigma = 0.1)
                 : Types::ActuatorBase(std::move(prior), std::move(arclengths), 6), m_sigma(sigma) {}
 
-            gtsam::NoiseModelFactor::shared_ptr getFactor(const Types::MeasurementBase &, gtsam::Key input_key, double) const override
+            InnerFactors getFactors(const Types::MeasurementBase &, gtsam::Key input_key) const override
             {
-                return std::make_shared<StrainInputFactor>(gtsam::noiseModel::Isotropic::Sigma(6, m_sigma), input_key);
+                InnerFactors factors;
+                for (size_t i = 0; i < arclengths().size(); ++i)
+                    factors.push_back(std::make_shared<StrainInputFactor>(gtsam::noiseModel::Isotropic::Sigma(6, m_sigma), Keys::Strain(i), input_key));
+                return factors;
             }
 
         private:
@@ -117,7 +126,7 @@ namespace Spacetime
         struct Dimensionless : Types::ActuatorBase
         {
             using Types::ActuatorBase::ActuatorBase;
-            gtsam::NoiseModelFactor::shared_ptr getFactor(const Types::MeasurementBase &, gtsam::Key, double) const override { return nullptr; }
+            InnerFactors getFactors(const Types::MeasurementBase &, gtsam::Key) const override { return {}; }
         };
         EXPECT_THROW(Dimensionless(prior, {0.5}, 0), std::invalid_argument);
     }
@@ -229,7 +238,8 @@ namespace Spacetime
         ASSERT_TRUE(node00 && node01 && node10 && node11);
         auto interpolator = InterpolatorType(Eigen::Matrix<double, 6, 6>::Identity(), Eigen::Matrix<double, 6, 6>::Identity(),
                                              Eigen::Matrix<double, 6, 6>::Identity(), Eigen::Matrix<double, 6, 6>::Identity());
-        Priors::InterpolationFactor<InterpolatorType> factor(actuator.getFactor(*makeInput(0.05), input_key, 0.5),
+        const auto inner = Types::StatefulModel<>::singlePointFactor(actuator.getFactors(*makeInput(0.05), input_key).at(0));
+        Priors::InterpolationFactor<InterpolatorType> factor(inner,
                                                              interpolator, 0.05, 0.5, node00, node01, node10, node11, true);
         // The pass-through input is one of the factor's own keys.
         EXPECT_TRUE(hasKey(factor, input_key));
@@ -269,7 +279,7 @@ namespace Spacetime
         const gtsam::Key u0 = gtsam::Symbol('u', 0), u1 = gtsam::Symbol('u', 1);
 
         const auto at = [&](double time)
-        { return std::dynamic_pointer_cast<Types::InputValues>(actuator.query(time, 0.0, values)); };
+        { return std::dynamic_pointer_cast<Types::InputNodeValues>(actuator.query(time, 0.0, values)); };
         ASSERT_NE(at(0.02), nullptr);
         EXPECT_TRUE(at(0.02)->input().isApprox(kInput));
         EXPECT_TRUE(at(0.08)->input().isApprox(2.0 * kInput));
@@ -297,7 +307,7 @@ namespace Spacetime
             sensor->addMeasurement(makeInput(0.1 * k, 2.0 * kInput, 1e-6));
         }
 
-        Estimator estimator(Estimator::BATCH_LAG);
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         estimator.addPrior(prior);
         estimator.addModel(actuator);
         estimator.addSensor(sensor);
@@ -339,7 +349,7 @@ namespace Spacetime
             auto prior = makePrior(state);
             auto actuator = std::make_shared<StrainActuator>(prior, std::vector<double>{0.2, 0.5, 0.8}, 1e-2);
 
-            Estimator estimator(lag);
+            Estimator estimator(Testing::estimatorOptions(lag));
             estimator.addModel(prior);
             estimator.addModel(actuator);
             for (int k = 0; k <= 10; k++)
@@ -362,5 +372,165 @@ namespace Spacetime
             if (lag > 0) // the sliding window marginalized the oldest inputs
                 EXPECT_FALSE(values.exists(actuator->inputKeys().front().second));
         }
+    }
+
+    namespace
+    {
+        /// error = a - b, on two dynamic vectors.
+        class DifferenceFactor : public gtsam::NoiseModelFactorN<gtsam::Vector, gtsam::Vector>
+        {
+        public:
+            using Base = gtsam::NoiseModelFactorN<gtsam::Vector, gtsam::Vector>;
+            DifferenceFactor(gtsam::Key a, gtsam::Key b) : Base(gtsam::noiseModel::Isotropic::Sigma(6, 1.0), a, b) {}
+            gtsam::Vector evaluateError(const gtsam::Vector &a, const gtsam::Vector &b, gtsam::OptionalMatrixType H_a,
+                                        gtsam::OptionalMatrixType H_b) const override
+            {
+                if (H_a)
+                    *H_a = gtsam::Matrix::Identity(6, 6);
+                if (H_b)
+                    *H_b = -gtsam::Matrix::Identity(6, 6);
+                return a - b;
+            }
+        };
+
+        /// An actuator returning whatever factors it was given (keyed on its input through `make`).
+        class ScriptedActuator : public Types::ActuatorBase
+        {
+        public:
+            using Make = std::function<InnerFactors(gtsam::Key)>;
+            ScriptedActuator(pStatefulType stateful, std::vector<double> arclengths, unsigned int input_dim, Make make)
+                : Types::ActuatorBase(std::move(stateful), std::move(arclengths), input_dim), m_make(std::move(make)) {}
+
+            InnerFactors getFactors(const Types::MeasurementBase &, gtsam::Key input_key) const override { return m_make(input_key); }
+
+        private:
+            Make m_make;
+        };
+
+        /// Extends `prior` at 0 and 0.1, then returns `actuator`'s factors for one input at t = 0.05.
+        std::vector<std::shared_ptr<gtsam::NonlinearFactor>> factorsOfOneInput(Types::Model &prior, Types::ActuatorBase &actuator,
+                                                                               gtsam::Values &values)
+        {
+            KeyManager km;
+            extendPrior(prior, km, {0.0, 0.1}, values);
+            actuator.addMeasurement(makeInput(0.05));
+            gtsam::Values new_values;
+            actuator.extendState(km, 0.1, values, new_values);
+            values.insert(new_values);
+            return actuator.getNewFactors(0.1, new_values);
+        }
+    } // namespace
+
+    TEST(ActuatorBase, PointIndexedKeysRoundTrip)
+    {
+        const gtsam::Key key = Keys::Strain(3);
+        EXPECT_NE(key, Keys::Strain());
+        EXPECT_TRUE(Types::isPointKey(key));
+        EXPECT_FALSE(Types::isPointKey(Keys::Strain()));
+        EXPECT_FALSE(Types::isPointKey(gtsam::Symbol('u', 7)));
+        EXPECT_EQ(Types::pointOf(key), 3u);
+        EXPECT_EQ(Types::pointOf(Keys::Strain()), std::nullopt);
+        EXPECT_EQ(Types::placeholderOf(key), Keys::Strain());
+        EXPECT_EQ(Types::placeholderOf(gtsam::Symbol('u', 7)), gtsam::Symbol('u', 7));
+        EXPECT_EQ(Keys::keys(2), (gtsam::KeyVector{Keys::Pose(2), Keys::Strain(2), Keys::Velocity(2)}));
+        EXPECT_THROW(Types::InterpolatedKeyAt(key, 1), std::invalid_argument); // already indexed
+    }
+
+    // A point actuator's factor at one point is exactly the prior's outer factor of the same
+    // factor on the plain keys, as a sensor's would be.
+    TEST(ActuatorBase, ASinglePointFactorMatchesThePriorsOuterFactor)
+    {
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        StrainActuator actuator(prior, {0.5});
+        gtsam::Values values;
+        const auto factors = factorsOfOneInput(*prior, actuator, values);
+        ASSERT_EQ(factors.size(), 1u);
+
+        const gtsam::Key u0 = gtsam::Symbol('u', 0);
+        const auto expected = prior->getOuterFactor(
+            0.05, 0.5, std::make_shared<StrainInputFactor>(gtsam::noiseModel::Isotropic::Sigma(6, 0.1), Keys::Strain(), u0));
+        ASSERT_NE(expected, nullptr);
+        EXPECT_EQ(factors[0]->keys(), expected->keys());
+        EXPECT_NEAR(factors[0]->error(values), expected->error(values), 1e-12);
+        const auto A = std::dynamic_pointer_cast<gtsam::JacobianFactor>(factors[0]->linearize(values));
+        const auto B = std::dynamic_pointer_cast<gtsam::JacobianFactor>(expected->linearize(values));
+        ASSERT_TRUE(A && B);
+        EXPECT_TRUE(A->jacobian().first.isApprox(B->jacobian().first, 1e-12));
+    }
+
+    // A factor on several points is interpolated jointly by the grid prior: one factor on
+    // the union of their bordering nodes and the input.
+    TEST(ActuatorBase, AFactorSpanningPointsIsInterpolatedJointly)
+    {
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        // The strains at two points are equal (a factor on both, not on the input).
+        ScriptedActuator actuator(prior, {0.2, 0.8}, 6, [](gtsam::Key)
+                                  { return ScriptedActuator::InnerFactors{std::make_shared<gtsam::BetweenFactor<Vector6>>(
+                                        Keys::Strain(0), Keys::Strain(1), Vector6::Zero(), gtsam::noiseModel::Isotropic::Sigma(6, 0.1))}; });
+        gtsam::Values values;
+        const auto factors = factorsOfOneInput(*prior, actuator, values);
+        ASSERT_EQ(factors.size(), 1u);
+        EXPECT_NE(std::dynamic_pointer_cast<Priors::MultiInterpolationFactor<Priors::WNOA::Interpolator<Pose>>>(factors[0]), nullptr);
+        for (const gtsam::Key key : factors[0]->keys())
+            EXPECT_FALSE(Types::isPointKey(key));
+        EXPECT_TRUE(std::isfinite(factors[0]->error(values)));
+    }
+
+    // A factor on no point constrains the input alone and is added as is; null factors are ignored.
+    TEST(ActuatorBase, AFactorOnNoPointIsAddedUnwrapped)
+    {
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        gtsam::NoiseModelFactor::shared_ptr regularizer;
+        ScriptedActuator actuator(prior, {0.5}, 6, [&](gtsam::Key u)
+                                  {
+            regularizer = std::make_shared<gtsam::PriorFactor<gtsam::Vector>>(u, gtsam::Vector(Vector6::Zero()), gtsam::noiseModel::Isotropic::Sigma(6, 1.0));
+            return ScriptedActuator::InnerFactors{regularizer, nullptr}; });
+        gtsam::Values values;
+        const auto factors = factorsOfOneInput(*prior, actuator, values);
+        ASSERT_EQ(factors.size(), 1u);
+        EXPECT_EQ(factors[0], regularizer);
+    }
+
+    TEST(ActuatorBase, APointPastTheArclengthsThrows)
+    {
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        ScriptedActuator actuator(prior, {0.5}, 6, [](gtsam::Key u)
+                                  { return ScriptedActuator::InnerFactors{std::make_shared<StrainInputFactor>(gtsam::noiseModel::Isotropic::Sigma(6, 0.1), Keys::Strain(1), u)}; });
+        gtsam::Values values;
+        EXPECT_THROW(factorsOfOneInput(*prior, actuator, values), std::out_of_range);
+    }
+
+    // A model without joint interpolation (here another actuator's input state) resolves one
+    // point, but drops a factor spanning several.
+    TEST(ActuatorBase, AFactorSpanningPointsOfANonGridModelIsDropped)
+    {
+        std::shared_ptr<StateType> state;
+        auto prior = makePrior(state);
+        auto inner_actuator = std::make_shared<StrainActuator>(prior, std::vector<double>{0.5});
+        const gtsam::Key input0 = Types::InterpolatedKeyAt(Types::InputKeys::Input(), 0), input1 = Types::InterpolatedKeyAt(Types::InputKeys::Input(), 1);
+        ScriptedActuator one(inner_actuator, {0.0, 0.0}, 6, [&](gtsam::Key u)
+                             { return ScriptedActuator::InnerFactors{std::make_shared<DifferenceFactor>(input0, u)}; });
+        ScriptedActuator both(inner_actuator, {0.0, 0.0}, 6, [&](gtsam::Key)
+                              { return ScriptedActuator::InnerFactors{std::make_shared<DifferenceFactor>(input0, input1)}; });
+
+        KeyManager km;
+        gtsam::Values values;
+        inner_actuator->addMeasurement(makeInput(0.0));
+        inner_actuator->extendState(km, 0.0, values, values);
+        for (ScriptedActuator *actuator : {&one, &both})
+        {
+            actuator->addMeasurement(makeInput(0.0));
+            gtsam::Values new_values;
+            actuator->extendState(km, 0.0, values, new_values);
+            values.insert(new_values);
+        }
+        const auto resolved = one.getNewFactors(0.0, values);
+        ASSERT_EQ(resolved.size(), 1u);
+        EXPECT_TRUE(hasKey(*resolved[0], gtsam::Symbol('u', 0))); // the inner actuator's input
+        EXPECT_TRUE(both.getNewFactors(0.0, values).empty());
     }
 } // namespace Spacetime

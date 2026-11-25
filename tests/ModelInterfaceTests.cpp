@@ -14,6 +14,7 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/types/MeasurementQueue.hpp>
 #include <spacetime/estimator/types/Model.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -22,7 +23,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using Factors = std::vector<std::shared_ptr<gtsam::NonlinearFactor>>;
 
         /// A WNOA prior that logs its extendState calls into `log`.
@@ -127,7 +128,7 @@ namespace Spacetime
     TEST(ModelInterface, AnyModelCanLockVariables)
     {
         auto model = std::make_shared<ScalarModel>(true);
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addModel(model);
         estimator.estimate(0.0);
         EXPECT_DOUBLE_EQ(estimator.getCurrentValues().at<gtsam::Vector1>(model->key())(0), 5.0);
@@ -138,7 +139,7 @@ namespace Spacetime
     TEST(ModelInterface, AnyModelCanAskForCovarianceBlocks)
     {
         auto model = std::make_shared<ScalarModel>(false);
-        EstimatorOptions options;
+        EstimatorOptions options = Testing::estimatorOptions(0.0);
         options.compute_covariance = true;
         Estimator estimator(options);
         estimator.addModel(model);
@@ -159,7 +160,7 @@ namespace Spacetime
         auto prior = std::make_shared<RecordingPrior>(makeState(), log);
         auto second = std::make_shared<RecordingModel>("b", log);
 
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addModel(first);
         estimator.addModel(prior);
         estimator.addModel(second);
@@ -173,14 +174,14 @@ namespace Spacetime
     {
         std::vector<std::string> log;
         auto model = std::make_shared<RecordingModel>("a", log);
-        Estimator estimator(1.0);
+        Estimator estimator(Testing::estimatorOptions(1.0));
         estimator.addPrior(makePrior());
         estimator.addModel(model);
         estimator.estimate(0.0);
         estimator.estimate(0.1);
         EXPECT_EQ(model->cutoffs.size(), 2u);
 
-        Estimator batch(Estimator::BATCH_LAG);
+        Estimator batch(Testing::estimatorOptions(Estimator::BATCH_LAG));
         auto batch_model = std::make_shared<RecordingModel>("b", log);
         batch.addPrior(makePrior());
         batch.addModel(batch_model);

@@ -14,7 +14,7 @@
 #include <gtsam/geometry/Pose3.h>
 #include <rclcpp/node_options.hpp>
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     /**
      * @brief The latest pose of `child` in `parent` from TF (/tf and /tf_static), waiting up
@@ -26,6 +26,6 @@ namespace Spacetime::Ros2
      */
     std::optional<gtsam::Pose3> waitForTransform(const std::string &parent, const std::string &child, std::chrono::nanoseconds timeout,
                                                  const rclcpp::NodeOptions &node_options = rclcpp::NodeOptions());
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2
 
 #endif // SPACETIME_ROS2_WAITFORTRANSFORM_HPP

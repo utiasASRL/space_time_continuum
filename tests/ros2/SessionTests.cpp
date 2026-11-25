@@ -6,6 +6,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <Eigen/Core>
@@ -17,26 +18,30 @@
 #include <spacetime/Types.hpp>
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
+#include <spacetime/estimator/actuation_models/KinematicTendon.hpp>
+#include <spacetime/estimator/sensor_models/AccelerometerSensor.hpp>
+#include <spacetime/estimator/sensor_models/GyroSensor.hpp>
+#include <spacetime/estimator/sensor_models/IMUSensor.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
 #include <spacetime/estimator/utilities/RobotShape.hpp>
-#include <spacetime/interface/InterfaceConcept.hpp>
-#include <spacetime/interface/Interfaces.hpp>
 #include <spacetime/interface/ros2/Conversions.hpp>
-#include <spacetime/interface/ros2/Interface.hpp>
 #include "Ros2TestUtilities.hpp"
+#include "../TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
     using namespace Ros2Tests;
 
-    static_assert(Interface::InterfaceType<Interfaces::ROS2>);
+    static_assert(Interface::InterfaceType<Interface::Traits<INTERFACE_ROS2>>);
+    static_assert(std::is_base_of_v<Interface::Ros2::Session, Session<INTERFACE_ROS2>>);
+    static_assert(Session<INTERFACE_ROS2>::name == "ros2");
 
     namespace
     {
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using PriorT = Priors::WNOA::Prior<Pose>;
         using SensorT = Sensors::PoseSensor<ValueType>;
 
@@ -49,9 +54,11 @@ namespace Spacetime
             std::shared_ptr<PriorT> prior;
             Estimator estimator;
 
-            explicit EstimatorRig(double smoother_lag = 0.3) : estimator(options(smoother_lag))
+            /// @param base The reference base pose of the prior's unary factor (added to every row's base node).
+            explicit EstimatorRig(double smoother_lag = 0.3, const Pose &base = Pose()) : estimator(options(smoother_lag))
             {
                 ValueType reference;
+                reference.pose(base);
                 reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
                 prior = std::make_shared<PriorT>(state, reference);
                 estimator.addPrior(prior);
@@ -59,22 +66,21 @@ namespace Spacetime
 
             static EstimatorOptions options(double smoother_lag)
             {
-                EstimatorOptions options;
-                options.smootherLag = smoother_lag;
+                EstimatorOptions options = Testing::estimatorOptions(smoother_lag);
                 return options;
             }
         };
 
-        Ros2::SessionRosOptions rosOptions()
+        Interface::Ros2::SessionRosOptions rosOptions()
         {
-            Ros2::SessionRosOptions options;
+            Interface::Ros2::SessionRosOptions options;
             options.node_prefix = uniqueName("spacetime");
             return options;
         }
 
-        Interface::SessionOptions sessionOptions(double end_time, double period = 0.02)
+        SessionOptions sessionOptions(double end_time, double period = 0.02)
         {
-            Interface::SessionOptions options;
+            SessionOptions options;
             options.end_time = end_time;
             options.period = period;
             options.real_time = true;
@@ -85,56 +91,88 @@ namespace Spacetime
     TEST(Ros2Session, BatchEstimatorCannotStart)
     {
         EstimatorRig rig(Estimator::BATCH_LAG);
-        Ros2::Session session(rig.estimator, sessionOptions(-1.0), rosOptions());
-        EXPECT_THROW(session.start(), std::invalid_argument);
+        Session<INTERFACE_ROS2> session(sessionOptions(-1.0), rosOptions());
+        EXPECT_THROW(session.start(rig.estimator), std::invalid_argument);
     }
 
     TEST(Ros2Session, NonPositivePeriodCannotStart)
     {
         EstimatorRig rig;
-        Ros2::Session session(rig.estimator, sessionOptions(-1.0, 0.0), rosOptions());
-        EXPECT_THROW(session.start(), std::invalid_argument);
+        Session<INTERFACE_ROS2> session(sessionOptions(-1.0, 0.0), rosOptions());
+        EXPECT_THROW(session.start(rig.estimator), std::invalid_argument);
     }
 
     TEST(Ros2Session, EndTime)
     {
         EstimatorRig rig;
-        Ros2::Session live(rig.estimator, sessionOptions(-1.0), rosOptions());
+        Session<INTERFACE_ROS2> live(sessionOptions(-1.0), rosOptions());
         EXPECT_EQ(live.endTime(), std::numeric_limits<double>::infinity());
 
-        Ros2::Session bounded(rig.estimator, sessionOptions(3.0), rosOptions());
+        Session<INTERFACE_ROS2> bounded(sessionOptions(3.0), rosOptions());
         EXPECT_DOUBLE_EQ(bounded.endTime(), 3.0);
     }
 
     TEST(Ros2Session, ReportsQueuesNothingFeeds)
     {
         EstimatorRig rig;
-        Ros2::Session session(rig.estimator, sessionOptions(-1.0), rosOptions());
-        auto sensor = std::make_shared<SensorT>(Eigen::Matrix<double, 6, 6>::Identity(), rig.prior);
+        Session<INTERFACE_ROS2> session(sessionOptions(-1.0), rosOptions());
+        auto sensor = std::make_shared<SensorT>(rig.prior);
         rig.estimator.addSensor(sensor);
 
-        session.addMeasurementQueues(rig.estimator.getMeasurementQueues());
-        ASSERT_EQ(session.unfedQueues().size(), 1u);
-        EXPECT_EQ(session.unfedQueues().front(), sensor);
+        ASSERT_EQ(session.unfedQueues(rig.estimator).size(), 1u);
+        EXPECT_EQ(session.unfedQueues(rig.estimator).front(), sensor);
 
-        Ros2::PoseSensorOptions options;
+        Interface::Ros2::PoseSensorOptions options;
         options.parent_frame = uniqueName("field");
         options.child_frame = uniqueName("sensor");
         options.topic = "/" + uniqueName("tf");
         session.addPoseSensor(sensor, options);
-        EXPECT_TRUE(session.unfedQueues().empty());
+        EXPECT_TRUE(session.unfedQueues(rig.estimator).empty());
+    }
+
+    TEST(Ros2Session, ImuAndTendonNodesFeedTheirQueues)
+    {
+        EstimatorRig rig;
+        Session<INTERFACE_ROS2> session(sessionOptions(-1.0), rosOptions());
+        auto gyro = std::make_shared<Sensors::GyroSensor<ValueType>>(rig.prior);
+        auto accelerometer = std::make_shared<Sensors::AccelerometerSensor<PriorT>>(rig.prior, kLength);
+        auto imu = std::make_shared<Sensors::IMUSensor<PriorT>>(rig.prior, kLength);
+        auto tendon = std::make_shared<Actuators::KinematicTendon<PriorT>>(rig.prior, 0.01, 0.0, kLength, kLength / 2);
+        rig.estimator.addSensor(gyro);
+        rig.estimator.addSensor(accelerometer);
+        rig.estimator.addSensor(imu);
+        rig.estimator.addActuator(tendon);
+        ASSERT_EQ(session.unfedQueues(rig.estimator).size(), 4u);
+
+        Interface::Ros2::ImuSensorOptions imu_options;
+        imu_options.topic = "/" + uniqueName("imu");
+        imu_options.arclength = kLength;
+        EXPECT_EQ(session.addGyro(gyro, imu_options)->measurement(), Interface::Ros2::ImuMeasurement::Gyro);
+        EXPECT_EQ(session.addAccelerometer(accelerometer, imu_options)->measurement(), Interface::Ros2::ImuMeasurement::Accelerometer);
+        auto imu_node = session.addIMU(imu, imu_options);
+        EXPECT_EQ(imu_node->measurement(), Interface::Ros2::ImuMeasurement::IMU);
+        EXPECT_EQ(imu_node->queue(), std::static_pointer_cast<Types::MeasurementQueue>(imu));
+
+        Interface::Ros2::KinematicTendonOptions tendon_options;
+        tendon_options.topic = "/" + uniqueName("joint_states");
+        tendon_options.joint_name = "tendon";
+        EXPECT_EQ(session.addKinematicTendon(tendon, tendon_options)->queue(), std::static_pointer_cast<Types::MeasurementQueue>(tendon));
+        EXPECT_TRUE(session.unfedQueues(rig.estimator).empty());
+
+        tendon_options.joint_name.clear();
+        EXPECT_THROW(session.addKinematicTendon(tendon, tendon_options), std::invalid_argument);
     }
 
     TEST(Ros2Session, EstimatesEveryPeriodUntilTheEndTime)
     {
         EstimatorRig rig;
-        Ros2::Session session(rig.estimator, sessionOptions(0.2), rosOptions());
+        Session<INTERFACE_ROS2> session(sessionOptions(0.2), rosOptions());
         std::mutex mutex;
         std::vector<double> times;
         session.setTickCallback([&](double time)
                                 { std::lock_guard<std::mutex> lock(mutex); times.push_back(time); });
 
-        session.start();
+        session.start(rig.estimator);
         session.join();
 
         EXPECT_TRUE(session.finished());
@@ -153,12 +191,12 @@ namespace Spacetime
     TEST(Ros2Session, RequestStopEndsALiveRun)
     {
         EstimatorRig rig;
-        Ros2::Session session(rig.estimator, sessionOptions(-1.0), rosOptions());
+        Session<INTERFACE_ROS2> session(sessionOptions(-1.0), rosOptions());
         std::atomic<int> ticks{0};
         session.setTickCallback([&](double)
                                 { ticks++; });
 
-        session.start();
+        session.start(rig.estimator);
         const auto deadline = std::chrono::steady_clock::now() + 2s;
         while (ticks.load() < 2 && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(5ms);
@@ -174,11 +212,11 @@ namespace Spacetime
     TEST(Ros2Session, JoinRethrowsAnErrorRaisedWhileEstimating)
     {
         EstimatorRig rig;
-        Ros2::Session session(rig.estimator, sessionOptions(-1.0), rosOptions());
+        Session<INTERFACE_ROS2> session(sessionOptions(-1.0), rosOptions());
         session.setTickCallback([](double)
                                 { throw std::runtime_error("tick failed"); });
 
-        session.start();
+        session.start(rig.estimator);
         EXPECT_THROW(session.join(), std::runtime_error);
         EXPECT_TRUE(session.finished());
     }
@@ -187,18 +225,21 @@ namespace Spacetime
     // tip, as on the Aurora) is estimated from the sensor nodes' measurements.
     TEST(Ros2Session, EstimatesARobotFromTransforms)
     {
-        EstimatorRig rig;
+        // The true robot: straight, based at T_base. The prior's unary factor on the base takes
+        // T_base as its reference: one at the identity would bias the base (its tuned Q0 is tight).
+        const Pose T_base(gtsam::Rot3::Rx(0.3), gtsam::Point3(0.05, -0.02, 0.01));
+        const Pose T_tip = T_base * Pose(gtsam::Rot3(), gtsam::Point3(0, 0, kLength));
+        EstimatorRig rig(0.3, T_base);
         const Eigen::Matrix<double, 6, 6> covariance = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
-        auto base_sensor = std::make_shared<SensorT>(covariance, rig.prior);
-        auto tip_sensor = std::make_shared<SensorT>(covariance, rig.prior);
+        auto base_sensor = std::make_shared<SensorT>(rig.prior);
+        auto tip_sensor = std::make_shared<SensorT>(rig.prior);
         rig.estimator.addSensor(base_sensor);
         rig.estimator.addSensor(tip_sensor);
 
-        Ros2::Session session(rig.estimator, sessionOptions(1.0), rosOptions());
-        session.addMeasurementQueues(rig.estimator.getMeasurementQueues());
+        Session<INTERFACE_ROS2> session(sessionOptions(1.0), rosOptions());
 
         const std::string topic = "/" + uniqueName("tf"), field = uniqueName("field");
-        Ros2::PoseSensorOptions base_options;
+        Interface::Ros2::PoseSensorOptions base_options;
         base_options.parent_frame = field;
         base_options.child_frame = uniqueName("base_sensor");
         base_options.topic = topic;
@@ -209,17 +250,14 @@ namespace Spacetime
         R_bs << 0, -1, 0,
             -1, 0, 0,
             0, 0, -1;
-        Ros2::PoseSensorOptions tip_options = base_options;
+        Interface::Ros2::PoseSensorOptions tip_options = base_options;
         tip_options.child_frame = uniqueName("tip_sensor");
         tip_options.arclength = kLength;
         tip_options.offset = Pose(gtsam::Rot3(R_bs), gtsam::Point3::Zero());
         tip_options.mask << 1, 1, 0, 1, 1, 1;
         session.addPoseSensor(tip_sensor, tip_options);
-        EXPECT_TRUE(session.unfedQueues().empty());
+        EXPECT_TRUE(session.unfedQueues(rig.estimator).empty());
 
-        // The true robot: straight, based at T_base.
-        const Pose T_base(gtsam::Rot3::Rx(0.3), gtsam::Point3(0.05, -0.02, 0.01));
-        const Pose T_tip = T_base * Pose(gtsam::Rot3(), gtsam::Point3(0, 0, kLength));
         auto broadcaster = std::make_shared<rclcpp::Node>(uniqueName("tf_broadcaster"));
         auto publisher = broadcaster->create_publisher<tf2_msgs::msg::TFMessage>(topic, tf2_ros::DynamicListenerQoS());
         auto timer = broadcaster->create_wall_timer(20ms, [&]()
@@ -229,10 +267,10 @@ namespace Spacetime
             t.header.frame_id = field;
             t.header.stamp = broadcaster->now();
             t.child_frame_id = base_options.child_frame;
-            t.transform = Ros2::toTransformMsg(T_base * base_options.offset);
+            t.transform = Interface::Ros2::toTransformMsg(T_base * base_options.offset);
             message.transforms.push_back(t);
             t.child_frame_id = tip_options.child_frame;
-            t.transform = Ros2::toTransformMsg(T_tip * tip_options.offset);
+            t.transform = Interface::Ros2::toTransformMsg(T_tip * tip_options.offset);
             message.transforms.push_back(t);
             publisher->publish(message); });
         rclcpp::executors::SingleThreadedExecutor executor;
@@ -240,7 +278,7 @@ namespace Spacetime
         std::jthread broadcasting([&](std::stop_token stop)
                                   { while (!stop.stop_requested()) executor.spin_some(10ms); });
 
-        session.start();
+        session.start(rig.estimator);
         session.join();
         broadcasting.request_stop();
 

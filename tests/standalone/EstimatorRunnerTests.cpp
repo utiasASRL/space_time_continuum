@@ -20,15 +20,16 @@
 #include <spacetime/interface/standalone/EstimatorRunner.hpp>
 #include <spacetime/interface/standalone/FileDataloader.hpp>
 #include <spacetime/interface/standalone/ThreadedDataloader.hpp>
+#include "../TestEstimatorOptions.hpp"
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     namespace
     {
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
 
         std::shared_ptr<Priors::WNOA::Prior<Pose>> makePrior()
         {
@@ -113,7 +114,7 @@ namespace Spacetime::Standalone
         struct TwoSensorProblem
         {
             std::shared_ptr<Priors::WNOA::Prior<Pose>> prior = makePrior();
-            Estimator estimator = Estimator(/*smootherLag=*/0.35);
+            Estimator estimator{Testing::estimatorOptions(0.35)};
             std::shared_ptr<Sensors::PoseSensor<ValueType>> a, b;
 
             TwoSensorProblem()
@@ -135,7 +136,7 @@ namespace Spacetime::Standalone
     TEST(EstimatorRunner, EndTimeCutoffPreservesUndeliveredMeasurements)
     {
         auto prior = makePrior();
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
         auto sensor = addPoseSensor(estimator, prior);
         sensor->addMeasurement(makeMeasurement(0.0));
@@ -153,7 +154,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, RealTimeIsPacedByPeriod)
     {
-        Estimator estimator; // no priors/sensors: isolates the loop's own pacing
+        Estimator estimator(Testing::estimatorOptions(0.0)); // no priors/sensors: isolates the loop's own pacing
         const double period = 0.02, end_time = 0.2;
         EstimatorRunner runner(estimator, std::make_shared<WallClock>(), options(0.0, end_time, period));
         int calls = 0;
@@ -172,7 +173,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, RealTimeOverrunDoesNotBurstToCatchUp)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         const double period = 0.02, end_time = 0.3;
         EstimatorRunner runner(estimator, std::make_shared<WallClock>(), options(0.0, end_time, period));
         int calls = 0;
@@ -196,7 +197,7 @@ namespace Spacetime::Standalone
         auto state = std::make_shared<StateType>(1.0, 2);
         auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, ValueType());
 
-        Estimator estimator(/*smootherLag=*/100.0);
+        Estimator estimator(Testing::estimatorOptions(100.0));
         estimator.addPrior(prior);
         EstimatorRunner runner(estimator, std::make_shared<SteppedClock>(), options(0.0, 3.0, period));
 
@@ -215,8 +216,7 @@ namespace Spacetime::Standalone
     TEST(EstimatorRunner, QuasiStaticOfflineRowsAreAtTheUniqueMeasurementTimes)
     {
         auto prior = makePrior();
-        EstimatorOptions estimator_options;
-        estimator_options.smootherLag = Estimator::BATCH_LAG;
+        EstimatorOptions estimator_options = Testing::estimatorOptions(Estimator::BATCH_LAG);
         estimator_options.quasi_static = true;
         Estimator estimator(estimator_options);
         estimator.addPrior(prior);
@@ -259,7 +259,7 @@ namespace Spacetime::Standalone
         for (double t : {0.0, 0.2, 0.4})
             model->addMeasurement(makeMeasurement(t));
 
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(makePrior());
         estimator.addModel(model);
 
@@ -274,7 +274,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, EndTimeDefaultsToTheLatestDataloaderTime)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         auto queue = std::make_shared<Types::MeasurementQueue>();
         queue->addMeasurement(makeMeasurement(0.3));
         auto other = std::make_shared<Types::MeasurementQueue>();
@@ -297,7 +297,7 @@ namespace Spacetime::Standalone
     // A live source (no known last time) with a negative end time runs until stopped.
     TEST(EstimatorRunner, EndTimeIsUnboundedWithALiveDataloader)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EstimatorRunner runner(estimator, std::make_shared<WallClock>(), options(0.0, -1.0, 0.01));
         runner.addDataloader(std::make_shared<SilentDataloader>());
         runner.start();
@@ -343,7 +343,7 @@ namespace Spacetime::Standalone
     // Real time never waits on a dataloader, so a silent live source cannot stall it.
     TEST(EstimatorRunner, RealTimeDoesNotWaitForDataloaders)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EstimatorRunner runner(estimator, std::make_shared<WallClock>(), options(0.0, 0.05, 0.01));
         runner.addDataloader(std::make_shared<SilentDataloader>());
         int calls = 0;
@@ -358,7 +358,7 @@ namespace Spacetime::Standalone
     // ...whereas offline, synchronizing with it would block until stopped.
     TEST(EstimatorRunner, OfflineWaitsForDataloadersUntilStopped)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EstimatorRunner runner(estimator, std::make_shared<SteppedClock>(), options(0.0, 1.0, 0.1));
         runner.addDataloader(std::make_shared<SilentDataloader>());
         std::atomic<int> calls{0};
@@ -374,7 +374,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, SynchronizationCanBeOverridden)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         RunnerOptions opts = options(0.0, 0.2, 0.1);
         opts.synchronize = false;
         EstimatorRunner runner(estimator, std::make_shared<SteppedClock>(), opts);
@@ -388,7 +388,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, DataloaderExceptionIsRethrownByJoin)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EstimatorRunner runner(estimator, std::make_shared<SteppedClock>(), options(0.0, 1.0, 0.1));
         runner.addDataloader(std::make_shared<ThrowingDataloader>());
         runner.start();
@@ -397,7 +397,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, TickCallbackExceptionIsRethrownByJoin)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EstimatorRunner runner(estimator, std::make_shared<SteppedClock>(), options(0.0, 1.0, 0.1));
         runner.setTickCallback([](double)
                                { throw std::runtime_error("tick failure"); });
@@ -407,7 +407,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, EstimatesOnItsOwnThread)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EstimatorRunner runner(estimator, std::make_shared<SteppedClock>(), options(0.0, 0.0, 0.1));
         std::thread::id tick_thread;
         runner.setTickCallback([&](double)
@@ -419,7 +419,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, StartsTheClockAtTheStartTime)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         auto clock = std::make_shared<SteppedClock>();
         EstimatorRunner runner(estimator, clock, options(2.0, 2.2, 0.1));
         std::vector<double> clock_at_tick;
@@ -432,7 +432,7 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, DestructorStopsARunningRunner)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         const auto start = std::chrono::steady_clock::now();
         {
             EstimatorRunner runner(estimator, std::make_shared<WallClock>(), options(0.0, 60.0, 0.5));
@@ -443,10 +443,10 @@ namespace Spacetime::Standalone
 
     TEST(EstimatorRunner, CannotStartTwice)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EstimatorRunner runner(estimator, std::make_shared<SteppedClock>(), options(0.0, 0.0, 0.1));
         runner.start();
         EXPECT_THROW(runner.start(), std::logic_error);
         runner.join();
     }
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone

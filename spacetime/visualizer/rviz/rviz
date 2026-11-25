@@ -1,0 +1,20 @@
+// -*- C++ -*-
+/**
+ * @file rviz
+ * @brief Aggregation header of spacetime/visualizer/rviz/: publishing the estimator's snapshots for rviz2.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_RVIZ
+#define SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_RVIZ
+
+#if defined(SPACETIME_RVIZ) && SPACETIME_RVIZ
+
+#include <spacetime/visualizer/rviz/Markers.hpp>
+#include <spacetime/visualizer/rviz/SnapshotPublisherNode.hpp>
+
+#endif
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_RVIZ

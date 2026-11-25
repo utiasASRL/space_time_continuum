@@ -1,14 +1,23 @@
 #ifndef WNOV_INTERPOLATOR_HPP
 #define WNOV_INTERPOLATOR_HPP
 
+#include <memory>
+#include <optional>
+#include <stdexcept>
+
 #include <Eigen/Dense>
 #include <gtsam/base/Lie.h>
 #include <gtsam/base/Testable.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/prior_models/GridInterpolator.hpp>
 #include <spacetime/estimator/prior_models/WNOV/WNOVState.hpp>
 #include <spacetime/estimator/prior_models/WNOV/InterpolatedKeys.hpp>
+#include <spacetime/estimator/prior_models/WNOV/Covariances.hpp>
 
 namespace Spacetime::Priors::WNOV
 {
@@ -82,29 +91,51 @@ namespace Spacetime::Priors::WNOV
          * @param epsilon0 Nominal strain, the drift of the arclength random walk.
          */
         Interpolator(const MatrixN &Q_space, const MatrixN &Q_time, const TangentVector &epsilon0)
-            : m_Q_space(Q_space), m_Q_time(Q_time), m_epsilon0(epsilon0) {}
+            : m_Q(std::make_shared<const CovarianceProfiles<Pose>>(Q_space, Q_time)), m_epsilon0(epsilon0) {}
+
+        /**
+         * @param profiles The prior's PSDs resolved over its nodes (see WNOV::CovarianceOverrides):
+         *        a query in the cell [s_n, s_{n+1}] uses segment n's Q1 and node n's Q2.
+         * @param epsilon0 Nominal strain, the drift of the arclength random walk.
+         * @throws std::invalid_argument for a null `profiles`.
+         */
+        Interpolator(std::shared_ptr<const CovarianceProfiles<Pose>> profiles, const TangentVector &epsilon0)
+            : m_Q(std::move(profiles)), m_epsilon0(epsilon0)
+        {
+            if (!m_Q)
+                throw std::invalid_argument("WNOV::Interpolator: null covariance profiles.");
+        }
+
+        /// The random-walk PSDs this interpolator uses.
+        const CovarianceProfiles<Pose> &covarianceProfiles() const { return *m_Q; }
 
     private:
         friend Base;
 
         /// GridInterpolator hook: plan geodesic interpolation along one axis, with the
         /// Brownian-bridge conditional covariance.
-        AxisPlan<Pose> planInterpolate(bool space, double delta_i, double delta) const
+        AxisPlan<Pose> planInterpolate(bool space, double delta_i, double delta, std::optional<double> cell_arclength) const
         {
             AxisPlan<Pose> plan;
             plan.alpha = delta_i / delta;
-            plan.chart_cov = (space ? m_Q_space : m_Q_time) * (delta_i * (delta - delta_i) / delta);
+            plan.chart_cov = axisQ(space, cell_arclength) * (delta_i * (delta - delta_i) / delta);
             return plan;
         }
 
         /// GridInterpolator hook: plan extrapolation off the anchor alone, drifting by the
         /// nominal strain in arclength and holding the pose in time.
-        AxisPlan<Pose> planExtrapolate(bool space, double delta_i) const
+        AxisPlan<Pose> planExtrapolate(bool space, double delta_i, std::optional<double> cell_arclength) const
         {
             AxisPlan<Pose> plan;
             plan.gamma = space ? TangentVector(delta_i * m_epsilon0) : TangentVector(TangentVector::Zero());
-            plan.chart_cov = (space ? m_Q_space : m_Q_time) * delta_i;
+            plan.chart_cov = axisQ(space, cell_arclength) * delta_i;
             return plan;
+        }
+
+        /// The PSD of one axis in the cell at `cell_arclength` (the nominal one for nullopt).
+        const MatrixN &axisQ(bool space, std::optional<double> cell_arclength) const
+        {
+            return space ? m_Q->Q1.atArclength(cell_arclength) : m_Q->Q2.atArclength(cell_arclength);
         }
 
         /// GridInterpolator hook: geodesic interpolation between n0 and n1 along a planned axis.
@@ -158,7 +189,7 @@ namespace Spacetime::Priors::WNOV
             return 0.5 * (state_cov + state_cov.transpose());
         }
 
-        MatrixN m_Q_space, m_Q_time;
+        std::shared_ptr<const CovarianceProfiles<Pose>> m_Q; // shared, immutable
         TangentVector m_epsilon0;
     };
 } // namespace Spacetime::Priors::WNOV

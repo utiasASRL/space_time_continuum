@@ -13,6 +13,7 @@
 #include <spacetime/interface/standalone/Clock.hpp>
 #include <spacetime/interface/standalone/EstimatorRunner.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -21,7 +22,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
 
         constexpr unsigned int kSpatialDim = 3;
         constexpr double kPeriod = 0.1;
@@ -98,8 +99,7 @@ namespace Spacetime
         /// Sliding-window options using the incremental (iSAM2) smoother, relinearizing every variable at every update.
         EstimatorOptions incrementalOptions(double lag)
         {
-            EstimatorOptions options;
-            options.smootherLag = lag;
+            EstimatorOptions options = Testing::estimatorOptions(lag);
             options.smoother = EstimatorOptions::Smoother::Incremental;
             options.isam2_params.relinearizeThreshold = 0.0;
             options.isam2_params.relinearizeSkip = 1;
@@ -127,24 +127,23 @@ namespace Spacetime
 
     TEST(BatchEstimator, LagSelectsTheMode)
     {
-        EXPECT_TRUE(Estimator(Estimator::BATCH_LAG).isBatch());
-        EXPECT_FALSE(Estimator(0.0).isBatch());
-        EXPECT_FALSE(Estimator(0.5).isBatch());
+        EXPECT_TRUE(Estimator(Testing::estimatorOptions(Estimator::BATCH_LAG)).isBatch());
+        EXPECT_FALSE(Estimator(Testing::estimatorOptions(0.0)).isBatch());
+        EXPECT_FALSE(Estimator(Testing::estimatorOptions(0.5)).isBatch());
 
-        EstimatorOptions options;
-        options.smootherLag = -1.0;
+        EstimatorOptions options = Testing::estimatorOptions(-1.0);
         EXPECT_TRUE(Estimator(options).isBatch());
     }
 
     TEST(BatchEstimator, OtherNegativeLagsAreRejected)
     {
-        EXPECT_THROW(Estimator(-0.5), std::invalid_argument);
-        EXPECT_THROW(Estimator(-2.0), std::invalid_argument);
+        EXPECT_THROW(Estimator(Testing::estimatorOptions(-0.5)), std::invalid_argument);
+        EXPECT_THROW(Estimator(Testing::estimatorOptions(-2.0)), std::invalid_argument);
     }
 
     TEST(BatchEstimator, EstimateOnlyAccumulatesUntilFinalize)
     {
-        Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem(estimator);
         runTicks(estimator, 4);
 
@@ -166,7 +165,7 @@ namespace Spacetime
 
     TEST(BatchEstimator, NothingIsMarginalized)
     {
-        Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem(estimator, 20);
         runTicks(estimator, 20); // 2 s, far longer than any window
         estimator.finalize();
@@ -181,12 +180,12 @@ namespace Spacetime
     {
         // A window longer than the whole run marginalizes nothing, so after its last update
         // it has solved the same problem as the batch.
-        Estimator batch(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator batch(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem batch_problem(batch);
         runTicks(batch, 4);
         batch.finalize();
 
-        Estimator window(100.0, gaussNewtonParams());
+        Estimator window(Testing::estimatorOptions(100.0, gaussNewtonParams()));
         Problem window_problem(window);
         runTicks(window, 4);
 
@@ -205,7 +204,7 @@ namespace Spacetime
 
     TEST(BatchEstimator, FinalizeIsANoOpInSlidingWindowMode)
     {
-        Estimator estimator(0.25);
+        Estimator estimator(Testing::estimatorOptions(0.25));
         Problem problem(estimator);
         runTicks(estimator, 4);
         const gtsam::Values before = estimator.getCurrentValues();
@@ -216,7 +215,7 @@ namespace Spacetime
 
     TEST(BatchEstimator, SecondFinalizeWithoutNewDataIsANoOp)
     {
-        Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem(estimator);
         runTicks(estimator, 4);
         estimator.finalize();
@@ -229,12 +228,12 @@ namespace Spacetime
 
     TEST(BatchEstimator, EstimatorRunnerSolvesTheBatchOnceItEnds)
     {
-        Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem(estimator);
-        Standalone::RunnerOptions options;
+        Interface::Standalone::RunnerOptions options;
         options.end_time = 0.3 + 1e-9;
         options.period = kPeriod;
-        Standalone::EstimatorRunner runner(estimator, std::make_shared<Standalone::SteppedClock>(), options);
+        Interface::Standalone::EstimatorRunner runner(estimator, std::make_shared<Interface::Standalone::SteppedClock>(), options);
         runner.run();
 
         EXPECT_EQ(problem.state->estimation_nodes.size(), 4u * kSpatialDim);
@@ -243,12 +242,12 @@ namespace Spacetime
 
     TEST(BatchEstimator, EstimatorRunnerRejectsRealTimeBatch)
     {
-        Estimator estimator(Estimator::BATCH_LAG);
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         Problem problem(estimator);
-        Standalone::RunnerOptions options;
+        Interface::Standalone::RunnerOptions options;
         options.end_time = 0.3;
         options.period = kPeriod;
-        Standalone::EstimatorRunner runner(estimator, std::make_shared<Standalone::WallClock>(), options);
+        Interface::Standalone::EstimatorRunner runner(estimator, std::make_shared<Interface::Standalone::WallClock>(), options);
         EXPECT_THROW(runner.start(), std::invalid_argument);
         EXPECT_TRUE(problem.state->estimation_nodes.empty());
     }
@@ -259,11 +258,11 @@ namespace Spacetime
         colamd.orderingType = gtsam::Ordering::COLAMD;
         metis.orderingType = gtsam::Ordering::METIS;
 
-        Estimator a(Estimator::BATCH_LAG, colamd);
+        Estimator a(Testing::estimatorOptions(Estimator::BATCH_LAG, colamd));
         Problem problem_a(a);
         runTicks(a, 4);
         a.finalize();
-        Estimator b(Estimator::BATCH_LAG, metis);
+        Estimator b(Testing::estimatorOptions(Estimator::BATCH_LAG, metis));
         Problem problem_b(b);
         runTicks(b, 4);
         b.finalize();
@@ -275,7 +274,7 @@ namespace Spacetime
 
     TEST(BatchEstimator, SmootherStateIsAvailableAfterFinalize)
     {
-        Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem(estimator);
         runTicks(estimator, 4);
         EXPECT_TRUE(estimator.timestamps().empty());
@@ -292,7 +291,7 @@ namespace Spacetime
 
     TEST(BatchEstimator, FinalizeReportsTheSolve)
     {
-        Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem(estimator);
         runTicks(estimator, 4);
         estimator.finalize();
@@ -309,18 +308,18 @@ namespace Spacetime
         // Any decrease is relatively smaller than 1: the solve stops after one iteration.
         gtsam::LevenbergMarquardtParams loose = gaussNewtonParams();
         loose.relativeErrorTol = 1.0;
-        Estimator a(Estimator::BATCH_LAG, loose);
+        Estimator a(Testing::estimatorOptions(Estimator::BATCH_LAG, loose));
         Problem problem_a(a);
         runTicks(a, 4);
         a.finalize();
         EXPECT_EQ(a.getBatchResult().iterations, 1u);
 
         // Damped steps only approach the minimum: tight tolerances need several of them.
-        gtsam::LevenbergMarquardtParams tight = EstimatorOptions::defaultLMParams();
+        gtsam::LevenbergMarquardtParams tight = Testing::lmParams();
         tight.lambdaInitial = 1.0;
         tight.relativeErrorTol = 1e-14;
         tight.absoluteErrorTol = 1e-14;
-        Estimator b(Estimator::BATCH_LAG, tight);
+        Estimator b(Testing::estimatorOptions(Estimator::BATCH_LAG, tight));
         Problem problem_b(b);
         runTicks(b, 4);
         b.finalize();
@@ -334,7 +333,7 @@ namespace Spacetime
         EXPECT_DOUBLE_EQ(incremental.smootherLag(), 0.5);
         EXPECT_NE(dynamic_cast<const gtsam::IncrementalFixedLagSmoother *>(&incremental.smoother()), nullptr);
 
-        Estimator window(0.5);
+        Estimator window(Testing::estimatorOptions(0.5));
         EXPECT_NE(dynamic_cast<const gtsam::BatchFixedLagSmoother *>(&window.smoother()), nullptr);
     }
 
@@ -348,7 +347,7 @@ namespace Spacetime
         runTicks(incremental, 4);
         incremental.finalize();
 
-        Estimator batch(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator batch(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem_b(batch);
         runTicks(batch, 4);
         batch.finalize();
@@ -361,7 +360,7 @@ namespace Spacetime
         Problem problem_a(incremental);
         runTicks(incremental, 4);
 
-        Estimator window(100.0, gaussNewtonParams());
+        Estimator window(Testing::estimatorOptions(100.0, gaussNewtonParams()));
         Problem problem_b(window);
         runTicks(window, 4);
 
@@ -392,7 +391,7 @@ namespace Spacetime
         Problem problem_a(incremental, 6);
         runTicks(incremental, 6);
 
-        Estimator window(1.5 * kPeriod, gaussNewtonParams());
+        Estimator window(Testing::estimatorOptions(1.5 * kPeriod, gaussNewtonParams()));
         Problem problem_b(window, 6);
         runTicks(window, 6);
 
@@ -425,7 +424,7 @@ namespace Spacetime
 
     TEST(SensorMarginalizationHook, SlidingWindowPassesTheWindowStartBeforeEachUpdate)
     {
-        Estimator estimator(1.5 * kPeriod, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(1.5 * kPeriod, gaussNewtonParams()));
         Problem problem(estimator);
         auto spy = addSpy(estimator, problem);
         runTicks(estimator, 4);
@@ -444,7 +443,7 @@ namespace Spacetime
 
     TEST(SensorMarginalizationHook, BatchPassesAnInfiniteCutoffOnceAfterTheSolve)
     {
-        Estimator estimator(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem problem(estimator);
         auto spy = addSpy(estimator, problem);
         runTicks(estimator, 4);
@@ -493,7 +492,7 @@ namespace Spacetime
 
     TEST(EstimatorRuntime, SnapshotRecordsTheEstimationMode)
     {
-        Estimator batch(Estimator::BATCH_LAG, gaussNewtonParams());
+        Estimator batch(Testing::estimatorOptions(Estimator::BATCH_LAG, gaussNewtonParams()));
         Problem batch_problem(batch);
         runTicks(batch, 3);
         batch.finalize();
@@ -530,8 +529,7 @@ namespace Spacetime
 
     TEST(EstimatorRuntime, BatchTimesConstructionPerStepAndASingleSolve)
     {
-        EstimatorOptions options;
-        options.smootherLag = Estimator::BATCH_LAG;
+        EstimatorOptions options = Testing::estimatorOptions(Estimator::BATCH_LAG);
         options.lm_params = gaussNewtonParams();
         options.compute_covariance = true;
         Estimator estimator(options);

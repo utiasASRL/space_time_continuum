@@ -29,7 +29,7 @@
 #include <Eigen/Geometry>
 #include <gtsam/geometry/Pose3.h>
 
-#include <spacetime/estimator/sensor_models/FBGSensor.hpp>
+#include <spacetime>
 
 #include "JointDemo.hpp"
 

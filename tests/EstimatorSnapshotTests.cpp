@@ -10,13 +10,14 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/EstimatorSnapshot.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
     using Pose = gtsam::Pose3;
     using NodeType = Priors::WNOA::Node<Pose>;
     using StateType = Types::ContinuumRobotState<NodeType>;
-    using ValueType = Priors::WNOA::Values<Pose>;
+    using ValueType = Priors::WNOA::NodeValues<Pose>;
 
     namespace
     {
@@ -30,14 +31,14 @@ namespace Spacetime
 
     TEST(EstimatorSnapshot, NullBeforeFirstEstimate)
     {
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         EXPECT_EQ(estimator.getSnapshot(), nullptr);
     }
 
     TEST(EstimatorSnapshot, PublishedAfterEstimateMatchesRequestedTime)
     {
         auto prior = makePrior(2);
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
 
         estimator.estimate(1.5);
@@ -51,7 +52,7 @@ namespace Spacetime
     TEST(EstimatorSnapshot, SubsequentEstimateReplacesThePublishedSnapshot)
     {
         auto prior = makePrior(2);
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
 
         estimator.estimate(0.0);
@@ -76,7 +77,7 @@ namespace Spacetime
     TEST(EstimatorSnapshot, ConcurrentEstimateAndGetSnapshotNeverObservesATornSnapshot)
     {
         auto prior = makePrior(2);
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
 
         std::atomic<bool> stop{false};
@@ -112,7 +113,7 @@ namespace Spacetime
 
     TEST(EstimatorSnapshot, WaitForSnapshotNewerThanTimesOutWithoutAnEstimate)
     {
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         const auto start = std::chrono::steady_clock::now();
         EXPECT_EQ(estimator.waitForSnapshotNewerThan(0.0, std::chrono::milliseconds(20)), nullptr);
         EXPECT_GE(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(15));
@@ -121,7 +122,7 @@ namespace Spacetime
     TEST(EstimatorSnapshot, WaitForSnapshotNewerThanReturnsAnAlreadyNewerSnapshot)
     {
         auto prior = makePrior(2);
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
         estimator.estimate(1.0);
 
@@ -135,7 +136,7 @@ namespace Spacetime
     TEST(EstimatorSnapshot, WaitForSnapshotNewerThanWakesOnPublish)
     {
         auto prior = makePrior(2);
-        Estimator estimator = Estimator();
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
         estimator.estimate(0.0);
 

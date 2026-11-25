@@ -10,7 +10,7 @@
 
 #include "Interface.hpp"
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     namespace
     {
@@ -27,9 +27,9 @@ namespace Spacetime::Ros2
         }
     } // namespace
 
-    Session::Session(Estimator &estimator, const Interface::SessionOptions &options, const SessionRosOptions &ros_options)
+    Session::Session(const Interface::SessionOptions &options, const SessionRosOptions &ros_options)
         : m_ros_options(ros_options),
-          mp_estimator_node(std::make_shared<EstimatorNode>(estimator, options, ros_options.node_options, ros_options.node_prefix + "_estimator"))
+          mp_estimator_node(std::make_shared<EstimatorNode>(options, ros_options.node_options, ros_options.node_prefix + "_estimator"))
     {
         mp_estimator_node->setDoneCallback([this](std::exception_ptr error)
                                            {
@@ -51,18 +51,30 @@ namespace Spacetime::Ros2
             m_node_thread.join();
     }
 
-    void Session::addMeasurementQueues(const std::vector<Types::pMeasurementQueueType> &queues)
-    {
-        m_queues.insert(m_queues.end(), queues.begin(), queues.end());
-    }
-
     std::shared_ptr<PoseSensorNode> Session::addPoseSensor(Types::pMeasurementQueueType queue, const PoseSensorOptions &options)
     {
-        auto node = std::make_shared<PoseSensorNode>(std::move(queue), mp_estimator_node->clock(), options, m_ros_options.node_options);
-        m_sensor_nodes.push_back(node);
-        if (m_started)
-            m_node_executor.add_node(node);
-        return node;
+        return addSensorNode(std::make_shared<PoseSensorNode>(std::move(queue), mp_estimator_node->clock(), options, m_ros_options.node_options));
+    }
+
+    std::shared_ptr<ImuSensorNode> Session::addGyro(Types::pMeasurementQueueType queue, const ImuSensorOptions &options)
+    {
+        return addSensorNode(std::make_shared<ImuSensorNode>(std::move(queue), mp_estimator_node->clock(), ImuMeasurement::Gyro, options, m_ros_options.node_options));
+    }
+
+    std::shared_ptr<ImuSensorNode> Session::addAccelerometer(Types::pMeasurementQueueType queue, const ImuSensorOptions &options)
+    {
+        return addSensorNode(std::make_shared<ImuSensorNode>(std::move(queue), mp_estimator_node->clock(), ImuMeasurement::Accelerometer, options,
+                                                             m_ros_options.node_options));
+    }
+
+    std::shared_ptr<ImuSensorNode> Session::addIMU(Types::pMeasurementQueueType queue, const ImuSensorOptions &options)
+    {
+        return addSensorNode(std::make_shared<ImuSensorNode>(std::move(queue), mp_estimator_node->clock(), ImuMeasurement::IMU, options, m_ros_options.node_options));
+    }
+
+    std::shared_ptr<KinematicTendonNode> Session::addKinematicTendon(Types::pMeasurementQueueType queue, const KinematicTendonOptions &options)
+    {
+        return addSensorNode(std::make_shared<KinematicTendonNode>(std::move(queue), mp_estimator_node->clock(), options, m_ros_options.node_options));
     }
 
     void Session::addNode(const rclcpp::Node::SharedPtr &node)
@@ -74,23 +86,23 @@ namespace Spacetime::Ros2
             m_node_executor.add_node(node);
     }
 
-    std::vector<Types::pMeasurementQueueType> Session::unfedQueues() const
+    std::vector<Types::pMeasurementQueueType> Session::unfedQueues(const Estimator &estimator) const
     {
         std::vector<Types::pMeasurementQueueType> unfed;
-        for (const auto &queue : m_queues)
+        for (const auto &queue : estimator.getMeasurementQueues())
             if (std::none_of(m_sensor_nodes.begin(), m_sensor_nodes.end(), [&](const auto &node)
                              { return node->queue() == queue; }))
                 unfed.push_back(queue);
         return unfed;
     }
 
-    void Session::start()
+    void Session::start(Estimator &estimator)
     {
         if (m_started)
             throw std::logic_error("Ros2::Session::start: already started.");
-        mp_estimator_node->start(); // validates the options
+        mp_estimator_node->start(estimator); // validates the options
         m_started = true;
-        if (const auto unfed = unfedQueues(); !unfed.empty())
+        if (const auto unfed = unfedQueues(estimator); !unfed.empty())
             RCLCPP_WARN(mp_estimator_node->get_logger(), "%zu measurement queue(s) have no node feeding them: their models get no measurements.", unfed.size());
 
         m_estimator_executor.add_node(mp_estimator_node);
@@ -134,4 +146,4 @@ namespace Spacetime::Ros2
         if (m_error)
             std::rethrow_exception(m_error);
     }
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2

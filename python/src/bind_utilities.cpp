@@ -34,7 +34,10 @@ namespace SpacetimePython
             .def("loadExtraction", &ConfigLoader::loadExtraction, "Extraction from \"estimator.extraction\" (default Final); raises ValueError on another value.")
 #ifdef SPACETIME_PYTHON_VISUALIZER // VisualizerOptions is bound by the visualizer module
             .def("loadVisualizerOptions", &ConfigLoader::loadVisualizerOptions,
-                 "visualizer.VisualizerOptions from the \"visualizer\" section: \"cameras\" ({position, look_at, up}) and \"robot.radius\".")
+                 "visualizer.VisualizerOptions from the \"visualizer\" section: \"cameras\" ({position, look_at, up}), \"robot.radius\" and \"robot.spatial_interpolation_points\".")
+            .def("loadGroundPlaneOptions", &ConfigLoader::loadGroundPlaneOptions,
+                 "visualizer.GroundPlaneOptions from \"visualizer.ground_plane\" ({normal, position, size}), or None if there is none; "
+                 "raises ValueError on a malformed entry.")
 #endif
             .def("loadPriorType", &ConfigLoader::loadPriorType,
                  "\"prior.type\": \"wnoa\", \"wnov\" or \"wnoa_quasi_static\" (\"wnoa\", with a warning, if missing); raises ValueError on another.")
@@ -53,6 +56,9 @@ namespace SpacetimePython
                 "defaulting to `time_period` and identities.")
             .def("loadWNOAPriorOptions", &ConfigLoader::loadWNOAPriorOptions,
                  "wnoa.PriorOptions from \"prior.wnoa\" (missing entries keep the defaults); raises ValueError on an unknown factor_type.")
+            .def("loadWNOACovarianceOverrides", &ConfigLoader::loadWNOACovarianceOverrides<Pose>,
+                 "wnoa.CovarianceOverrides from \"prior.wnoa.overrides\": per Q (\"Q1\"..\"Q4\"), entries {\"arclength\", \"diagonal\"} "
+                 "(scaled by weights.prior_factor) or {\"arclength\", \"scale\"}; none if absent. Raises ValueError on a malformed entry.")
             .def(
                 "loadWNOVPrior",
                 [](const ConfigLoader &self, double time_period)
@@ -65,6 +71,8 @@ namespace SpacetimePython
                 },
                 py::arg("time_period") = 0.1, "(T0, epsilon0, time_period, Q0, Q1, Q2): wnov.Prior's arguments and the node spacing in time.")
             .def("loadWNOVPriorOptions", &ConfigLoader::loadWNOVPriorOptions, "wnov.PriorOptions from \"prior.wnov\" (missing entries keep the defaults).")
+            .def("loadWNOVCovarianceOverrides", &ConfigLoader::loadWNOVCovarianceOverrides<Pose>,
+                 "wnov.CovarianceOverrides from \"prior.wnov.overrides\" (\"Q1\", \"Q2\"; format as loadWNOACovarianceOverrides).")
             .def(
                 "loadWNOAQuasiStaticPrior",
                 [](const ConfigLoader &self, double time_period)
@@ -79,6 +87,8 @@ namespace SpacetimePython
                 "(base_start_point, time_period, Q0, Q2): wnoa_quasi_static.Prior's arguments (from the prior.wnoa section) and the node spacing in time.")
             .def("loadWNOAQuasiStaticPriorOptions", &ConfigLoader::loadWNOAQuasiStaticPriorOptions,
                  "wnoa_quasi_static.PriorOptions from \"prior.wnoa\" (missing entries keep the defaults).")
+            .def("loadWNOAQuasiStaticCovarianceOverrides", &ConfigLoader::loadWNOAQuasiStaticCovarianceOverrides<Pose>,
+                 "wnoa_quasi_static.CovarianceOverrides from \"prior.wnoa.overrides.Q2\" (format as loadWNOACovarianceOverrides).")
             .def("loadLocks", &ConfigLoader::loadLocks<WnoaNode>, py::arg("state"),
                  "Applies the locks of \"demo_data.locks\" to `state` (see ContinuumRobotState.lock); raises ValueError on a malformed "
                  "entry or a variable the node type lacks.")

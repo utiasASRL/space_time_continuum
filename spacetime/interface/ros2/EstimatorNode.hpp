@@ -20,7 +20,7 @@
 #include <spacetime/interface/InterfaceConcept.hpp>
 #include <spacetime/interface/ros2/RosClock.hpp>
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     /**
      * @brief Estimates every `period` of its ROS clock (so it follows use_sim_time, and
@@ -38,8 +38,8 @@ namespace Spacetime::Ros2
         /// Called once, on the estimating thread, when the run ends: with the error that ended it, if any.
         using DoneCallback = std::function<void(std::exception_ptr)>;
 
-        /// `estimator` must outlive the node. The clock is created here, unstarted, at `options.start_time`.
-        EstimatorNode(Estimator &estimator, const Interface::SessionOptions &options,
+        /// The clock is created here, unstarted, at `options.start_time`.
+        explicit EstimatorNode(const Interface::SessionOptions &options,
                       const rclcpp::NodeOptions &node_options = rclcpp::NodeOptions(), const std::string &name = "spacetime_estimator");
 
         /// The estimation clock, on this node's ROS clock.
@@ -51,17 +51,16 @@ namespace Spacetime::Ros2
         void setDoneCallback(DoneCallback callback) { m_done_callback = std::move(callback); }
 
         /**
-         * @brief Starts the timer.
+         * @brief Starts the timer, estimating with `estimator`, which must outlive the node.
          * @throws std::invalid_argument for a non-positive period or a batch-mode estimator
          *         (see Interface::EstimatorDriver).
          */
-        void start();
+        void start(Estimator &estimator);
 
         /// The end time, in seconds: +inf if negative in the options.
         double endTime() const;
 
     private:
-        Estimator &m_estimator;
         Interface::SessionOptions m_options;
         std::shared_ptr<RosClock> mp_clock;
         std::unique_ptr<Interface::EstimatorDriver> mp_driver;
@@ -76,6 +75,6 @@ namespace Spacetime::Ros2
         /// Ends the run: cancels the timer and calls the done callback with `error`.
         void finish(std::exception_ptr error);
     };
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2
 
 #endif // SPACETIME_ROS2_ESTIMATORNODE_HPP

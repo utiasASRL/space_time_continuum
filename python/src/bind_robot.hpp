@@ -15,10 +15,13 @@
 
 namespace SpacetimePython
 {
-    /// `target.lock(type, s, value, time)` with value a gtsam.Pose3 or a 6-vector, the two variable types of the nodes.
+    /// `target.lock(type, s, value, time)` with value a gtsam.Pose3 or a 6-vector, the two variable types of the nodes,
+    /// or None for the initial guess (see ContinuumRobotState::lockInitial).
     template <typename Target>
     void lockByType(Target &target, const std::string &type, double s, const py::object &value, std::optional<double> time)
     {
+        if (value.is_none())
+            return target.lockInitial(type, s, time);
         if (py::isinstance<gtsam::Pose3>(value))
             return target.template lock<gtsam::Pose3>(type, s, value.cast<gtsam::Pose3>(), time);
         Vector6 vector;
@@ -46,9 +49,11 @@ namespace SpacetimePython
             .def_readonly("length", &StateT::length, "Robot length [m].")
             .def_readonly("spatial_dim", &StateT::spatial_dim, "Nodes per row.")
             .def_readonly("arclengths", &StateT::arclengths, "Node arclengths [m], ascending.")
-            .def("lock", &lockByType<StateT>, py::arg("type"), py::arg("s"), py::arg("value"), py::arg("t") = std::nullopt,
+            .def("lock", &lockByType<StateT>, py::arg("type"), py::arg("s"), py::arg("value") = py::none(), py::arg("t") = std::nullopt,
                  "Locks variable `type` (e.g. \"pose\", \"strain\") of the node at arclength `s` (-1 for the tip) to `value` "
                  "(a gtsam.Pose3 or a 6-vector), in the row at time `t` or in every row; applies to rows created after the call. "
+                 "Without a value, it is locked at the initial guess the prior gives it when the node is first added (e.g. the "
+                 "boundary NodeValues' strain, straight by default). "
                  "Raises ValueError for an `s` that is not a node arclength, an unknown variable or a value of the wrong type.")
             .def("snapshotEstimationNodes", &StateT::snapshotEstimationNodes,
                  "A copy of every node, by flat index; safe to call while the estimator thread adds rows.")

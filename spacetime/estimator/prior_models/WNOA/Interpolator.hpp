@@ -16,12 +16,17 @@
 #include <gtsam/inference/Key.h>
 #include <gtsam/nonlinear/Values.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/PosteriorCovariance.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
 #include <spacetime/estimator/prior_models/WNOA/InterpolatedKeys.hpp>
 #include <spacetime/estimator/prior_models/WNOA/functions.hpp>
+#include <spacetime/estimator/prior_models/WNOA/Covariances.hpp>
 #include <spacetime/estimator/prior_models/GridInterpolator.hpp>
 
 namespace Spacetime::Priors::WNOA
@@ -201,7 +206,23 @@ namespace Spacetime::Priors::WNOA
          * @param Q4 Velocity arclength-derivative (random-walk-in-space) process PSD.
          */
         Interpolator(const MatrixN &Q1, const MatrixN &Q2, const MatrixN &Q3, const MatrixN &Q4)
-            : m_Q1(Q1), m_Q2(Q2), m_Q3(Q3), m_Q4(Q4) {}
+            : m_Q(std::make_shared<const CovarianceProfiles<Pose>>(Q1, Q2, Q3, Q4)) {}
+
+        /**
+         * @brief Construct a WNOA interpolator from PSDs resolved over the state's nodes
+         *        (see WNOA::CovarianceOverrides): a query in the cell [s_n, s_{n+1}] uses
+         *        node n's Q1/Q3 and segment n's Q2/Q4.
+         * @throws std::invalid_argument for a null `profiles`.
+         */
+        explicit Interpolator(std::shared_ptr<const CovarianceProfiles<Pose>> profiles)
+            : m_Q(std::move(profiles))
+        {
+            if (!m_Q)
+                throw std::invalid_argument("WNOA::Interpolator: null covariance profiles.");
+        }
+
+        /// The process PSDs this interpolator uses.
+        const CovarianceProfiles<Pose> &covarianceProfiles() const { return *m_Q; }
 
         /**
          * @brief Compute the (Lambda, Psi) interpolation matrices for the time axis.
@@ -210,11 +231,12 @@ namespace Spacetime::Priors::WNOA
          * @param t_k Left border time.
          * @param t_kp1 Right border time.
          * @param t_tau Query time, t_k <= t_tau <= t_kp1.
+         * @param arclength The cell's arclength (see CovarianceProfile::atArclength); nullopt uses the nominal Q1/Q3.
          * @return (Lambda, Psi), weighting the left and right nodes' local chart coordinates.
          */
-        LambdaPsi getLambdaPsiTime(double t_k, double t_kp1, double t_tau) const
+        LambdaPsi getLambdaPsiTime(double t_k, double t_kp1, double t_tau, std::optional<double> arclength = std::nullopt) const
         {
-            return getLambdaPsi(t_tau - t_k, t_kp1 - t_k, m_Q1, m_Q3, /*space=*/false);
+            return getLambdaPsi(t_tau - t_k, t_kp1 - t_k, m_Q->Q1.atArclength(arclength), m_Q->Q3.atArclength(arclength), /*space=*/false);
         }
 
         /**
@@ -224,10 +246,11 @@ namespace Spacetime::Priors::WNOA
          * @param s_n Left border arclength.
          * @param s_np1 Right border arclength.
          * @param s_tau Query arclength, s_n <= s_tau <= s_np1.
+         * @param arclength The cell's arclength (see CovarianceProfile::atArclength); nullopt uses the nominal Q2/Q4.
          */
-        LambdaPsi getLambdaPsiSpace(double s_n, double s_np1, double s_tau) const
+        LambdaPsi getLambdaPsiSpace(double s_n, double s_np1, double s_tau, std::optional<double> arclength = std::nullopt) const
         {
-            return getLambdaPsi(s_tau - s_n, s_np1 - s_n, m_Q2, m_Q4, /*space=*/true);
+            return getLambdaPsi(s_tau - s_n, s_np1 - s_n, m_Q->Q2.atArclength(arclength), m_Q->Q4.atArclength(arclength), /*space=*/true);
         }
 
         /**
@@ -239,9 +262,9 @@ namespace Spacetime::Priors::WNOA
          * building block independent of the node values. The state-frame conditional
          * covariance of an actual query comes from interpolateTime's conditionalCov.
          */
-        MatrixNode computeConditionalCovTime(double t_k, double t_kp1, double t_tau) const
+        MatrixNode computeConditionalCovTime(double t_k, double t_kp1, double t_tau, std::optional<double> arclength = std::nullopt) const
         {
-            return computeConditionalCov(t_tau - t_k, t_kp1 - t_k, m_Q1, m_Q3, /*space=*/false);
+            return computeConditionalCov(t_tau - t_k, t_kp1 - t_k, m_Q->Q1.atArclength(arclength), m_Q->Q3.atArclength(arclength), /*space=*/false);
         }
 
         /**
@@ -252,9 +275,9 @@ namespace Spacetime::Priors::WNOA
          * CHART-frame, like computeConditionalCovTime; the state-frame value of an
          * actual query comes from interpolateSpace's conditionalCov.
          */
-        MatrixNode computeConditionalCovSpace(double s_n, double s_np1, double s_tau) const
+        MatrixNode computeConditionalCovSpace(double s_n, double s_np1, double s_tau, std::optional<double> arclength = std::nullopt) const
         {
-            return computeConditionalCov(s_tau - s_n, s_np1 - s_n, m_Q2, m_Q4, /*space=*/true);
+            return computeConditionalCov(s_tau - s_n, s_np1 - s_n, m_Q->Q2.atArclength(arclength), m_Q->Q4.atArclength(arclength), /*space=*/true);
         }
 
         /**
@@ -290,23 +313,24 @@ namespace Spacetime::Priors::WNOA
          *
          * CHART-frame (the anchor's local coordinates); the state-frame value of an
          * actual query comes from extrapolateTime's conditionalCov.
+         * @param arclength The cell's arclength (see CovarianceProfile::atArclength); nullopt uses the nominal Q1/Q3.
          * @throws std::runtime_error for delta < -TOLERANCE.
          */
-        MatrixNode computeConditionalCovExtrapTime(double delta) const
+        MatrixNode computeConditionalCovExtrapTime(double delta, std::optional<double> arclength = std::nullopt) const
         {
             Base::throwIfBackwards(delta);
             if (delta < TOLERANCE)
                 return MatrixNode::Zero();
-            return Functions<Pose>::getQt(delta, m_Q1, m_Q3);
+            return Functions<Pose>::getQt(delta, m_Q->Q1.atArclength(arclength), m_Q->Q3.atArclength(arclength));
         }
 
-        /// Arclength counterpart of computeConditionalCovExtrapTime (Q_s(delta)); also chart-frame.
-        MatrixNode computeConditionalCovExtrapSpace(double delta) const
+        /// Arclength counterpart of computeConditionalCovExtrapTime (Q_s(delta), with Q2/Q4); also chart-frame.
+        MatrixNode computeConditionalCovExtrapSpace(double delta, std::optional<double> arclength = std::nullopt) const
         {
             Base::throwIfBackwards(delta);
             if (delta < TOLERANCE)
                 return MatrixNode::Zero();
-            return Functions<Pose>::getQs(delta, m_Q2, m_Q4);
+            return Functions<Pose>::getQs(delta, m_Q->Q2.atArclength(arclength), m_Q->Q4.atArclength(arclength));
         }
 
     private:
@@ -315,12 +339,13 @@ namespace Spacetime::Priors::WNOA
         /**
          * @brief GridInterpolator hook: plan interpolating along one axis between two
          *        bordering nodes -- the WNOA (Lambda, Psi) pair of that axis (Q1/Q3 for
-         *        time, Q2/Q4 for arclength) and its chart-frame Pcheck.
+         *        time, Q2/Q4 for arclength, those of the cell at `cell_arclength`) and its
+         *        chart-frame Pcheck.
          */
-        AxisPlan<Pose> planInterpolate(bool space, double delta_i, double delta) const
+        AxisPlan<Pose> planInterpolate(bool space, double delta_i, double delta, std::optional<double> cell_arclength) const
         {
-            const MatrixN &Qa = space ? m_Q2 : m_Q1;
-            const MatrixN &Qb = space ? m_Q4 : m_Q3;
+            const MatrixN &Qa = space ? m_Q->Q2.atArclength(cell_arclength) : m_Q->Q1.atArclength(cell_arclength);
+            const MatrixN &Qb = space ? m_Q->Q4.atArclength(cell_arclength) : m_Q->Q3.atArclength(cell_arclength);
             AxisPlan<Pose> plan;
             std::tie(plan.lambda, plan.psi) = getLambdaPsi(delta_i, delta, Qa, Qb, space);
             plan.chart_cov = conditionalCovFromPsi(delta_i, delta, plan.psi, Qa, Qb, space);
@@ -329,11 +354,12 @@ namespace Spacetime::Priors::WNOA
 
         /// GridInterpolator hook: plan extrapolating along one axis off the anchor node
         /// alone, (Lambda, Psi) = (Phi(delta_i), 0) with Pcheck the full Q(delta_i).
-        AxisPlan<Pose> planExtrapolate(bool space, double delta_i) const
+        AxisPlan<Pose> planExtrapolate(bool space, double delta_i, std::optional<double> cell_arclength) const
         {
             AxisPlan<Pose> plan;
             plan.lambda = space ? getLambdaExtrapSpace(delta_i) : getLambdaExtrapTime(delta_i);
-            plan.chart_cov = space ? computeConditionalCovExtrapSpace(delta_i) : computeConditionalCovExtrapTime(delta_i);
+            plan.chart_cov = space ? computeConditionalCovExtrapSpace(delta_i, cell_arclength)
+                                   : computeConditionalCovExtrapTime(delta_i, cell_arclength);
             return plan;
         }
 
@@ -648,7 +674,7 @@ namespace Spacetime::Priors::WNOA
             node.varpi(jac * gamma.template block<dim, 1>(2 * dim, 0));
         }
 
-        MatrixN m_Q1, m_Q2, m_Q3, m_Q4;
+        std::shared_ptr<const CovarianceProfiles<Pose>> m_Q; // shared, immutable: copies (one per interpolation factor) stay cheap
     };
 } // namespace Spacetime::Priors::WNOA
 

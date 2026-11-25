@@ -6,7 +6,7 @@
 
 #include <spacetime/interface/standalone/ThreadedDataloader.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     namespace
     {
@@ -73,4 +73,4 @@ namespace Spacetime::Standalone
         EXPECT_LT(secondsSince(start), 1.0);
         stopper.join();
     }
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone

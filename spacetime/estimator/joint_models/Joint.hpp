@@ -17,33 +17,14 @@
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/slam/BetweenFactor.h>
 
+#include <spacetime/estimator/joint_models/JointBase.hpp>
 #include <spacetime/estimator/joint_models/JointFactors.hpp>
 #include <spacetime/estimator/prior_models/TwoSidedInterpolationFactor.hpp>
 #include <spacetime/estimator/types/ContinuumRobot.hpp>
-#include <spacetime/estimator/types/Model.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 
 namespace Spacetime::Joints
 {
-    /// What a Joint holds together.
-    enum class JointType
-    {
-        Rigid,    ///< The full pose, and the full body twist.
-        Spherical ///< The point's position, and its linear velocity; rotations are free.
-    };
-
-    /// Optional settings of a Joint.
-    struct JointOptions
-    {
-        JointType type = JointType::Rigid; ///< What the joint holds together.
-        /// T_AB: joint point B relative to joint point A, in A's frame (T_B = T_A T_AB).
-        /// A spherical joint only uses its translation.
-        gtsam::Pose3 offset;
-        /// Standard deviation of the velocity residual (rad/s and m/s, per component) on top
-        /// of the propagated offset uncertainty, which vanishes at zero velocity. Must be > 0.
-        double velocity_sigma_floor = 1e-3;
-    };
-
     /**
      * @class Joint
      * @brief A model joining two robots: the point at arclength s_a on robot A and the one
@@ -61,7 +42,7 @@ namespace Spacetime::Joints
      * @tparam PriorB Robot B's prior type.
      */
     template <typename PriorA, typename PriorB>
-    class Joint : public Types::Model
+    class Joint : public JointBase
     {
     public:
         using InterpolatorA = typename PriorA::InterpolatorType;                             ///< Robot A's interpolator.
@@ -152,18 +133,17 @@ namespace Spacetime::Joints
         std::shared_ptr<PriorA> priorA() const { return m_prior_a; }
         /// The prior of robot B.
         std::shared_ptr<PriorB> priorB() const { return m_prior_b; }
-        /// Joint arclength s_a on robot A.
-        double arclengthA() const { return m_s_a; }
-        /// Joint arclength s_b on robot B.
-        double arclengthB() const { return m_s_b; }
-        /// The offset T_AB (see JointOptions::offset).
-        const gtsam::Pose3 &offset() const { return m_options.offset; }
-        /// The options the joint was built with.
-        const JointOptions &options() const { return m_options; }
-        /// The offset's covariance, as given to the constructor (6x6 rigid, 3x3 spherical).
-        const Eigen::MatrixXd &offsetCovariance() const { return m_offset_covariance; }
-        /// Whether the joined points are apart (the offset has a translation), e.g. to draw a link rather than a ball.
-        bool hasOffset() const { return m_options.offset.translation().norm() > 1e-9; }
+        std::shared_ptr<Types::StatefulModel<>> priorModelA() const override { return m_prior_a; }
+        std::shared_ptr<Types::StatefulModel<>> priorModelB() const override { return m_prior_b; }
+        std::shared_ptr<const Types::State> stateA() const override { return m_state_a; }
+        std::shared_ptr<const Types::State> stateB() const override { return m_state_b; }
+        double arclengthA() const override { return m_s_a; }
+        double arclengthB() const override { return m_s_b; }
+        const gtsam::Pose3 &offset() const override { return m_options.offset; }
+        const JointOptions &options() const override { return m_options; }
+        const Eigen::MatrixXd &offsetCovariance() const override { return m_offset_covariance; }
+        bool hasOffset() const override { return m_options.offset.translation().norm() > 1e-9; }
+        bool joinsVelocity() const override { return joins_velocity; }
 
     private:
         /// @throws std::invalid_argument if `s` lies outside the state's node arclengths (or it has none).

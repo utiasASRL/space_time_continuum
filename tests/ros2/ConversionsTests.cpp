@@ -12,25 +12,25 @@ namespace Spacetime
 
     TEST(Ros2Conversions, TransformRoundTrip)
     {
-        const geometry_msgs::msg::Transform msg = Ros2::toTransformMsg(kPose);
+        const geometry_msgs::msg::Transform msg = Interface::Ros2::toTransformMsg(kPose);
         EXPECT_DOUBLE_EQ(msg.translation.x, 0.1);
         EXPECT_DOUBLE_EQ(msg.translation.y, -2.0);
         EXPECT_DOUBLE_EQ(msg.translation.z, 3.5);
-        EXPECT_TRUE(Ros2::toPose3(msg).equals(kPose, 1e-12));
+        EXPECT_TRUE(Interface::Ros2::toPose3(msg).equals(kPose, 1e-12));
     }
 
     TEST(Ros2Conversions, PoseRoundTrip)
     {
-        const geometry_msgs::msg::Pose msg = Ros2::toPoseMsg(kPose);
+        const geometry_msgs::msg::Pose msg = Interface::Ros2::toPoseMsg(kPose);
         EXPECT_DOUBLE_EQ(msg.position.x, 0.1);
         EXPECT_DOUBLE_EQ(msg.position.y, -2.0);
         EXPECT_DOUBLE_EQ(msg.position.z, 3.5);
-        EXPECT_TRUE(Ros2::toPose3(msg).equals(kPose, 1e-12));
+        EXPECT_TRUE(Interface::Ros2::toPose3(msg).equals(kPose, 1e-12));
     }
 
     TEST(Ros2Conversions, QuaternionMatchesRotation)
     {
-        const geometry_msgs::msg::Transform msg = Ros2::toTransformMsg(kPose);
+        const geometry_msgs::msg::Transform msg = Interface::Ros2::toTransformMsg(kPose);
         const gtsam::Quaternion q = kPose.rotation().toQuaternion();
         // Either sign is the same rotation.
         const double sign = (q.w() * msg.rotation.w >= 0.0) ? 1.0 : -1.0;
@@ -47,7 +47,7 @@ namespace Spacetime
         msg.rotation.x = 0.0;
         msg.rotation.y = 0.0;
         msg.rotation.z = 2.0; // 180 degrees about z, scaled
-        const gtsam::Pose3 pose = Ros2::toPose3(msg);
+        const gtsam::Pose3 pose = Interface::Ros2::toPose3(msg);
         EXPECT_TRUE(pose.rotation().equals(gtsam::Rot3::Rz(M_PI), 1e-12));
     }
 
@@ -55,10 +55,10 @@ namespace Spacetime
     {
         geometry_msgs::msg::Transform msg;
         msg.rotation.w = 0.0;
-        EXPECT_THROW(Ros2::toPose3(msg), std::invalid_argument);
+        EXPECT_THROW(Interface::Ros2::toPose3(msg), std::invalid_argument);
         geometry_msgs::msg::Pose pose;
         pose.orientation.w = 0.0;
-        EXPECT_THROW(Ros2::toPose3(pose), std::invalid_argument);
+        EXPECT_THROW(Interface::Ros2::toPose3(pose), std::invalid_argument);
     }
 
 } // namespace Spacetime

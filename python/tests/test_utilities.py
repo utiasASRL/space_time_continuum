@@ -45,7 +45,7 @@ def test_estimator_options_from_config(loader):
 def test_prior_loaders(loader):
     assert loader.loadPriorType().lower() in ("wnoa", "wnov")
     reference, period, Q0, Q1, Q2, Q3, Q4 = loader.loadWNOAPrior()
-    assert isinstance(reference, wnoa.Values)
+    assert isinstance(reference, wnoa.NodeValues)
     assert period > 0
     assert Q0.shape == (18, 18) and Q4.shape == (6, 6)
     assert isinstance(loader.loadWNOAPriorOptions(), wnoa.PriorOptions)
@@ -53,7 +53,7 @@ def test_prior_loaders(loader):
     assert isinstance(T0, gtsam.Pose3) and epsilon0.shape == (6,)
     assert isinstance(loader.loadWNOVPriorOptions(), wnov.PriorOptions)
     reference, period, Q0, Q2 = loader.loadWNOAQuasiStaticPrior()
-    assert isinstance(reference, wnoa_quasi_static.Values)
+    assert isinstance(reference, wnoa_quasi_static.NodeValues)
     assert Q0.shape == (12, 12) and Q2.shape == (6, 6)
     assert isinstance(loader.loadWNOAQuasiStaticPriorOptions(), wnoa_quasi_static.PriorOptions)
 
@@ -87,7 +87,7 @@ def test_visualizer_options_from_config(tmp_path):
         json.dumps(
             {
                 "visualizer": {
-                    "robot": {"radius": 0.02},
+                    "robot": {"radius": 0.02, "spatial_interpolation_points": 4},
                     "cameras": [
                         {"position": [0, 1, 0.233], "look_at": [0, 0, 0.233], "up": [0, 0, -1]},
                         {"position": [1, 2, 3]},
@@ -101,6 +101,7 @@ def test_visualizer_options_from_config(tmp_path):
     options = loader.loadVisualizerOptions()
     assert isinstance(options, visualizer.VisualizerOptions)
     assert options.robot.radius == pytest.approx(0.02)
+    assert options.robot.spatial_interpolation_points == 4
     assert len(options.cameras) == 2
     np.testing.assert_allclose(options.cameras[0].position, [0, 1, 0.233])
     np.testing.assert_allclose(options.cameras[0].focal_point, [0, 0, 0.233])
@@ -141,3 +142,29 @@ def test_export_ground_truth_predictions_writes_logs(tmp_path):
     assert count == 1
     assert (tmp_path / "error_pred.txt").exists()
     assert (tmp_path / "error_pred_cov.txt").exists()
+
+
+def test_ground_plane_options_from_config(tmp_path):
+    visualizer = pytest.importorskip("spacetime.visualizer", reason="built without the visualizer")
+    loader = utilities.ConfigLoader()
+    absent = tmp_path / "absent.json"
+    absent.write_text(json.dumps({"visualizer": {"robot": {"radius": 0.02}}}))
+    assert loader.loadConfig(str(absent))
+    assert loader.loadGroundPlaneOptions() is None
+
+    config = tmp_path / "plane.json"
+    config.write_text(json.dumps({"visualizer": {"ground_plane": {"normal": [0, 0, 1], "position": [0, 0, 0.1], "size": 0.7}}}))
+    loader = utilities.ConfigLoader()
+    assert loader.loadConfig(str(config))
+    plane = loader.loadGroundPlaneOptions()
+    assert isinstance(plane, visualizer.GroundPlaneOptions)
+    np.testing.assert_allclose(plane.normal, [0, 0, 1])
+    np.testing.assert_allclose(plane.position, [0, 0, 0.1])
+    assert plane.size == pytest.approx(0.7)
+
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"visualizer": {"ground_plane": {"size": -1}}}))
+    loader = utilities.ConfigLoader()
+    assert loader.loadConfig(str(bad))
+    with pytest.raises(ValueError):
+        loader.loadGroundPlaneOptions()

@@ -4,7 +4,7 @@
 
 #include "RosClock.hpp"
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     namespace
     {
@@ -61,4 +61,4 @@ namespace Spacetime::Ros2
         if (!started())
             throw std::logic_error(std::string("Ros2::RosClock::") + caller + ": the clock has not started (see tryStart).");
     }
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2

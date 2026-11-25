@@ -25,9 +25,9 @@ namespace Spacetime
         struct SensorRig
         {
             std::shared_ptr<Types::MeasurementQueue> queue = std::make_shared<Types::MeasurementQueue>();
-            std::shared_ptr<Ros2::RosClock> clock = std::make_shared<Ros2::RosClock>(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), 0.0);
-            Ros2::PoseSensorOptions options;
-            std::shared_ptr<Ros2::PoseSensorNode> node;
+            std::shared_ptr<Interface::Ros2::RosClock> clock = std::make_shared<Interface::Ros2::RosClock>(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), 0.0);
+            Interface::Ros2::PoseSensorOptions options;
+            std::shared_ptr<Interface::Ros2::PoseSensorNode> node;
             std::shared_ptr<rclcpp::Node> publisher_node;
             rclcpp::Publisher<tf2_msgs::msg::TFMessage>::SharedPtr publisher;
             rclcpp::executors::SingleThreadedExecutor executor;
@@ -48,7 +48,7 @@ namespace Spacetime
 
             void create()
             {
-                node = std::make_shared<Ros2::PoseSensorNode>(queue, clock, options);
+                node = std::make_shared<Interface::Ros2::PoseSensorNode>(queue, clock, options);
                 publisher_node = std::make_shared<rclcpp::Node>(uniqueName("tf_publisher"));
                 publisher = publisher_node->create_publisher<tf2_msgs::msg::TFMessage>(options.topic, tf2_ros::DynamicListenerQoS());
                 executor.add_node(node);
@@ -67,7 +67,7 @@ namespace Spacetime
                 t.header.frame_id = parent;
                 t.header.stamp = stampAt(seconds);
                 t.child_frame_id = child;
-                t.transform = Ros2::toTransformMsg(pose);
+                t.transform = Interface::Ros2::toTransformMsg(pose);
                 return t;
             }
 
@@ -99,20 +99,20 @@ namespace Spacetime
     TEST(PoseSensorNode, ComputesTheBodyPoseFromTheSensorPoseAndOffset)
     {
         const gtsam::Pose3 T_bs(gtsam::Rot3::Ry(0.3), gtsam::Point3(0.0, 0.01, 0.02));
-        const gtsam::Pose3 T_ib = Ros2::PoseSensorNode::bodyPose(kSensorPose, T_bs);
+        const gtsam::Pose3 T_ib = Interface::Ros2::PoseSensorNode::bodyPose(kSensorPose, T_bs);
         EXPECT_TRUE((T_ib * T_bs).equals(kSensorPose, 1e-12)); // the sensor sits at T_bs in the body frame
     }
 
     TEST(PoseSensorNode, RejectsInvalidOptions)
     {
         SensorRig rig;
-        auto make = [&](const Ros2::PoseSensorOptions &options)
-        { return std::make_shared<Ros2::PoseSensorNode>(rig.queue, rig.clock, options); };
+        auto make = [&](const Interface::Ros2::PoseSensorOptions &options)
+        { return std::make_shared<Interface::Ros2::PoseSensorNode>(rig.queue, rig.clock, options); };
 
-        EXPECT_THROW(std::make_shared<Ros2::PoseSensorNode>(nullptr, rig.clock, rig.options), std::invalid_argument);
-        EXPECT_THROW(std::make_shared<Ros2::PoseSensorNode>(rig.queue, nullptr, rig.options), std::invalid_argument);
+        EXPECT_THROW(std::make_shared<Interface::Ros2::PoseSensorNode>(nullptr, rig.clock, rig.options), std::invalid_argument);
+        EXPECT_THROW(std::make_shared<Interface::Ros2::PoseSensorNode>(rig.queue, nullptr, rig.options), std::invalid_argument);
 
-        Ros2::PoseSensorOptions options = rig.options;
+        Interface::Ros2::PoseSensorOptions options = rig.options;
         options.parent_frame.clear();
         EXPECT_THROW(make(options), std::invalid_argument);
 
@@ -149,7 +149,7 @@ namespace Spacetime
         const auto &m = measurements.front();
         EXPECT_NEAR(m->time, 1.5, 1e-9);
         EXPECT_DOUBLE_EQ(m->arclength, 0.25);
-        EXPECT_TRUE(gtsam::Pose3(Eigen::Matrix4d(m->value)).equals(Ros2::PoseSensorNode::bodyPose(kSensorPose, rig.options.offset), 1e-9));
+        EXPECT_TRUE(gtsam::Pose3(Eigen::Matrix4d(m->value)).equals(Interface::Ros2::PoseSensorNode::bodyPose(kSensorPose, rig.options.offset), 1e-9));
         EXPECT_TRUE(m->covariance.isApprox(Eigen::MatrixXd(rig.options.covariance)));
         EXPECT_EQ(m->mask, Eigen::MatrixXi(rig.options.mask));
         EXPECT_EQ(rig.node->measurementsAdded(), 1u);
@@ -231,7 +231,7 @@ namespace Spacetime
         t.header.frame_id = rig.options.parent_frame;
         t.child_frame_id = rig.options.child_frame;
         t.header.stamp = rclcpp::Clock(RCL_SYSTEM_TIME).now();
-        t.transform = Ros2::toTransformMsg(kSensorPose);
+        t.transform = Interface::Ros2::toTransformMsg(kSensorPose);
         rig.publish({t});
         ASSERT_TRUE(spinUntil(rig.executor, [&]()
                               { return rig.node->messagesReceived() > 0; }));
@@ -249,7 +249,7 @@ namespace Spacetime
             0, 0, -1; // columns: the sensor's x, y, z axes in the body frame
         const gtsam::Pose3 T_bs(gtsam::Rot3(R_bs), gtsam::Point3::Zero());
 
-        const gtsam::Pose3 T_ib = Ros2::PoseSensorNode::bodyPose(kSensorPose, T_bs);
+        const gtsam::Pose3 T_ib = Interface::Ros2::PoseSensorNode::bodyPose(kSensorPose, T_bs);
 
         const Eigen::Matrix3d R_is = kSensorPose.rotation().matrix(), R_ib = T_ib.rotation().matrix();
         EXPECT_TRUE(R_ib.col(2).isApprox(-R_is.col(2), 1e-12)); // body tangent = -sensor z
@@ -278,7 +278,7 @@ namespace Spacetime
 
         EXPECT_EQ(broadcast.front().header.frame_id, rig.options.parent_frame);
         EXPECT_EQ(rclcpp::Time(broadcast.front().header.stamp).nanoseconds(), rclcpp::Time(rig.stampAt(1.0)).nanoseconds());
-        EXPECT_TRUE(Ros2::toPose3(broadcast.front().transform).equals(Ros2::PoseSensorNode::bodyPose(kSensorPose, rig.options.offset), 1e-9));
+        EXPECT_TRUE(Interface::Ros2::toPose3(broadcast.front().transform).equals(Interface::Ros2::PoseSensorNode::bodyPose(kSensorPose, rig.options.offset), 1e-9));
         EXPECT_EQ(rig.queue->size(), 1u); // its own broadcast is not a measurement
     }
 } // namespace Spacetime

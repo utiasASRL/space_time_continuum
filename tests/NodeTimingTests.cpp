@@ -13,13 +13,14 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
     using Pose = gtsam::Pose3;
     using NodeType = Priors::WNOA::Node<Pose>;
     using StateType = Types::ContinuumRobotState<NodeType>;
-    using ValueType = Priors::WNOA::Values<Pose>;
+    using ValueType = Priors::WNOA::NodeValues<Pose>;
     using PriorT = Priors::WNOA::Prior<Pose>;
 
     namespace
@@ -162,7 +163,7 @@ namespace Spacetime
         // sensor past the last arclength node. No later node can ever bracket it, and nothing
         // may try to replace it.
         Rig rig;
-        Estimator estimator(/*smootherLag=*/10.0);
+        Estimator estimator(Testing::estimatorOptions(10.0));
         estimator.addPrior(rig.prior);
         auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(rig.prior);
         estimator.addSensor(sensor);
@@ -200,7 +201,7 @@ namespace Spacetime
         // caller inserting it directly. Later nodes that bracket it must NOT upgrade it; only
         // the smoother's own marginalization may take it out.
         Rig rig;
-        Estimator estimator(/*smootherLag=*/0.25);
+        Estimator estimator(Testing::estimatorOptions(0.25));
         estimator.addPrior(rig.prior);
         estimator.estimate(0.0);
 
@@ -238,7 +239,7 @@ namespace Spacetime
         // every tick, each prior's predecessor is always the previous tick's, which is never
         // older than the lag window -- so the precondition for that crash no longer exists.
         Rig first, second;
-        Estimator estimator(/*smootherLag=*/0.5);
+        Estimator estimator(Testing::estimatorOptions(0.5));
         estimator.addPrior(first.prior);
         estimator.addPrior(second.prior);
 
@@ -279,7 +280,7 @@ namespace Spacetime
             Estimator estimator;
             std::shared_ptr<Sensors::PoseSensor<ValueType>> sensor;
 
-            explicit SensorRig(double smoother_lag) : estimator(smoother_lag)
+            explicit SensorRig(double smoother_lag) : estimator(Testing::estimatorOptions(smoother_lag))
             {
                 estimator.addPrior(rig.prior);
                 sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(rig.prior);

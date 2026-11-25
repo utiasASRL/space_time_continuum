@@ -6,6 +6,7 @@
 #ifndef WNOAQUASISTATIC_HPP
 #define WNOAQUASISTATIC_HPP
 
+#include <spacetime/estimator/prior_models/WNOAQuasiStatic/Covariances.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/WNOAQuasiStaticState.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/InterpolatedKeys.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/Interpolator.hpp>

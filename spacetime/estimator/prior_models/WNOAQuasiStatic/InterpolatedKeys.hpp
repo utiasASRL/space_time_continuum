@@ -1,6 +1,7 @@
 #ifndef WNOAQUASISTATIC_INTERPOLATEDKEYS_HPP
 #define WNOAQUASISTATIC_INTERPOLATEDKEYS_HPP
 
+#include <cstddef>
 #include <stdexcept>
 #include <utility>
 
@@ -9,6 +10,7 @@
 #include <gtsam/nonlinear/Values.h>
 
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/WNOAQuasiStaticState.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
 
 namespace Spacetime::Priors::WNOAQuasiStatic
 {
@@ -25,7 +27,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
     template <typename PoseT>
     struct InterpolatedKeys
     {
-        using ValuesType = Values<PoseT>; ///< The node values these keys index.
+        using ValuesType = NodeValues<PoseT>; ///< The node values these keys index.
         /// Dimension of each component (pose and strain both have the pose's tangent dimension).
         static constexpr int dim = gtsam::traits<PoseT>::dimension;
 
@@ -36,6 +38,11 @@ namespace Spacetime::Priors::WNOAQuasiStatic
 
         /// The full set of interpolated keys this node type defines.
         static gtsam::KeyVector keys() { return {Pose(), Strain()}; }
+
+        /// The interpolated keys at the `point`-th arclength of a multi-point factor (see Types::InterpolatedKeyAt).
+        static gtsam::Key Pose(std::size_t point) { return Types::InterpolatedKeyAt(Pose(), point); }
+        static gtsam::Key Strain(std::size_t point) { return Types::InterpolatedKeyAt(Strain(), point); }
+        static gtsam::KeyVector keys(std::size_t point) { return Types::InterpolatedKeysAt(keys(), point); }
 
         /// Insert the piece of `node` that `key` stands in for into `values`, at `key`; throws std::runtime_error for any other key.
         static void insert(gtsam::Key key, const ValuesType &node, gtsam::Values &values)

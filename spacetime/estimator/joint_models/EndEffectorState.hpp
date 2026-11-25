@@ -2,6 +2,7 @@
 #define ENDEFFECTORSTATE_HPP
 
 #include <memory>
+#include <cstddef>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -10,7 +11,11 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/Values.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 
 namespace Spacetime::Joints
@@ -21,19 +26,19 @@ namespace Spacetime::Joints
     /**
      * @brief Values of an end-effector node: pose T_ib and generalized (body) velocity
      *        varpi, in GTSAM [rotational, translational] order. Stored in that order in
-     *        Types::NodeValues::values (pose as its matrix).
+     *        Types::NodeValuesBase::values (pose as its matrix).
      */
     template <typename Pose>
-    struct EndEffectorValues : public Types::NodeValues
+    struct EndEffectorNodeValues : public Types::NodeValuesBase
     {
-        using Base = Types::NodeValues;                                    ///< Type-erased node values.
+        using Base = Types::NodeValuesBase;                                    ///< Type-erased node values.
         using TangentVector = typename gtsam::traits<Pose>::TangentVector; ///< Tangent vector of Pose ([rot, trans]).
         using PoseType = Pose;                                             ///< The pose type.
         using InterpolatedKeys = EndEffectorKeys<Pose>;                    ///< Placeholder keys of an interpolated node.
         static constexpr unsigned int dim = 2 * gtsam::traits<Pose>::dimension; ///< Tangent dimension of the node (pose + velocity).
 
         /// Identity pose, at rest.
-        EndEffectorValues()
+        EndEffectorNodeValues()
         {
             values.resize(2);
             pose(Pose());
@@ -41,14 +46,14 @@ namespace Spacetime::Joints
         }
 
         /// Values holding `pose_value` and `varpi_value`.
-        EndEffectorValues(const Pose &pose_value, const TangentVector &varpi_value)
+        EndEffectorNodeValues(const Pose &pose_value, const TangentVector &varpi_value)
         {
             values.resize(2);
             pose(pose_value);
             varpi(varpi_value);
         }
 
-        EndEffectorValues(const EndEffectorValues &other) = default;
+        EndEffectorNodeValues(const EndEffectorNodeValues &other) = default;
 
         /// The pose T_ib.
         Pose pose() const { return Pose(values.at(0)); }
@@ -66,16 +71,16 @@ namespace Spacetime::Joints
             varpi(TangentVector::Random());
         }
 
-        /// Copy from another EndEffectorValues; throws std::runtime_error for any other NodeValues type.
-        EndEffectorValues &operator=(const Base &other) override
+        /// Copy from another EndEffectorNodeValues; throws std::runtime_error for any other NodeValuesBase type.
+        EndEffectorNodeValues &operator=(const Base &other) override
         {
-            if (!dynamic_cast<const EndEffectorValues *>(&other))
-                throw std::runtime_error("EndEffectorValues::operator= received incompatible node values type.");
+            if (!dynamic_cast<const EndEffectorNodeValues *>(&other))
+                throw std::runtime_error("EndEffectorNodeValues::operator= received incompatible node values type.");
             Base::operator=(other);
             return *this;
         }
         /// Copy assignment.
-        EndEffectorValues &operator=(const EndEffectorValues &other) { return static_cast<EndEffectorValues &>(Base::operator=(other)); }
+        EndEffectorNodeValues &operator=(const EndEffectorNodeValues &other) { return static_cast<EndEffectorNodeValues &>(Base::operator=(other)); }
     };
 
     /// An end-effector node: pose ('p') and velocity ('v') variables, tangent order [pose, velocity].
@@ -83,7 +88,7 @@ namespace Spacetime::Joints
     struct EndEffectorNode : public Types::NodeBase
     {
         static constexpr unsigned int dim = 2 * gtsam::traits<Pose>::dimension; ///< Tangent dimension (pose + velocity).
-        using ValuesType = EndEffectorValues<Pose>;                        ///< The node's values.
+        using ValuesType = EndEffectorNodeValues<Pose>;                        ///< The node's values.
         using TangentVector = typename gtsam::traits<Pose>::TangentVector; ///< Tangent vector of Pose ([rot, trans]).
 
         /// Register this node's pose ('p') and velocity ('v') variables with `km`.
@@ -104,7 +109,7 @@ namespace Spacetime::Joints
         }
 
         /// getValues(), type-erased.
-        std::shared_ptr<Types::NodeValues> getValuesBase(const gtsam::Values &values) const override
+        std::shared_ptr<Types::NodeValuesBase> getValuesBase(const gtsam::Values &values) const override
         {
             return std::make_shared<ValuesType>(getValues(values));
         }
@@ -132,7 +137,7 @@ namespace Spacetime::Joints
     template <typename PoseT>
     struct EndEffectorKeys
     {
-        using ValuesType = EndEffectorValues<PoseT>;                ///< The values the keys index.
+        using ValuesType = EndEffectorNodeValues<PoseT>;                ///< The values the keys index.
         static constexpr int dim = gtsam::traits<PoseT>::dimension; ///< Tangent dimension of the pose.
 
         /// Placeholder key of the interpolated pose.
@@ -141,6 +146,10 @@ namespace Spacetime::Joints
         static gtsam::Key Velocity() { return gtsam::Symbol('q', 1); }
         /// Every placeholder key, in tangent order.
         static gtsam::KeyVector keys() { return {Pose(), Velocity()}; }
+        /// The interpolated keys at the `point`-th arclength of a multi-point factor (see Types::InterpolatedKeyAt).
+        static gtsam::Key Pose(std::size_t point) { return Types::InterpolatedKeyAt(Pose(), point); }
+        static gtsam::Key Velocity(std::size_t point) { return Types::InterpolatedKeyAt(Velocity(), point); }
+        static gtsam::KeyVector keys(std::size_t point) { return Types::InterpolatedKeysAt(keys(), point); }
 
         /// Inserts the piece of `node` that `key` names into `values`. @throws std::runtime_error for any other key.
         static void insert(gtsam::Key key, const ValuesType &node, gtsam::Values &values)

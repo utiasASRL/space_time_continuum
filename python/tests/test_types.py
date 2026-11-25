@@ -19,6 +19,23 @@ def test_measurement_fields():
     assert m.time == 3.0
 
 
+def test_measurement_keyword_only_scalars():
+    m = types.MeasurementBase(time=0.5, value=1.1, covariance=1.0)  # e.g. a tendon length
+    assert m.arclength == 0.0
+    assert m.time == 0.5
+    np.testing.assert_array_equal(m.value, [[1.1]])
+    np.testing.assert_array_equal(m.covariance, [[1.0]])
+    np.testing.assert_array_equal(m.mask, [[1]])
+
+    m = types.MeasurementBase(arclength=0.2, time=1.0, value=np.eye(4), covariance=np.eye(6))
+    assert m.arclength == 0.2
+    np.testing.assert_array_equal(m.value, np.eye(4))
+    m = types.MeasurementBase(time=0.0, value=np.zeros((6, 1)), covariance=np.eye(6), mask=np.zeros((6, 1), dtype=np.int32))
+    np.testing.assert_array_equal(m.mask, np.zeros((6, 1)))
+    with pytest.raises(TypeError):
+        types.MeasurementBase(time=0.0, value="1", covariance=1.0)
+
+
 def test_queue_add_drain_and_last_time():
     queue = types.MeasurementQueue()
     assert queue.empty()

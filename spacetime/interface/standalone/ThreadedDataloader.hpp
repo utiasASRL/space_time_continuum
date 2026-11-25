@@ -15,7 +15,7 @@
 
 #include <spacetime/interface/Dataloader.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     /// A dataloader run on its own thread (see the file comment).
     class ThreadedDataloader : public Interface::Dataloader
@@ -55,6 +55,6 @@ namespace Spacetime::Standalone
         mutable std::mutex m_wait_mutex;
         mutable std::condition_variable_any m_watermark_moved;
     };
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone
 
 #endif // SPACETIME_STANDALONE_THREADEDDATALOADER_HPP

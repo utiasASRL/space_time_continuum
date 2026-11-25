@@ -140,7 +140,7 @@ namespace Spacetime::Priors::WNOV
             },
             "wnov": { "weights": { "Q1": [9, 9, 9, 9, 9, 9] } }
         } })");
-        WNOA::Values<Pose> reference;
+        WNOA::NodeValues<Pose> reference;
         double time_period = -1.0;
         WNOA::Prior<Pose>::Matrix3N Q0;
         WNOA::Prior<Pose>::MatrixN Q1, Q2, Q3, Q4;
@@ -151,6 +151,33 @@ namespace Spacetime::Priors::WNOV
 
         // Each model reads only its own subsection.
         EXPECT_TRUE(loadWNOV(loader).Q1.isApprox(9.0 * Matrix6::Identity()));
+    }
+
+    TEST(WNOVConfig, MissingWNOAEntriesKeepThePassedInValues)
+    {
+        const auto loader = loaderFor("wnoa_partial.json", R"({ "prior": {
+            "time_period": 0.02,
+            "wnoa": {
+                "weights": { "prior_factor": 2.0, "Q2": [1, 1, 1, 1, 1, 1] },
+                "initial_condition": { "epsilon0": [0, 0, 0, 1, 0, 0] }
+            }
+        } })");
+        WNOA::NodeValues<Pose> reference;
+        reference.pose(Pose(gtsam::Rot3::Rz(0.3), gtsam::Point3(0.1, 0.2, 0.3)));
+        reference.varpi(Vector6(1, 2, 3, 4, 5, 6));
+        double time_period = -1.0;
+        WNOA::Prior<Pose>::Matrix3N Q0 = 3.0 * WNOA::Prior<Pose>::Matrix3N::Identity();
+        WNOA::Prior<Pose>::MatrixN Q1 = 5.0 * Matrix6::Identity(), Q2 = Q1, Q3 = 7.0 * Matrix6::Identity(), Q4 = Q1;
+        loader.loadWNOAPrior(reference, time_period, Q0, Q1, Q2, Q3, Q4);
+
+        EXPECT_TRUE(Q0.isApprox(3.0 * WNOA::Prior<Pose>::Matrix3N::Identity()));
+        EXPECT_TRUE(Q1.isApprox(5.0 * Matrix6::Identity()));
+        EXPECT_TRUE(Q2.isApprox(2.0 * Matrix6::Identity())); // read, times prior_factor
+        EXPECT_TRUE(Q3.isApprox(7.0 * Matrix6::Identity()));
+        EXPECT_TRUE(Q4.isApprox(Q3)); // a missing Q4 takes Q3's
+        EXPECT_TRUE(reference.pose().equals(Pose(gtsam::Rot3::Rz(0.3), gtsam::Point3(0.1, 0.2, 0.3))));
+        EXPECT_TRUE(reference.epsilon().isApprox(Vector6(0, 0, 0, 1, 0, 0)));
+        EXPECT_TRUE(reference.varpi().isApprox(Vector6(1, 2, 3, 4, 5, 6)));
     }
 
     TEST(WNOVConfig, GyroDataIsSkippedForAPoseOnlyPrior)
@@ -174,7 +201,7 @@ namespace Spacetime::Priors::WNOV
         loader.loadDemoData(sensors, gt_sensors, prior);
 
         ASSERT_EQ(sensors.size(), 1u); // the aurora only
-        EXPECT_NE(std::dynamic_pointer_cast<Sensors::PoseSensor<Values<Pose>>>(sensors.front()), nullptr);
+        EXPECT_NE(std::dynamic_pointer_cast<Sensors::PoseSensor<NodeValues<Pose>>>(sensors.front()), nullptr);
         EXPECT_EQ(sensors.front()->size(), 2u);
         EXPECT_TRUE(gt_sensors.empty());
         std::filesystem::remove_all(dir);

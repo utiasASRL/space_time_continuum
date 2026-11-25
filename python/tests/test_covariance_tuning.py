@@ -39,7 +39,7 @@ def factors_of_type(graph, cls):
 def test_query_jacobians_returns_the_query_mean_and_a_block_per_corner_key(solved):
     state, prior, _, _, values = solved
     node, jacobians = prior.queryJacobians(0.25, 0.05, values)  # interpolated in time and arclength
-    assert isinstance(node, wnoa.Values)
+    assert isinstance(node, wnoa.NodeValues)
     assert node.pose().equals(prior.query(0.25, 0.05, values).pose(), 1e-12)
     assert len(jacobians) == 12  # four corners x (pose, strain, velocity)
     for key, block in jacobians.items():
@@ -60,7 +60,7 @@ def test_every_grid_prior_has_query_jacobians():
     state = wnov.ContinuumRobotState(LENGTH, NODES)
     assert wnov.Prior(state, gtsam.Pose3(), STRAIGHT).queryJacobians(0.0, 0.0, gtsam.Values()) == (None, {})
     state = wnoa_quasi_static.ContinuumRobotState(LENGTH, NODES)
-    prior = wnoa_quasi_static.Prior(state, wnoa_quasi_static.Values(gtsam.Pose3(), STRAIGHT), np.eye(12), np.eye(6))
+    prior = wnoa_quasi_static.Prior(state, wnoa_quasi_static.NodeValues(gtsam.Pose3(), STRAIGHT), np.eye(12), np.eye(6))
     assert prior.queryJacobians(0.0, 0.0, gtsam.Values()) == (None, {})
 
 

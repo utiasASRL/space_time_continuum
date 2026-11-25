@@ -10,7 +10,7 @@
 
 #include "WaitForTransform.hpp"
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     std::optional<gtsam::Pose3> waitForTransform(const std::string &parent, const std::string &child, std::chrono::nanoseconds timeout,
                                                  const rclcpp::NodeOptions &node_options)
@@ -33,4 +33,4 @@ namespace Spacetime::Ros2
         }
         return std::nullopt;
     }
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2

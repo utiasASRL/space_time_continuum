@@ -28,7 +28,11 @@
 #include <stdexcept>
 #include <vector>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/BayesTreeCovariance.hpp>
 #include <spacetime/estimator/EstimatorSnapshot.hpp>
 #include <spacetime/estimator/LockedFactor.hpp>
@@ -51,7 +55,7 @@ namespace Spacetime
         /// Time the fixed-lag smoother keeps past states for estimation. A value of
         /// Estimator::BATCH_LAG (-1) selects batch mode: nothing is marginalized, and the
         /// whole problem is solved once by Estimator::finalize() (offline use only).
-        double smootherLag = 0.0;
+        double smootherLag = -1.0;
         /// The sliding-window smoother; ignored in batch mode, which always solves with lm_params.
         Smoother smoother = Smoother::Batch;
         /// Levenberg-Marquardt parameters of the batch solve and of the batch fixed-lag smoother.
@@ -107,11 +111,9 @@ namespace Spacetime
         /**
          * @param smootherLag Time the smoother keeps past states for estimation, or
          *        BATCH_LAG for batch mode.
-         * @param params Levenberg-Marquardt parameters (see EstimatorOptions::lm_params).
          * @throws std::invalid_argument for a negative smootherLag other than BATCH_LAG.
          */
-        Estimator(double smootherLag = 0.0, const gtsam::LevenbergMarquardtParams &params = EstimatorOptions::defaultLMParams())
-            : Estimator(optionsWith(smootherLag, params)) {}
+        Estimator(double smootherLag = BATCH_LAG) : Estimator(EstimatorOptions{.smootherLag = smootherLag}) {};
 
         /**
          * @brief Construct from runtime options (see EstimatorOptions).
@@ -200,6 +202,9 @@ namespace Spacetime
 
         /// Same as addModel.
         void addSensor(pSensorType sensor) { addModel(sensor); }
+
+        /// Same as addModel, for an actuator (see Types::ActuatorBase).
+        void addActuator(std::shared_ptr<Types::ActuatorBase> actuator) { addModel(actuator); }
 
         /**
          * @brief Same as addModel.
@@ -384,6 +389,10 @@ namespace Spacetime
                 new_factors.insert(new_factors.end(), factors.begin(), factors.end());
             }
 
+            // Locks without a value take the initial guess their variable was just given.
+            for (const auto &model : mp_models)
+                model->resolveLocks(new_values);
+
             // Phase 2: every model's factors on the variables that now exist (each sensor and
             // actuator is bound to its prior model at construction).
             for (const auto &model : mp_models)
@@ -501,15 +510,6 @@ namespace Spacetime
                 if (auto queue = std::dynamic_pointer_cast<Types::MeasurementQueue>(model))
                     mp_measurement_queues.push_back(queue);
             }
-        }
-
-        /// `options` with `smootherLag` and `params` (see the (smootherLag, params) constructor).
-        static EstimatorOptions optionsWith(double smootherLag, const gtsam::LevenbergMarquardtParams &params)
-        {
-            EstimatorOptions options;
-            options.smootherLag = smootherLag;
-            options.lm_params = params;
-            return options;
         }
 
         EstimatorOptions m_options;                           // as constructed

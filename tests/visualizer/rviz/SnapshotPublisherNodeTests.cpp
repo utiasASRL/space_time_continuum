@@ -22,6 +22,7 @@
 #include <spacetime/interface/ros2/RosClock.hpp>
 #include <spacetime/visualizer/rviz/SnapshotPublisherNode.hpp>
 #include "../../ros2/Ros2TestUtilities.hpp"
+#include "../../TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -33,7 +34,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using PriorT = Priors::WNOA::Prior<Pose>;
         using Marker = visualization_msgs::msg::Marker;
 
@@ -49,7 +50,7 @@ namespace Spacetime
             gtsam::Values values;
             std::shared_ptr<const EstimatorSnapshot> snapshot;
 
-            std::shared_ptr<Ros2::RosClock> clock = std::make_shared<Ros2::RosClock>(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), 0.0);
+            std::shared_ptr<Interface::Ros2::RosClock> clock = std::make_shared<Interface::Ros2::RosClock>(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), 0.0);
             Rviz::SnapshotPublisherOptions options;
             std::shared_ptr<Rviz::SnapshotPublisherNode> node;
             std::shared_ptr<rclcpp::Node> listener;
@@ -204,7 +205,7 @@ namespace Spacetime
         EXPECT_EQ(rclcpp::Time(poses.header.stamp).nanoseconds(), rclcpp::Time(rig.clock->toRosTime(0.1)).nanoseconds());
         ASSERT_EQ(poses.poses.size(), backbone->points.size());
         for (std::size_t i = 0; i < poses.poses.size(); i++)
-            EXPECT_TRUE(Ros2::toPose3(poses.poses[i]).equals(Pose(backbone->points[i].pose), 1e-9)) << "point " << i;
+            EXPECT_TRUE(Interface::Ros2::toPose3(poses.poses[i]).equals(Pose(backbone->points[i].pose), 1e-9)) << "point " << i;
     }
 
     TEST(SnapshotPublisherNode, DrawsTheRobotAsATubeOfCylinders)
@@ -286,7 +287,7 @@ namespace Spacetime
         {
             EXPECT_EQ(transforms[i].header.frame_id, "aurora_field");
             EXPECT_EQ(transforms[i].child_frame_id, "a/node_" + std::to_string(i));
-            EXPECT_TRUE(Ros2::toPose3(transforms[i].transform).equals(rig.values.at<Pose>(nodes[i]->poseKey()), 1e-9));
+            EXPECT_TRUE(Interface::Ros2::toPose3(transforms[i].transform).equals(rig.values.at<Pose>(nodes[i]->poseKey()), 1e-9));
         }
     }
 
@@ -349,8 +350,7 @@ namespace Spacetime
         /// Solves robot "a" over two rows with posterior covariances, as a live estimator does.
         std::shared_ptr<const EstimatorSnapshot> solveWithCovariance(PublisherRig &rig)
         {
-            EstimatorOptions options;
-            options.smootherLag = 1.0;
+            EstimatorOptions options = Testing::estimatorOptions(1.0);
             options.compute_covariance = true;
             auto estimator = std::make_shared<Estimator>(options);
             estimator->addPrior(rig.prior_a);

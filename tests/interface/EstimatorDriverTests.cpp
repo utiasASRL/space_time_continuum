@@ -9,6 +9,7 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/interface/EstimatorDriver.hpp>
+#include "../TestEstimatorOptions.hpp"
 
 namespace Spacetime::Interface
 {
@@ -17,7 +18,7 @@ namespace Spacetime::Interface
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
 
         std::shared_ptr<Priors::WNOA::Prior<Pose>> makePrior()
         {
@@ -28,7 +29,7 @@ namespace Spacetime::Interface
 
     TEST(EstimatorDriver, StepEstimatesAtTheTimeThenCallsTheCallback)
     {
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(makePrior());
         EstimatorDriver driver(estimator, /*real_time=*/false);
 
@@ -47,7 +48,7 @@ namespace Spacetime::Interface
 
     TEST(EstimatorDriver, FinishSolvesABatchEstimator)
     {
-        Estimator estimator(Estimator::BATCH_LAG);
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         estimator.addPrior(makePrior());
         EstimatorDriver driver(estimator, false);
         driver.step(0.0);
@@ -59,7 +60,7 @@ namespace Spacetime::Interface
 
     TEST(EstimatorDriver, RejectsARealTimeBatchEstimator)
     {
-        Estimator estimator(Estimator::BATCH_LAG);
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         EXPECT_THROW(EstimatorDriver(estimator, /*real_time=*/true), std::invalid_argument);
         EXPECT_NO_THROW(EstimatorDriver(estimator, /*real_time=*/false));
     }

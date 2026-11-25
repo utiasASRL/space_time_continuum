@@ -1,0 +1,22 @@
+// -*- C++ -*-
+/**
+ * @file spacetime
+ * @brief Aggregation header of spacetime/: the whole library that the linked targets provide (the C++ counterpart of Python's `import spacetime`).
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ *        Downstream code includes it as `#include <spacetime>`, found through its own include
+ *        path (this directory, see spacetime/CMakeLists.txt), since it cannot sit next to the
+ *        spacetime/ directory.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME
+#define SPACETIME_AGGREGATE_SPACETIME
+
+#include <spacetime/Types.hpp>
+
+#include <spacetime/estimator/estimator>
+#include <spacetime/interface/interface>
+#include <spacetime/visualizer/visualizer>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME

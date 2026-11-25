@@ -1,0 +1,28 @@
+// -*- C++ -*-
+/**
+ * @file visualizer
+ * @brief Aggregation header of spacetime/visualizer/: the visualizer of the selected backend (with spacetime::visualizer) and the rviz publisher (with spacetime::rviz).
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_VISUALIZER
+#define SPACETIME_AGGREGATE_SPACETIME_VISUALIZER
+
+#if defined(VISUALIZER)
+
+#include <spacetime/visualizer/MeasurementHistory.hpp>
+#include <spacetime/visualizer/PlaybackController.hpp>
+#include <spacetime/visualizer/PlotData.hpp>
+#include <spacetime/visualizer/Visualizable.hpp>
+#include <spacetime/visualizer/Visualizer.hpp>
+#include <spacetime/visualizer/VisualizerOptions.hpp>
+
+#endif
+
+// Each subfolder's aggregation header checks what is linked itself (rviz needs no Qt visualizer).
+#include <spacetime/visualizer/default/default>
+#include <spacetime/visualizer/rviz/rviz>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_VISUALIZER

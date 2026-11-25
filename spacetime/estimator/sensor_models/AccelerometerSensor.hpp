@@ -22,7 +22,11 @@
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/nonlinear/Values.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/bias_models/Bias.hpp>
 #include <spacetime/estimator/prior_models/InterpolatedNode.hpp>
 #include <spacetime/estimator/prior_models/TwoSidedInterpolationFactor.hpp>
@@ -502,6 +506,13 @@ namespace Spacetime::Sensors
 
         /// The bias model's locked values, or none without a bias.
         const gtsam::Values &lockedValues() const override { return m_bias ? m_bias->lockedValues() : Types::SensorBase::lockedValues(); }
+
+        /// Forwards to the bias model, if the bias is estimated.
+        void resolveLocks(const gtsam::Values &new_values) override
+        {
+            if (m_bias)
+                m_bias->resolveLocks(new_values);
+        }
 
         /// The bias model's covariance key groups (each bias node alone), or none without a bias.
         std::vector<gtsam::KeyVector> covarianceKeyGroups(const gtsam::Values &values) const override

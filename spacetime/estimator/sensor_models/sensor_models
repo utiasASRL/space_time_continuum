@@ -1,0 +1,19 @@
+// -*- C++ -*-
+/**
+ * @file sensor_models
+ * @brief Aggregation header of spacetime/estimator/sensor_models/: the built-in sensors.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_SENSOR_MODELS
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_SENSOR_MODELS
+
+#include <spacetime/estimator/sensor_models/AccelerometerSensor.hpp>
+#include <spacetime/estimator/sensor_models/FBGSensor.hpp>
+#include <spacetime/estimator/sensor_models/GyroSensor.hpp>
+#include <spacetime/estimator/sensor_models/IMUSensor.hpp>
+#include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_SENSOR_MODELS

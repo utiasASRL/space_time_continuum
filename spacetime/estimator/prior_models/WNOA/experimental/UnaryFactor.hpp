@@ -24,7 +24,7 @@ namespace Spacetime::Priors::WNOA::Experimental
          * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
          */
         template <typename Pose>
-        std::vector<std::shared_ptr<gtsam::NonlinearFactor>> createFactors(std::shared_ptr<Node<Pose>> node, const Values<Pose> &reference, const Eigen::Matrix<double, 3 * Pose::dimension, 3 * Pose::dimension> &Q0)
+        std::vector<std::shared_ptr<gtsam::NonlinearFactor>> createFactors(std::shared_ptr<Node<Pose>> node, const NodeValues<Pose> &reference, const Eigen::Matrix<double, 3 * Pose::dimension, 3 * Pose::dimension> &Q0)
         {
             using TangentVector = typename gtsam::traits<Pose>::TangentVector;
             constexpr int dim = Pose::dimension;

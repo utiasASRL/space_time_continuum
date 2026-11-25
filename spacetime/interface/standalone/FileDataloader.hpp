@@ -23,16 +23,17 @@
 #include <spacetime/interface/standalone/Clock.hpp>
 #include <spacetime/interface/standalone/ThreadedDataloader.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     /// Replays the withheld contents of a set of measurement queues (see the file comment).
     class FileDataloader : public ThreadedDataloader
     {
     public:
         /**
-         * @brief Withholds every measurement in `queues`, leaving them empty. Build it before
-         *        any measurement observer (e.g. a visualizer view) subscribes, so each
-         *        observer sees every measurement exactly once, on delivery.
+         * @brief Withholds every measurement in `queues`, leaving them empty (see
+         *        MeasurementQueue::withholdAll). Each observer of a queue (e.g. a visualizer
+         *        view) still sees every measurement exactly once: on delivery if it subscribes
+         *        after this, otherwise when it subscribed.
          * @param queues The models' queues, typically Estimator::getMeasurementQueues(), or a
          *        subset of them (several dataloaders can share the work).
          * @param clock Paces delivery when it is real time; ignored otherwise.
@@ -41,11 +42,11 @@ namespace Spacetime::Standalone
             : mp_clock(std::move(clock))
         {
             for (const auto &queue : queues)
-                for (auto &measurement : queue->takeAll())
-                    m_pending.push_back({queue, std::move(measurement)});
+                for (auto &withheld : queue->withholdAll())
+                    m_pending.push_back({queue, std::move(withheld)});
             // Each queue is already in time order; a stable sort keeps it, and orders ties by queue.
             std::stable_sort(m_pending.begin(), m_pending.end(), [](const Entry &a, const Entry &b)
-                             { return a.measurement->time < b.measurement->time; });
+                             { return a.withheld.measurement->time < b.withheld.measurement->time; });
         }
 
         /// Hands any measurement never delivered back to its queue, so no data is lost.
@@ -62,7 +63,7 @@ namespace Spacetime::Standalone
         {
             while (m_next < m_pending.size() && !stop.stop_requested())
             {
-                const double time = m_pending[m_next].measurement->time;
+                const double time = m_pending[m_next].withheld.measurement->time;
                 if (mp_clock->isRealTime())
                 {
                     mp_clock->sleepUntil(time, stop);
@@ -70,9 +71,9 @@ namespace Spacetime::Standalone
                         break;
                 }
                 // Deliver every measurement stamped `time`, then advance the watermark past it.
-                for (; m_next < m_pending.size() && m_pending[m_next].measurement->time == time; ++m_next)
-                    m_pending[m_next].queue->addMeasurement(m_pending[m_next].measurement);
-                setNextTime(m_next < m_pending.size() ? m_pending[m_next].measurement->time : std::numeric_limits<double>::infinity());
+                for (; m_next < m_pending.size() && m_pending[m_next].withheld.measurement->time == time; ++m_next)
+                    m_pending[m_next].queue->redeliver(m_pending[m_next].withheld);
+                setNextTime(m_next < m_pending.size() ? m_pending[m_next].withheld.measurement->time : std::numeric_limits<double>::infinity());
             }
 
             if (m_next == m_pending.size())
@@ -84,7 +85,7 @@ namespace Spacetime::Standalone
         /// The latest withheld timestamp, or -infinity if there is nothing to replay.
         std::optional<double> lastTime() const override
         {
-            return m_pending.empty() ? -std::numeric_limits<double>::infinity() : m_pending.back().measurement->time;
+            return m_pending.empty() ? -std::numeric_limits<double>::infinity() : m_pending.back().withheld.measurement->time;
         }
 
     private:
@@ -92,7 +93,7 @@ namespace Spacetime::Standalone
         struct Entry
         {
             Types::pMeasurementQueueType queue;
-            Types::MeasurementQueue::pMeasurementType measurement;
+            Types::MeasurementQueue::Withheld withheld;
         };
 
         std::shared_ptr<PacingClock> mp_clock;
@@ -103,9 +104,9 @@ namespace Spacetime::Standalone
         void restoreUndelivered()
         {
             for (; m_next < m_pending.size(); ++m_next)
-                m_pending[m_next].queue->addMeasurement(m_pending[m_next].measurement);
+                m_pending[m_next].queue->redeliver(m_pending[m_next].withheld);
         }
     };
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone
 
 #endif // SPACETIME_STANDALONE_FILEDATALOADER_HPP

@@ -63,7 +63,7 @@ namespace Spacetime::Visualization::Default
 
     void VisualizerThread::threadMain()
     {
-        Standalone::lowerCurrentThreadPriority(m_nice_delta);
+        Interface::Standalone::lowerCurrentThreadPriority(m_nice_delta);
         try
         {
             QApplication app(m_argc, m_argv);

@@ -9,7 +9,11 @@
 #include <gtsam/nonlinear/Symbol.h>
 #include <gtsam/nonlinear/factorTesting.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
@@ -50,7 +54,7 @@ namespace Spacetime::Priors::WNOA
              * @param noise_model Covariance over [pose, eps, varpi].
              * @param node0 Reference values the node is tied to.
              */
-            Factor(gtsam::Key key_pose, gtsam::Key key_epsilon, gtsam::Key key_varpi, const gtsam::SharedNoiseModel &noise_model, const Values<Pose> &node0) : Base(noise_model, key_pose, key_epsilon, key_varpi), m_reference_values(node0) {};
+            Factor(gtsam::Key key_pose, gtsam::Key key_epsilon, gtsam::Key key_varpi, const gtsam::SharedNoiseModel &noise_model, const NodeValues<Pose> &node0) : Base(noise_model, key_pose, key_epsilon, key_varpi), m_reference_values(node0) {};
             ~Factor() = default;
 
             /// e = [Log(T^-1 T_ref) ; eps - eps_ref ; varpi - varpi_ref], with its exact Jacobian.
@@ -79,9 +83,9 @@ namespace Spacetime::Priors::WNOA
             }
 
             /// The reference values, at which the error is zero.
-            Values<Pose> getZeroErrorNode() const
+            NodeValues<Pose> getZeroErrorNode() const
             {
-                Values<Pose> zero_error_values;
+                NodeValues<Pose> zero_error_values;
                 zero_error_values.pose(m_reference_values.pose());
                 zero_error_values.epsilon(m_reference_values.epsilon());
                 zero_error_values.varpi(m_reference_values.varpi());
@@ -89,12 +93,12 @@ namespace Spacetime::Priors::WNOA
             };
 
         private:
-            const Values<Pose> m_reference_values;
+            const NodeValues<Pose> m_reference_values;
         };
 
         /// A unary factor tying a node to `node_reference`, with the given 3*dim x 3*dim (18 x 18 for Pose3) covariance of [pose, eps, varpi].
         template <typename Pose>
-        std::shared_ptr<Factor<Pose>> createFactor(std::shared_ptr<Node<Pose>> node, const Values<Pose> &node_reference, const Eigen::Matrix<double, 3 * Pose::dimension, 3 * Pose::dimension> &covariance)
+        std::shared_ptr<Factor<Pose>> createFactor(std::shared_ptr<Node<Pose>> node, const NodeValues<Pose> &node_reference, const Eigen::Matrix<double, 3 * Pose::dimension, 3 * Pose::dimension> &covariance)
         {
             return std::make_shared<Factor<Pose>>(node->poseKey(), node->strainKey(), node->velocityKey(), gtsam::noiseModel::Gaussian::Covariance(covariance), node_reference);
         };

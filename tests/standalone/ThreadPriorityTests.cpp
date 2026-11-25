@@ -7,7 +7,7 @@
 
 #include <spacetime/interface/standalone/ThreadPriority.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     TEST(ThreadPriority, LowersOnlyTheCallingThread)
     {
@@ -23,4 +23,4 @@ namespace Spacetime::Standalone
         EXPECT_EQ(after, std::min(before + 3, 19)); // nice values are capped at 19
         EXPECT_EQ(getpriority(PRIO_PROCESS, 0), main_nice);
     }
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone

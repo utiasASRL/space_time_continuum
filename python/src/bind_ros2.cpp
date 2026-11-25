@@ -22,14 +22,14 @@ namespace SpacetimePython
 {
     namespace
     {
-        namespace Ros2 = Spacetime::Ros2;
+        namespace Ros2 = Spacetime::Interface::Ros2;
 
         /// A ROS2 session, stopped and joined without the GIL when Python drops it: its threads may be waiting for the GIL.
         class Session
         {
         public:
-            Session(Spacetime::Estimator &estimator, const Spacetime::Interface::SessionOptions &options, const Ros2::SessionRosOptions &ros_options)
-                : m_session(std::make_unique<Ros2::Session>(estimator, options, ros_options)) {}
+            Session(const Spacetime::Interface::SessionOptions &options, const Ros2::SessionRosOptions &ros_options)
+                : m_session(std::make_unique<Ros2::Session>(options, ros_options)) {}
 
             ~Session()
             {
@@ -109,14 +109,50 @@ namespace SpacetimePython
             .def_readwrite("body_frame", &Ros2::PoseSensorOptions::body_frame, "If set, the robot's pose is broadcast on TF as parent_frame -> body_frame.")
             .def_readwrite("topic", &Ros2::PoseSensorOptions::topic, "The TFMessage topic listened (and broadcast) on.");
 
-        py::classh<Ros2::PoseSensorNode, rclcpp::Node>(m, "PoseSensorNode", "Queues a pose measurement of the robot for each transform of its TF edge (direct edge only, no chain lookup), "
-                                                          "stamped in estimation time. Stamps before the clock starts or its start time, or not newer than the last, are dropped.")
+        py::classh<Ros2::SensorNode, rclcpp::Node>(m, "SensorNode", "A node feeding one measurement queue from ROS messages, stamped in estimation time. Stamps before the clock "
+                                                                  "starts or its start time, or not newer than the last, are dropped.")
+            .def("queue", &Ros2::SensorNode::queue, "The measurement queue it feeds.")
+            .def("messagesReceived", &Ros2::SensorNode::messagesReceived, "Messages received, used or not.")
+            .def("measurementsAdded", &Ros2::SensorNode::measurementsAdded, "Measurements queued.")
+            .def("measurementsDropped", &Ros2::SensorNode::measurementsDropped, "Relevant messages dropped (see the node's doc).");
+
+        py::classh<Ros2::PoseSensorNode, Ros2::SensorNode>(m, "PoseSensorNode", "Queues a pose measurement of the robot for each transform of its TF edge (direct edge only, no chain lookup), "
+                                                                "stamped in estimation time. Stamps before the clock starts or its start time, or not newer than the last, are dropped.")
             .def_static("bodyPose", &Ros2::PoseSensorNode::bodyPose, py::arg("T_is"), py::arg("T_bs"), "T_ib = T_is * T_bs^-1.")
-            .def("options", &Ros2::PoseSensorNode::options, "The node's options.")
-            .def("queue", &Ros2::PoseSensorNode::queue, "The measurement queue it feeds.")
-            .def("messagesReceived", &Ros2::PoseSensorNode::messagesReceived, "TF messages received, matching or not.")
-            .def("measurementsAdded", &Ros2::PoseSensorNode::measurementsAdded, "Measurements queued.")
-            .def("measurementsDropped", &Ros2::PoseSensorNode::measurementsDropped, "Transforms of the edge dropped (see the class doc).");
+            .def("options", &Ros2::PoseSensorNode::options, "The node's options.");
+
+        py::enum_<Ros2::ImuMeasurement>(m, "ImuMeasurement", "Which measurement an ImuSensorNode makes of each sensor_msgs/Imu message.")
+            .value("Gyro", Ros2::ImuMeasurement::Gyro, "3x1 angular_velocity [rad/s], for a gyroscope sensor.")
+            .value("Accelerometer", Ros2::ImuMeasurement::Accelerometer, "3x1 linear_acceleration (specific force) [m/s^2], for an accelerometer sensor.")
+            .value("IMU", Ros2::ImuMeasurement::IMU, "6x1 [angular_velocity; linear_acceleration], for an IMU sensor.");
+
+        py::class_<Ros2::ImuSensorOptions>(m, "ImuSensorOptions", "The sensor_msgs/Imu topic an IMU, gyroscope or accelerometer node listens to, and the measurements it makes of it.")
+            .def(py::init<>())
+            .def_readwrite("topic", &Ros2::ImuSensorOptions::topic, "The sensor_msgs/Imu topic listened on.")
+            .def_readwrite("frame_id", &Ros2::ImuSensorOptions::frame_id, "If set, only messages of this header.frame_id are used.")
+            .def_readwrite("arclength", &Ros2::ImuSensorOptions::arclength, "Where along the robot the sensor is attached [m].")
+            .def_readwrite("gyro_covariance", &Ros2::ImuSensorOptions::gyro_covariance, "3x3 angular velocity covariance, sensor frame [(rad/s)^2].")
+            .def_readwrite("accelerometer_covariance", &Ros2::ImuSensorOptions::accelerometer_covariance, "3x3 specific force covariance, sensor frame [(m/s^2)^2].")
+            .def_readwrite("use_message_covariance", &Ros2::ImuSensorOptions::use_message_covariance,
+                           "Use each message's covariance instead, unless unknown (first entry -1, or all zeros) or invalid.")
+            .def_readwrite("mask", &Ros2::ImuSensorOptions::mask, "[angular velocity; specific force] components measured (1) or ignored (0); a gyro or accelerometer node uses its half.");
+
+        py::classh<Ros2::ImuSensorNode, Ros2::SensorNode>(m, "ImuSensorNode", "Queues a gyroscope, accelerometer or IMU measurement (see ImuMeasurement) for each sensor_msgs/Imu message, "
+                                                              "in the message's (sensor) frame, stamped in estimation time.")
+            .def("measurement", &Ros2::ImuSensorNode::measurement, "The ImuMeasurement it makes.")
+            .def("options", &Ros2::ImuSensorNode::options, "The node's options.");
+
+        py::class_<Ros2::KinematicTendonOptions>(m, "KinematicTendonOptions", "The sensor_msgs/JointState joint a tendon node listens to, and the tendon lengths it measures from it.")
+            .def(py::init<>())
+            .def_readwrite("topic", &Ros2::KinematicTendonOptions::topic, "The sensor_msgs/JointState topic listened on.")
+            .def_readwrite("joint_name", &Ros2::KinematicTendonOptions::joint_name, "The joint (in JointState.name) whose position measures the tendon.")
+            .def_readwrite("variance", &Ros2::KinematicTendonOptions::variance, "Variance of the measured tendon length [m^2].")
+            .def_readwrite("scale", &Ros2::KinematicTendonOptions::scale, "The tendon length is scale * position + length_offset [m].")
+            .def_readwrite("length_offset", &Ros2::KinematicTendonOptions::length_offset, "See scale [m].");
+
+        py::classh<Ros2::KinematicTendonNode, Ros2::SensorNode>(m, "KinematicTendonNode", "Queues the tendon length of its joint for each sensor_msgs/JointState message naming it, "
+                                                                    "stamped in estimation time; a message naming it without a position is dropped.")
+            .def("options", &Ros2::KinematicTendonNode::options, "The node's options.");
 
         py::class_<Ros2::SessionRosOptions>(m, "SessionRosOptions", "ROS-specific options of a Session.")
             .def(py::init<>())
@@ -126,15 +162,11 @@ namespace SpacetimePython
             .def_property("use_sim_time", &useSimTime, &setUseSimTime, "Every node the session creates follows /clock (e.g. a rosbag played with --clock).");
 
         py::class_<Session>(m, "Session",
-                            "Runs `estimator` (kept alive by the session) on ROS2 nodes: the estimator's node on a high-priority thread, the "
+                            "Runs an estimator, given to start(), on ROS2 nodes: the estimator's node on a high-priority thread, the "
                             "sensor nodes and any other node (e.g. an rviz SnapshotPublisher) on another. Always real time: estimation follows "
                             "the ROS clock (live, or a replayed /clock with use_sim_time). Needs init(). Dropping the session stops and joins it.")
-            .def(py::init<Spacetime::Estimator &, const Spacetime::Interface::SessionOptions &, const Ros2::SessionRosOptions &>(),
-                 py::arg("estimator"), py::arg("options"), py::arg("ros_options") = Ros2::SessionRosOptions(), py::keep_alive<1, 2>())
-            .def(
-                "addMeasurementQueues", [](Session &self, const std::vector<Spacetime::Types::pMeasurementQueueType> &queues)
-                { self->addMeasurementQueues(queues); },
-                py::arg("queues"), "Records the queues to feed, to warn at start() about any no node feeds.")
+            .def(py::init<const Spacetime::Interface::SessionOptions &, const Ros2::SessionRosOptions &>(),
+                 py::arg("options") = Spacetime::Interface::SessionOptions(), py::arg("ros_options") = Ros2::SessionRosOptions())
             .def(
                 "addPoseSensor", [](Session &self, Spacetime::Types::pMeasurementQueueType queue, const Ros2::PoseSensorOptions &options)
                 { return self->addPoseSensor(std::move(queue), options); },
@@ -142,11 +174,36 @@ namespace SpacetimePython
                 "Feeds `sensor` (e.g. a sensors.PoseSensor) from a TF edge; returns its PoseSensorNode. "
                 "Raises ValueError for invalid options (e.g. an empty frame, or a covariance that is not symmetric with a positive diagonal).")
             .def(
+                "addGyro", [](Session &self, Spacetime::Types::pMeasurementQueueType queue, const Ros2::ImuSensorOptions &options)
+                { return self->addGyro(std::move(queue), options); },
+                py::arg("sensor"), py::arg("options"),
+                "Feeds `sensor` (e.g. a sensors.GyroSensor) with the angular velocity of sensor_msgs/Imu messages; returns its ImuSensorNode. "
+                "Raises ValueError for invalid options.")
+            .def(
+                "addAccelerometer", [](Session &self, Spacetime::Types::pMeasurementQueueType queue, const Ros2::ImuSensorOptions &options)
+                { return self->addAccelerometer(std::move(queue), options); },
+                py::arg("sensor"), py::arg("options"),
+                "Feeds `sensor` (e.g. a sensors.AccelerometerSensor) with the linear acceleration of sensor_msgs/Imu messages; returns its "
+                "ImuSensorNode. Raises ValueError for invalid options.")
+            .def(
+                "addIMU", [](Session &self, Spacetime::Types::pMeasurementQueueType queue, const Ros2::ImuSensorOptions &options)
+                { return self->addIMU(std::move(queue), options); },
+                py::arg("sensor"), py::arg("options"),
+                "Feeds `sensor` (e.g. a sensors.IMUSensor) with the angular velocity and linear acceleration of sensor_msgs/Imu messages; "
+                "returns its ImuSensorNode. Raises ValueError for invalid options.")
+            .def(
+                "addKinematicTendon", [](Session &self, Spacetime::Types::pMeasurementQueueType queue, const Ros2::KinematicTendonOptions &options)
+                { return self->addKinematicTendon(std::move(queue), options); },
+                py::arg("actuator"), py::arg("options"),
+                "Feeds `actuator` (e.g. an actuators.KinematicTendon) with one joint of sensor_msgs/JointState messages; returns its "
+                "KinematicTendonNode. Raises ValueError for invalid options (e.g. no joint name).")
+            .def(
                 "addNode", [](Session &self, const std::shared_ptr<rclcpp::Node> &node)
                 { self->addNode(node); },
                 py::arg("node"), "Runs `node` (e.g. an rviz SnapshotPublisher) on the lower-priority thread; raises ValueError for None.")
-            .def("unfedQueues", [](Session &self)
-                 { return self->unfedQueues(); }, "The queues given to addMeasurementQueues that no sensor node feeds.")
+            .def("unfedQueues", [](Session &self, const Spacetime::Estimator &estimator)
+                 { return self->unfedQueues(estimator); }, py::arg("estimator"),
+                 "`estimator`'s measurement queues that no sensor node feeds; start() warns about them.")
             .def(
                 "clock", [](Session &self)
                 { return std::const_pointer_cast<Ros2::RosClock>(self->clock()); },
@@ -155,9 +212,10 @@ namespace SpacetimePython
                 "setTickCallback", [](Session &self, std::function<void(double)> callback)
                 { self->setTickCallback(std::move(callback)); },
                 py::arg("callback"), "Calls `callback(time)` on the estimator thread after every estimate.")
-            .def("start", [](Session &self)
-                 { self->start(); }, py::call_guard<py::gil_scoped_release>(),
-                 "Starts the node threads. Raises ValueError for a non-positive period or a batch-mode estimator.")
+            .def("start", [](Session &self, Spacetime::Estimator &estimator)
+                 { self->start(estimator); }, py::arg("estimator"), py::call_guard<py::gil_scoped_release>(), py::keep_alive<1, 2>(),
+                 "Starts estimating with `estimator` (kept alive by the session) on the node threads. Raises ValueError for a "
+                 "non-positive period or a batch-mode estimator, RuntimeError if already started.")
             .def("requestStop", [](Session &self)
                  { self->requestStop(); }, "Asks the run to end as soon as possible; safe from any thread.")
             .def("join", [](Session &self)

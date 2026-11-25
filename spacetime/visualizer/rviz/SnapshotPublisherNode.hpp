@@ -26,6 +26,7 @@
 
 #include <spacetime/estimator/EstimatorSnapshot.hpp>
 #include <spacetime/estimator/PosteriorCovariance.hpp>
+#include <spacetime/estimator/joint_models/JointBase.hpp>
 #include <spacetime/estimator/utilities/RobotShape.hpp>
 #include <spacetime/interface/ros2/RosClock.hpp>
 
@@ -86,10 +87,10 @@ namespace Spacetime::Visualization::Rviz
          * @brief Advertises `<topic_prefix>/markers` and `tf_topic`, and starts a wall timer at
          *        `options.rate` (if positive) calling publishLatest().
          * @param source Polled on every timer tick, on the spinning thread.
-         * @param clock Converts snapshot times to ROS stamps; typically Ros2::Session::clock().
+         * @param clock Converts snapshot times to ROS stamps; typically Interface::Ros2::Session::clock().
          * @throws std::invalid_argument for an empty source or a null clock.
          */
-        SnapshotPublisherNode(SnapshotSource source, std::shared_ptr<const Ros2::RosClock> clock,
+        SnapshotPublisherNode(SnapshotSource source, std::shared_ptr<const Interface::Ros2::RosClock> clock,
                               const SnapshotPublisherOptions &options = SnapshotPublisherOptions(),
                               const rclcpp::NodeOptions &node_options = rclcpp::NodeOptions(), const std::string &name = "spacetime_snapshot_publisher");
 
@@ -113,7 +114,7 @@ namespace Spacetime::Visualization::Rviz
             Robot robot;
             robot.name = name;
             robot.options = options;
-            robot.state = state.get();
+            robot.state = static_cast<const Types::State *>(state.get());
             robot.backbone = [shape, state, extra_points = options.extra_points](const EstimatorSnapshot &snapshot, const PosteriorCovariance *posterior)
                 -> std::optional<Backbone>
             {
@@ -132,18 +133,16 @@ namespace Spacetime::Visualization::Rviz
         }
 
         /**
-         * @brief Draws `joint` (a Joints::Joint) between the robots of its two priors, added before it.
-         *        Only its priors' states, arclengths and hasOffset() are read, here; `joint`
+         * @brief Draws `joint` (a Joints::Joint of any prior pair) between its two robots, added before it.
+         *        Only its states, arclengths and hasOffset() are read, here; `joint`
          *        need not outlive the node.
-         * @tparam JointT A joint with priorA()/priorB(), arclengthA()/arclengthB() and hasOffset().
          * @param radius Radius of the drawn cylinder or sphere [m].
          * @throws std::invalid_argument if the name is taken or invalid, either robot was not
          *         added, or they are published in different frames.
          */
-        template <typename JointT>
-        void addJoint(const std::string &name, const JointT &joint, double radius = 0.015)
+        void addJoint(const std::string &name, const Joints::JointBase &joint, double radius = 0.015)
         {
-            addJoint(name, joint.priorA()->state().get(), joint.arclengthA(), joint.priorB()->state().get(), joint.arclengthB(),
+            addJoint(name, joint.stateA().get(), joint.arclengthA(), joint.stateB().get(), joint.arclengthB(),
                      joint.hasOffset(), radius);
         }
 
@@ -169,7 +168,7 @@ namespace Spacetime::Visualization::Rviz
         {
             std::string name;
             RobotDisplayOptions options;
-            const void *state; ///< Identifies the robot (see addJoint).
+            const Types::State *state; ///< Identifies the robot (see addJoint).
             /// The backbone at the snapshot's time, or nullopt if it cannot be placed yet.
             std::function<std::optional<Backbone>(const EstimatorSnapshot &, const PosteriorCovariance *)> backbone;
             /// The pose at an arclength [m] at the snapshot's time, or nullopt.
@@ -187,7 +186,7 @@ namespace Spacetime::Visualization::Rviz
         };
 
         SnapshotSource m_source;
-        std::shared_ptr<const Ros2::RosClock> mp_clock;
+        std::shared_ptr<const Interface::Ros2::RosClock> mp_clock;
         SnapshotPublisherOptions m_options;
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr mp_markers_publisher;
         rclcpp::Publisher<tf2_msgs::msg::TFMessage>::SharedPtr mp_tf_publisher;
@@ -200,7 +199,7 @@ namespace Spacetime::Visualization::Rviz
         /// Registers `robot` and creates its poses publisher. Throws as the public addRobot.
         void addRobot(Robot robot);
         /// Registers a joint between the robots identified by `state_a` and `state_b`. Throws as the public addJoint.
-        void addJoint(const std::string &name, const void *state_a, double s_a, const void *state_b, double s_b, bool has_offset, double radius);
+        void addJoint(const std::string &name, const Types::State *state_a, double s_a, const Types::State *state_b, double s_b, bool has_offset, double radius);
         /// Throws std::invalid_argument if `name` is not a valid topic token or is taken by a robot or joint.
         void checkName(const std::string &name) const;
     };

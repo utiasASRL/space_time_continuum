@@ -16,7 +16,6 @@
 #include <vtkImageData.h>
 
 #include "Visualizer.hpp"
-#include "objects/GroundPlane.hpp"
 #include "utilities.hpp"
 #include <spacetime/visualizer/BackendConcept.hpp>
 
@@ -304,8 +303,6 @@ namespace Spacetime::Visualization::Default
         mp_ren->SetBackground(1., 1., 1.);
 
         initLights();
-        if (m_options.show_floor)
-            addVisualizable(std::make_shared<GroundPlane>());
         if (m_options.show_world_frame)
             initWorldFrame();
 

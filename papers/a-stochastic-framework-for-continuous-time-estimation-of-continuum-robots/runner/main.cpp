@@ -87,7 +87,7 @@ Arguments parseArguments(int argc, char *argv[])
 
 std::shared_ptr<WNOAPrior> makePrior(const Spacetime::Utilities::ConfigLoader &config, const std::shared_ptr<WNOAPrior::StateType> &state, double &time_period)
 {
-    Spacetime::Priors::WNOA::Values<Pose> base_start_point;
+    Spacetime::Priors::WNOA::NodeValues<Pose> base_start_point;
     WNOAPrior::Matrix3N Q0 = WNOAPrior::Matrix3N::Identity();
     WNOAPrior::MatrixN Q1 = WNOAPrior::MatrixN::Identity(), Q2 = Q1, Q3 = Q1, Q4 = Q1;
     config.loadWNOAPrior(base_start_point, time_period, Q0, Q1, Q2, Q3, Q4);

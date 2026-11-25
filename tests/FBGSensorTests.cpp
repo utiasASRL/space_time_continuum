@@ -18,6 +18,7 @@
 #include <spacetime/estimator/utilities/ConfigLoader.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 #include <spacetime/estimator/sensor_models/FBGSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -26,7 +27,7 @@ namespace Spacetime
         using Pose = gtsam::Pose3;
         using NodeType = Priors::WNOA::Node<Pose>;
         using StateType = Types::ContinuumRobotState<NodeType>;
-        using ValueType = Priors::WNOA::Values<Pose>;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
         using Sensor = Sensors::FBGSensor<ValueType>;
         using Vector6 = Eigen::Matrix<double, 6, 1>;
 
@@ -150,7 +151,7 @@ namespace Spacetime
         auto prior = makePrior(state);
         auto sensor = std::make_shared<Sensor>(prior);
 
-        Estimator estimator;
+        Estimator estimator(Testing::estimatorOptions(0.0));
         estimator.addPrior(prior);
         estimator.addSensor(sensor);
 

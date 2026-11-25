@@ -9,7 +9,11 @@
 #include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 
 namespace Spacetime::Sensors
 {
@@ -31,7 +35,7 @@ namespace Spacetime::Sensors
      *        and time. Measurement values are strains in GTSAM's [rotational, translational]
      *        layout (the loader reorders the data's [translational, rotational] rows), with
      *        covariances of the same size.
-     * @tparam ValuesT The measured prior's node-values type (e.g. WNOA::Values<gtsam::Pose3>),
+     * @tparam ValuesT The measured prior's node-values type (e.g. WNOA::NodeValues<gtsam::Pose3>),
      *         providing a strain epsilon() and an interpolated Strain() key.
      */
     template <FBGSensorValuesType ValuesT>

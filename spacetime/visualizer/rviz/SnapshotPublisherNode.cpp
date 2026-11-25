@@ -42,7 +42,7 @@ namespace Spacetime::Visualization::Rviz
         }
     } // namespace
 
-    SnapshotPublisherNode::SnapshotPublisherNode(SnapshotSource source, std::shared_ptr<const Ros2::RosClock> clock,
+    SnapshotPublisherNode::SnapshotPublisherNode(SnapshotSource source, std::shared_ptr<const Interface::Ros2::RosClock> clock,
                                                  const SnapshotPublisherOptions &options, const rclcpp::NodeOptions &node_options,
                                                  const std::string &name)
         : rclcpp::Node(name, node_options), m_source(std::move(source)), mp_clock(std::move(clock)), m_options(options)
@@ -80,12 +80,12 @@ namespace Spacetime::Visualization::Rviz
         m_robots.push_back(std::move(robot));
     }
 
-    void SnapshotPublisherNode::addJoint(const std::string &name, const void *state_a, double s_a, const void *state_b, double s_b,
+    void SnapshotPublisherNode::addJoint(const std::string &name, const Types::State *state_a, double s_a, const Types::State *state_b, double s_b,
                                          bool has_offset, double radius)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         checkName(name);
-        auto find = [&](const void *state) -> std::size_t
+        auto find = [&](const Types::State *state) -> std::size_t
         {
             for (std::size_t i = 0; i < m_robots.size(); i++)
                 if (m_robots[i].state == state)
@@ -127,7 +127,7 @@ namespace Spacetime::Visualization::Rviz
                 for (std::size_t k = 0; k < backbone->points.size(); k++)
                 {
                     const Eigen::Matrix4d &pose = backbone->points[k].pose;
-                    poses.poses.push_back(Ros2::toPoseMsg(gtsam::Pose3(pose)));
+                    poses.poses.push_back(Interface::Ros2::toPoseMsg(gtsam::Pose3(pose)));
 
                     if (k + 1 < backbone->points.size())
                     {
@@ -155,7 +155,7 @@ namespace Spacetime::Visualization::Rviz
                         geometry_msgs::msg::TransformStamped frame;
                         frame.header = header;
                         frame.child_frame_id = robot.name + "/node_" + std::to_string(k / backbone->points_per_segment);
-                        frame.transform = Ros2::toTransformMsg(gtsam::Pose3(pose));
+                        frame.transform = Interface::Ros2::toTransformMsg(gtsam::Pose3(pose));
                         frames.transforms.push_back(frame);
                     }
                 }

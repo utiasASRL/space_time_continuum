@@ -17,10 +17,12 @@
 #include <spacetime/estimator/joint_models/EndEffector.hpp>
 #include <spacetime/estimator/prior_models/InterpolationFactor.hpp>
 #include <spacetime/estimator/prior_models/WNOA.hpp>
+#include <spacetime/estimator/prior_models/WNOAQuasiStatic.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 
 #include "NumericalDifferentiation.hpp"
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
@@ -33,13 +35,13 @@ namespace Spacetime
         using EndEffector = Joints::EndEffector<Pose>;
         using EEPrior = Joints::EndEffectorPrior<Pose>;
         using EENode = Joints::EndEffectorNode<Pose>;
-        using EEValues = Joints::EndEffectorValues<Pose>;
+        using EEValues = Joints::EndEffectorNodeValues<Pose>;
         using EEKeys = Joints::EndEffectorKeys<Pose>;
         using EEInterpolator = Joints::EndEffectorInterpolator<Pose>;
         using EEState = Types::ContinuumRobotState<EENode>;
 
         using RobotNode = Priors::WNOA::Node<Pose>;
-        using RobotValues = Priors::WNOA::Values<Pose>;
+        using RobotValues = Priors::WNOA::NodeValues<Pose>;
         using RobotPrior = Priors::WNOA::Prior<Pose>;
         using RobotState = Types::ContinuumRobotState<RobotNode>;
 
@@ -336,7 +338,7 @@ namespace Spacetime
     TEST(EndEffector, BatchEstimateHoldsEveryAttachedRobot)
     {
         constexpr int ticks = 5;
-        Estimator estimator(Estimator::BATCH_LAG);
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         AttachedProblem problem(estimator, ticks);
         for (int k = 0; k < ticks; k++)
             estimator.estimate(k * kPeriod);
@@ -352,11 +354,58 @@ namespace Spacetime
         EXPECT_GT((problem.tip(problem.b, t, values).translation() - problem.b.tip().translation()).norm(), 5e-3);
     }
 
+    TEST(EndEffector, HoldsAnAttachedQuasiStaticRobot)
+    {
+        // Robot A (WNOA) is measured moving sideways; robot B (quasi-static) is only held by the end effector.
+        using QSPrior = Priors::WNOAQuasiStatic::Prior<Pose>;
+        constexpr int ticks = 4;
+        UprightRobot a(Eigen::Vector3d(-0.05, 0, 0));
+        const Pose base_b(gtsam::Rot3::Ry(-M_PI / 2), gtsam::Point3(0.05, 0, 0));
+        const Pose tip_b0 = base_b * Pose(gtsam::Rot3(), gtsam::Point3(kLength, 0, 0));
+        auto state_b = std::make_shared<QSPrior::StateType>(kLength, 5);
+        auto prior_b = std::make_shared<QSPrior>(state_b, QSPrior::ValuesType(base_b, (Vector6() << 0, 0, 0, 1, 0, 0).finished()));
+        state_b->lock("pose", 0.0, base_b);
+
+        const Pose ee0(a.tip().rotation(), gtsam::Point3(0, 0, kLength));
+        auto ee = std::make_shared<EndEffector>(ee0, qPsd());
+        Joints::JointOptions options_a, options_b;
+        options_a.offset = a.tip().between(ee0);
+        options_b.offset = tip_b0.between(ee0);
+        ee->attach(a.prior, kLength, Matrix6::Identity() * 1e-6, options_a);
+        const auto joint_b = ee->attach(prior_b, kLength, Matrix6::Identity() * 1e-6, options_b);
+        static_assert(!decltype(joint_b)::element_type::joins_velocity);
+        ASSERT_EQ(ee->joints().size(), 2u);
+        EXPECT_EQ(ee->joints()[1]->stateA().get(), static_cast<const Types::State *>(state_b.get()));
+
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
+        estimator.addPrior(a.prior);
+        estimator.addPrior(prior_b);
+        estimator.addModel(ee);
+        auto sensor = std::make_shared<Sensors::PoseSensor<RobotValues>>(a.prior);
+        for (int k = 0; k < ticks; k++)
+        {
+            const Pose measured = a.tip() * Pose(gtsam::Rot3(), gtsam::Point3(0, 0.01 * k, 0));
+            sensor->addMeasurement(std::make_shared<Types::MeasurementBase>(kLength, k * kPeriod, measured.matrix(), Matrix6::Identity() * 1e-6,
+                                                                            Eigen::MatrixXi::Ones(6, 1)));
+        }
+        estimator.addSensor(sensor);
+        for (int k = 0; k < ticks; k++)
+            estimator.estimate(k * kPeriod);
+        estimator.finalize();
+
+        const gtsam::Values &values = estimator.getCurrentValues();
+        const double t = (ticks - 1) * kPeriod;
+        const Pose ee_t = std::dynamic_pointer_cast<EEValues>(ee->endEffectorPrior()->query(t, 0.0, values))->pose();
+        const Pose tip_b = std::dynamic_pointer_cast<QSPrior::ValuesType>(prior_b->query(t, kLength, values))->pose();
+        EXPECT_LT(Pose::Logmap(options_b.offset.between(tip_b.between(ee_t))).norm(), 5e-3);
+        EXPECT_GT((tip_b.translation() - tip_b0.translation()).norm(), 5e-3); // dragged along through the end effector
+    }
+
     TEST(EndEffector, PoseMeasurementsOnTheEndEffectorMoveEveryAttachedRobot)
     {
         // Nothing on the robots is measured: only the end effector's own pose, moving sideways.
         constexpr int ticks = 5;
-        Estimator estimator(Estimator::BATCH_LAG);
+        Estimator estimator(Testing::estimatorOptions(Estimator::BATCH_LAG));
         UprightRobot a(Eigen::Vector3d(-0.05, 0, 0)), b(Eigen::Vector3d(0.05, 0, 0));
         const Pose ee0(a.tip().rotation(), gtsam::Point3(0, 0, kLength));
         auto ee = std::make_shared<EndEffector>(ee0, qPsd());
@@ -397,7 +446,7 @@ namespace Spacetime
     TEST(EndEffector, SlidingWindowEstimateRuns)
     {
         constexpr int ticks = 8;
-        Estimator estimator(0.25);
+        Estimator estimator(Testing::estimatorOptions(0.25));
         AttachedProblem problem(estimator, ticks);
         for (int k = 0; k < ticks; k++)
         {

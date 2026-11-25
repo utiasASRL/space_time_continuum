@@ -43,6 +43,33 @@ def test_lock_unknown_variable_or_arclength_raises():
         state.lock("pose", 0.05, gtsam.Pose3())
 
 
+def test_lock_without_a_value_holds_the_initial_guess():
+    state, prior = make_wnoa_robot(length=1.0, nodes=5, lock_base=False)
+    state.lock("pose", 0.0)
+    state.lock("strain", 1.0)
+    sensor = sensors.PoseSensor(prior)
+    tip = gtsam.Pose3(gtsam.Rot3.Rz(0.3), gtsam.Point3(0.9, 0.3, 0.0))
+    sensor.addMeasurement(types.MeasurementBase(arclength=1.0, time=0.0, value=tip.matrix(), covariance=POSE_COVARIANCE))
+    estimator = batch_estimator()
+    estimator.addPrior(prior)
+    estimator.addSensor(sensor)
+    estimator.estimate(0.0)
+    estimator.finalize()
+    nodes = state.snapshotEstimationNodes()
+    values = estimator.getCurrentValues()
+    assert nodes[0].getValues(values).pose().equals(gtsam.Pose3(), 1e-12)
+    np.testing.assert_allclose(nodes[-1].getValues(values).epsilon(), STRAIGHT, atol=1e-12)
+    assert not estimator.getLinearizationPoint().exists(nodes[-1].strainKey())
+
+
+def test_lock_without_a_value_rejects_invalid_locks():
+    state = wnoa.ContinuumRobotState(0.2, 3)
+    with pytest.raises(ValueError):
+        state.lock("strain", 0.05)
+    with pytest.raises(ValueError):
+        state.lock("acceleration", 0.0, t=0.0)
+
+
 def test_wnov_state_locks_pose_only():
     state = wnov.ContinuumRobotState(0.2, 3)
     state.lock("pose", 0.0, gtsam.Pose3())

@@ -9,7 +9,11 @@
 #include <gtsam/nonlinear/Symbol.h>
 #include <gtsam/nonlinear/factorTesting.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/functions.hpp>
 #include <spacetime/estimator/prior_models/WNOA/WNOAState.hpp>
@@ -127,9 +131,9 @@ namespace Spacetime::Priors::WNOA
 
             /// Node-1 values at which the error is zero given node 0 (used as an initial guess),
             /// for a factor with the given strain-velocity coupling.
-            static Values<Pose> getZeroErrorNode(const Values<Pose> &node0, double ds, bool strain_velocity_coupling = true)
+            static NodeValues<Pose> getZeroErrorNode(const NodeValues<Pose> &node0, double ds, bool strain_velocity_coupling = true)
             {
-                Values<Pose> zero_error_values;
+                NodeValues<Pose> zero_error_values;
                 zero_error_values.pose(node0.pose().retract(ds * node0.epsilon()));
                 zero_error_values.epsilon(node0.epsilon());
                 if (strain_velocity_coupling)

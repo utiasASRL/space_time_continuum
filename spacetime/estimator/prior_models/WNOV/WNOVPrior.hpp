@@ -2,6 +2,7 @@
 #define WNOVPRIOR_HPP
 
 #include <memory>
+#include <tuple>
 #include <optional>
 #include <vector>
 
@@ -11,11 +12,17 @@
 #include <gtsam/nonlinear/PriorFactor.h>
 #include <gtsam/slam/BetweenFactor.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
 #include <spacetime/estimator/prior_models/GridPrior.hpp>
+#include <spacetime/estimator/prior_models/StraightStrain.hpp>
 #include <spacetime/estimator/prior_models/WNOV/WNOVState.hpp>
 #include <spacetime/estimator/prior_models/WNOV/Interpolator.hpp>
+#include <spacetime/estimator/prior_models/WNOV/Covariances.hpp>
 
 namespace Spacetime::Priors::WNOV
 {
@@ -49,6 +56,11 @@ namespace Spacetime::Priors::WNOV
      * process, so that GP interpolation between nodes is exactly geodesic interpolation
      * (see WNOV::Interpolator).
      *
+     * Q1 and Q2 may vary along the robot (see CovarianceOverrides, given at construction):
+     * the space factor between nodes n and n+1 uses segment n's Q1, the time factors at
+     * node n use node n's Q2, and measurement interpolation in the cell [s_n, s_{n+1}]
+     * uses both of these.
+     *
      * @tparam Pose The pose Lie group (e.g. gtsam::Pose3).
      */
     template <typename Pose>
@@ -77,20 +89,49 @@ namespace Spacetime::Priors::WNOV
          * @param Q1 Arclength random-walk PSD (covariance per unit arclength).
          * @param Q2 Time random-walk PSD (covariance per unit time).
          * @param options See PriorOptions.
+         * @param overrides Per-arclength values of Q1 and Q2 replacing the nominal ones
+         *        above (see CovarianceOverrides); none by default.
+         * Warns if epsilon0 does not have the body x axis as its tangent axis (see
+         * Priors::warnIfTangentNotX). DefaultCovariances() gives default Q0..Q2.
+         * @throws std::invalid_argument for an override key that is not a node arclength
+         *         (see Priors::CovarianceProfile).
          */
         Prior(
             std::shared_ptr<StateType> state,
             const Pose &T0,
             const TangentVector &epsilon0,
-            const MatrixN &Q0 = MatrixN::Identity(),
-            const MatrixN &Q1 = MatrixN::Identity(),
-            const MatrixN &Q2 = MatrixN::Identity(),
-            const PriorOptions &options = PriorOptions())
-            : Base(state, InterpolatorType(Q1, Q2, epsilon0), options.fixed_noise_model, options.cache_noise_model, "WNOV::Prior"),
-              m_T0(T0), m_epsilon0(epsilon0), m_Q0(Q0), m_Q1(Q1), m_Q2(Q2), m_options(options) {}
+            const MatrixN &Q0,
+            const MatrixN &Q1,
+            const MatrixN &Q2,
+            const PriorOptions &options = PriorOptions(),
+            const CovarianceOverrides<Pose> &overrides = CovarianceOverrides<Pose>())
+            : Prior(state, T0, epsilon0, Q0,
+                    std::make_shared<const CovarianceProfiles<Pose>>(Q1, Q2, stateArclengths(state), overrides), options) {}
+
+        /**
+         * @brief A prior with the default covariances (see DefaultCovariances).
+         * @param state The grid state this prior extends.
+         * @param T0 Base pose (see the full constructor).
+         * @param epsilon0 Nominal strain, in GTSAM [rotational, translational] order.
+         * @param options See PriorOptions.
+         * @param overrides Per-arclength values of Q1 and Q2 (see CovarianceOverrides).
+         */
+        Prior(std::shared_ptr<StateType> state, const Pose &T0, const TangentVector &epsilon0, const PriorOptions &options = PriorOptions(),
+              const CovarianceOverrides<Pose> &overrides = CovarianceOverrides<Pose>())
+            : Prior(std::move(state), T0, epsilon0, std::get<0>(DefaultCovariances()), std::get<1>(DefaultCovariances()),
+                    std::get<2>(DefaultCovariances()), options, overrides) {}
+
+        /// The default covariances (Q0, Q1, Q2), in constructor order: identity (no tuned values exist yet).
+        static std::tuple<MatrixN, MatrixN, MatrixN> DefaultCovariances()
+        {
+            return {MatrixN::Identity(), MatrixN::Identity(), MatrixN::Identity()};
+        }
 
         /// The options this prior was built with.
         const PriorOptions &options() const { return m_options; }
+
+        /// Q1 and Q2 resolved over the state's segments and nodes (see CovarianceOverrides).
+        const CovarianceProfiles<Pose> &covarianceProfiles() const { return *m_Q; }
 
         /**
          * @brief Append a node row at `time` (see GridPrior::beginRow) and return its prior
@@ -109,6 +150,7 @@ namespace Spacetime::Priors::WNOV
             for (unsigned int i = row_start; i < state->estimation_nodes.size(); i++)
             {
                 const std::shared_ptr<NodeType> &current_node = state->estimation_nodes.at(i);
+                const unsigned int n = i - row_start; // spatial index
 
                 // Time factor to the previous row, whose pose is the zero-error prediction.
                 std::optional<Pose> temporal_reference;
@@ -118,7 +160,7 @@ namespace Spacetime::Priors::WNOV
                     const double dt = current_node->time - previous_temporal_node->time;
                     new_factors.push_back(std::make_shared<gtsam::BetweenFactor<Pose>>(
                         previous_temporal_node->poseKey(), current_node->poseKey(), Pose(),
-                        gtsam::noiseModel::Gaussian::Covariance(dt * m_Q2)));
+                        gtsam::noiseModel::Gaussian::Covariance(dt * m_Q->Q2.at(n))));
                     temporal_reference = current_values.at<Pose>(previous_temporal_node->poseKey());
                 }
 
@@ -139,7 +181,7 @@ namespace Spacetime::Priors::WNOV
                     const Pose nominal_strain = gtsam::traits<Pose>::Expmap(ds * m_epsilon0);
                     new_factors.push_back(std::make_shared<gtsam::BetweenFactor<Pose>>(
                         previous_spatial_node->poseKey(), current_node->poseKey(), nominal_strain,
-                        gtsam::noiseModel::Gaussian::Covariance(ds * m_Q1)));
+                        gtsam::noiseModel::Gaussian::Covariance(ds * m_Q->Q1.at(n - 1))));
                     reference = new_values.at<Pose>(previous_spatial_node->poseKey()) * nominal_strain;
                 }
 
@@ -151,11 +193,18 @@ namespace Spacetime::Priors::WNOV
         }
 
     private:
+        Prior(std::shared_ptr<StateType> state, const Pose &T0, const TangentVector &epsilon0, const MatrixN &Q0,
+              std::shared_ptr<const CovarianceProfiles<Pose>> profiles, const PriorOptions &options)
+            : Base(state, InterpolatorType(profiles, epsilon0), options.fixed_noise_model, options.cache_noise_model, "WNOV::Prior"),
+              m_T0(T0), m_epsilon0(epsilon0), m_Q0(Q0), m_Q(std::move(profiles)), m_options(options)
+        {
+            warnIfTangentNotX<Pose>(epsilon0, "WNOV::Prior");
+        }
+
         Pose m_T0;
         TangentVector m_epsilon0;
         MatrixN m_Q0;
-        MatrixN m_Q1;
-        MatrixN m_Q2;
+        std::shared_ptr<const CovarianceProfiles<Pose>> m_Q; // Q1 and Q2, shared with the interpolator
         PriorOptions m_options;
     };
 } // namespace Spacetime::Priors::WNOV

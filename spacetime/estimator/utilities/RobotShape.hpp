@@ -47,7 +47,7 @@ namespace Spacetime::Utilities
         /// The prior's interpolation scheme (e.g. WNOA::Interpolator::interpolate), see bindInterpolator.
         /// When `posterior` is non-null, the interpolated node's posterior covariance is
         /// written to `posteriorCovariance` (left empty if it cannot be resolved).
-        using InterpolateFn = std::function<std::shared_ptr<Types::NodeValues>(
+        using InterpolateFn = std::function<std::shared_ptr<Types::NodeValuesBase>(
             double time, double arclength, const gtsam::Values &values,
             const std::shared_ptr<NodeT> &node00, const std::shared_ptr<NodeT> &node01,
             const std::shared_ptr<NodeT> &node10, const std::shared_ptr<NodeT> &node11,

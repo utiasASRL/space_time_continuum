@@ -14,7 +14,7 @@ rclpy = pytest.importorskip("rclpy", reason="rclpy is not available (source ROS2
 import spacetime as st  # noqa: E402
 from spacetime import joints  # noqa: E402
 
-from conftest import make_wnoa_robot  # noqa: E402
+from conftest import estimator_options, make_wnoa_robot  # noqa: E402
 
 NODES = 4
 
@@ -27,9 +27,11 @@ def unique(prefix):
 @pytest.fixture(scope="module", autouse=True)
 def contexts():
     ros2.init([])
+    st.setInterface("ros2")  # st.Session creates ROS2 sessions in this module
     rclpy.init()
     yield
     rclpy.shutdown()
+    st.setInterface("default")
     ros2.shutdown()
 
 
@@ -42,8 +44,7 @@ def listener():
 
 def solved_session(compute_covariance=False, extra_robot=False):
     """An estimator solved live for a short while, its session (for the clock) and robot priors."""
-    options = st.EstimatorOptions()
-    options.smootherLag = 1.0
+    options = estimator_options(1.0)
     options.compute_covariance = compute_covariance
     estimator = st.Estimator(options)
     _, prior = make_wnoa_robot(length=1.0, nodes=NODES, lock_base=False)
@@ -53,14 +54,14 @@ def solved_session(compute_covariance=False, extra_robot=False):
         _, other = make_wnoa_robot(length=0.5, nodes=NODES, base=gtsam.Pose3(gtsam.Rot3(), np.array([0.0, 0.2, 0.0])), lock_base=False)
         estimator.addModel(other)
         priors.append(other)
-    session_options = st.interface.SessionOptions()
+    session_options = st.SessionOptions()
     session_options.end_time = 0.1
     session_options.period = 0.05
     session_options.real_time = True
     ros_options = ros2.SessionRosOptions()
     ros_options.node_prefix = unique("spacetime")
-    session = ros2.Session(estimator, session_options, ros_options)
-    session.start()
+    session = st.Session(session_options, ros_options)
+    session.start(estimator)
     session.join()
     return estimator, session, priors
 
@@ -125,7 +126,7 @@ def test_draws_joints(listener):
     publisher = rviz.SnapshotPublisher(estimator, session.clock(), options)
     publisher.addRobot("a", prior_a)
     publisher.addRobot("b", prior_b)
-    joint = joints.RobotJoint(prior_a, 0.0, prior_b, 0.0, np.eye(6) * 1e-6)
+    joint = joints.Joint(prior_a, 0.0, prior_b, 0.0, np.eye(6) * 1e-6)
     publisher.addJoint("ball", joint, 0.01)
 
     markers, _ = receive(listener, publisher, options)
@@ -143,29 +144,29 @@ def test_invalid_robots_and_joints_raise():
         publisher.addRobot("a", prior_b)  # name taken
     with pytest.raises(ValueError):
         publisher.addRobot("bad name!", prior_b)
-    joint = joints.RobotJoint(prior_a, 0.0, prior_b, 0.0, np.eye(6) * 1e-6)
+    joint = joints.Joint(prior_a, 0.0, prior_b, 0.0, np.eye(6) * 1e-6)
     with pytest.raises(ValueError):
         publisher.addJoint("joint", joint)  # robot b not added
 
 
 def test_runs_on_a_session():
-    estimator = st.Estimator(st.EstimatorOptions())
+    estimator = st.Estimator(estimator_options(0.0))
     _, prior = make_wnoa_robot(lock_base=False)
     estimator.addModel(prior)
-    session_options = st.interface.SessionOptions()
+    session_options = st.SessionOptions()
     session_options.end_time = 0.2
     session_options.period = 0.02
     session_options.real_time = True
     ros_options = ros2.SessionRosOptions()
     ros_options.node_prefix = unique("spacetime")
-    session = ros2.Session(estimator, session_options, ros_options)
+    session = st.Session(session_options, ros_options)
     options = publisher_options()
     options.rate = 50.0
     publisher = rviz.SnapshotPublisher(estimator, session.clock(), options)
     publisher.addRobot("a", prior)
     session.addNode(publisher)
 
-    session.start()
+    session.start(estimator)
     session.join()
 
     assert session.finished()

@@ -2,7 +2,8 @@
 
 # spacetime package configuration: find_package(spacetime) provides the targets
 # spacetime::estimator, spacetime::interface (the thread-free interface layer),
-# spacetime::interfaces (every built interface, see <spacetime/interface/Interfaces.hpp>)
+# spacetime::interfaces (every built interface: include <spacetime> and use
+# Spacetime::Session, see <spacetime/interface/Interfaces.hpp>)
 # and, if built, spacetime::standalone (spacetime_INTERFACE_STANDALONE), spacetime::ros2 and
 # spacetime::rviz (spacetime_INTERFACE_ROS2, need a sourced ROS2 distribution) and
 # spacetime::visualizer (spacetime_VISUALIZER).
@@ -29,6 +30,7 @@ if(spacetime_INTERFACE_ROS2)
     find_dependency(tf2_ros)
     find_dependency(tf2_msgs)
     find_dependency(geometry_msgs)
+    find_dependency(sensor_msgs)
     find_dependency(visualization_msgs)
 endif()
 if(spacetime_VISUALIZER)

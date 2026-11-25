@@ -7,7 +7,7 @@
 #ifndef SPACETIME_STANDALONE_THREADPRIORITY_HPP
 #define SPACETIME_STANDALONE_THREADPRIORITY_HPP
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     /**
      * @brief Lowers the calling thread's scheduling priority (raises its nice

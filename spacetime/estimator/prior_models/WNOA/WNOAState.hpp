@@ -10,40 +10,46 @@
 #include <gtsam/base/Matrix.h>
 #include <gtsam/geometry/Pose3.h>
 
+#include <spacetime/estimator/prior_models/StraightStrain.hpp>
 #include <spacetime/estimator/utilities/functions.hpp>
 #include <spacetime/estimator/utilities/KeyManager.hpp>
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 
 namespace Spacetime::Priors::WNOA
 {
     // Forward declaration: the concrete key layout (pose/strain/velocity) lives in
     // WNOA/InterpolatedKeys.hpp, alongside its own generic-interface documentation;
-    // Values<Pose> only needs to name it here, not use it, so this avoids a cycle.
+    // NodeValues<Pose> only needs to name it here, not use it, so this avoids a cycle.
     template <typename Pose>
     struct InterpolatedKeys;
 
     /**
      * @brief Values of a WNOA node: pose T_ib, generalized strain epsilon and generalized
      *        velocity varpi, the latter two in GTSAM [rotational, translational] order.
-     *        Stored in that order in Types::NodeValues::values (pose as its matrix).
+     *        Stored in that order in Types::NodeValuesBase::values (pose as its matrix).
      * @tparam Pose The pose Lie group (e.g. gtsam::Pose3, or gtsam::Pose2 in the plane).
      */
     template <typename Pose>
-    struct Values : public Types::NodeValues
+    struct NodeValues : public Types::NodeValuesBase
     {
-        using Base = Types::NodeValues;
+        using Base = Types::NodeValuesBase;
         using TangentVector = typename gtsam::traits<Pose>::TangentVector; ///< Strain/velocity type, [rot, trans].
         using PoseType = Pose;
         using InterpolatedKeys = WNOA::InterpolatedKeys<Pose>; ///< This node type's interpolated-key layout.
         /// Tangent dimension: pose + strain + velocity.
         static constexpr unsigned int dim = Pose::dimension + 2 * TangentVector::RowsAtCompileTime;
 
-        /// Identity pose, zero strain and velocity.
-        Values()
+        /// Identity pose, straight strain (see Priors::straightStrain: [0, 0, 0, 1, 0, 0] for
+        /// gtsam::Pose3, the backbone along body x) and zero velocity.
+        NodeValues()
         {
             values.resize(3);
             pose(Pose());
-            epsilon(TangentVector::Zero());
+            epsilon(straightStrain<Pose>());
             varpi(TangentVector::Zero());
         }
 
@@ -91,20 +97,20 @@ namespace Spacetime::Priors::WNOA
             varpi(TangentVector::Random());
         }
 
-        /// Copy from another WNOA::Values; throws std::runtime_error for any other NodeValues type.
-        Values& operator=(const Base &other) override
+        /// Copy from another WNOA::NodeValues; throws std::runtime_error for any other NodeValuesBase type.
+        NodeValues& operator=(const Base &other) override
         {
-            const auto *typed_other = dynamic_cast<const Values *>(&other);
+            const auto *typed_other = dynamic_cast<const NodeValues *>(&other);
             if (!typed_other)
-                throw std::runtime_error("WNOA::Values::operator= received incompatible node values type.");
+                throw std::runtime_error("WNOA::NodeValues::operator= received incompatible node values type.");
 
             Base::operator=(other);
             return *this;
         }
         /// Copy assignment.
-        Values& operator=(const Values &other)
+        NodeValues& operator=(const NodeValues &other)
         {
-            return static_cast<Values&>(Base::operator=(other));
+            return static_cast<NodeValues&>(Base::operator=(other));
         }
     };
 
@@ -119,7 +125,7 @@ namespace Spacetime::Priors::WNOA
     {
         /// Tangent dimension: pose + strain + velocity.
         static constexpr unsigned int dim = gtsam::traits<Pose>::dimension * 3;
-        using ValuesType = Values<Pose>; ///< This node's values.
+        using ValuesType = NodeValues<Pose>; ///< This node's values.
         using TangentVector = typename gtsam::traits<Pose>::TangentVector;
 
         // Node specific functions
@@ -146,7 +152,7 @@ namespace Spacetime::Priors::WNOA
         }
 
         /// This node's values read from `values` (throws if a variable is absent).
-        std::shared_ptr<Types::NodeValues> getValuesBase(const gtsam::Values &values) const override
+        std::shared_ptr<Types::NodeValuesBase> getValuesBase(const gtsam::Values &values) const override
         {
             std::shared_ptr<ValuesType> ret = std::make_shared<ValuesType>();
             ret->pose(values.at<Pose>(poseKey_));
@@ -168,8 +174,8 @@ namespace Spacetime::Priors::WNOA
         }
 
     private:
-        /// Insert typed node values at this node's keys; throws for a non-WNOA NodeValues.
-        void setValuesBase_(gtsam::Values &values, const Types::NodeValues &node_values) const
+        /// Insert typed node values at this node's keys; throws for a non-WNOA NodeValuesBase.
+        void setValuesBase_(gtsam::Values &values, const Types::NodeValuesBase &node_values) const
         {
             const auto *typed_values = dynamic_cast<const ValuesType *>(&node_values);
             if (!typed_values)

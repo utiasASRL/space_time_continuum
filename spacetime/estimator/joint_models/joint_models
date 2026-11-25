@@ -1,0 +1,21 @@
+// -*- C++ -*-
+/**
+ * @file joint_models
+ * @brief Aggregation header of spacetime/estimator/joint_models/: joints between robots, and end effectors (with their prior, state and interpolator).
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_JOINT_MODELS
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_JOINT_MODELS
+
+#include <spacetime/estimator/joint_models/EndEffector.hpp>
+#include <spacetime/estimator/joint_models/EndEffectorInterpolator.hpp>
+#include <spacetime/estimator/joint_models/EndEffectorPrior.hpp>
+#include <spacetime/estimator/joint_models/EndEffectorState.hpp>
+#include <spacetime/estimator/joint_models/Joint.hpp>
+#include <spacetime/estimator/joint_models/JointBase.hpp>
+#include <spacetime/estimator/joint_models/JointFactors.hpp>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_JOINT_MODELS

@@ -17,7 +17,7 @@
 
 #include <spacetime/interface/Clock.hpp>
 
-namespace Spacetime::Standalone
+namespace Spacetime::Interface::Standalone
 {
     /// An Interface::Clock that the standalone threads can (re)start and sleep on. All methods are safe to call from any thread.
     struct PacingClock : public Interface::Clock
@@ -91,6 +91,6 @@ namespace Spacetime::Standalone
         double m_start_time = 0.0;
         SteadyClock::time_point m_start_wall_time;
     };
-} // namespace Spacetime::Standalone
+} // namespace Spacetime::Interface::Standalone
 
 #endif // SPACETIME_STANDALONE_CLOCK_HPP

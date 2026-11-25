@@ -1,15 +1,24 @@
 #ifndef WNOAQUASISTATIC_INTERPOLATOR_HPP
 #define WNOAQUASISTATIC_INTERPOLATOR_HPP
 
+#include <memory>
+#include <optional>
+#include <stdexcept>
+
 #include <Eigen/Dense>
 #include <gtsam/base/Lie.h>
 #include <gtsam/base/Testable.h>
 
-#include <spacetime/Types.hpp>
+#include <spacetime/estimator/types/ActuatorBase.hpp>
+#include <spacetime/estimator/types/ContinuumRobot.hpp>
+#include <spacetime/estimator/types/InterpolatedKeys.hpp>
+#include <spacetime/estimator/types/Robot.hpp>
+#include <spacetime/estimator/types/SensorBase.hpp>
 #include <spacetime/estimator/prior_models/GridInterpolator.hpp>
 #include <spacetime/estimator/prior_models/WNOA/Interpolator.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/WNOAQuasiStaticState.hpp>
 #include <spacetime/estimator/prior_models/WNOAQuasiStatic/InterpolatedKeys.hpp>
+#include <spacetime/estimator/prior_models/WNOAQuasiStatic/Covariances.hpp>
 
 namespace Spacetime::Priors::WNOAQuasiStatic
 {
@@ -26,6 +35,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         double delta_i = 0.0;    ///< Arclength: the query's offset past the left node.
         double delta = 0.0;      ///< Arclength: the right node's offset (0 when extrapolating).
         bool take_right = false; ///< Time: the right row is the nearer one.
+        std::optional<double> cell_arclength; ///< Arclength: the cell whose Q2 applies (nullopt: the nominal one).
     };
 
     /**
@@ -50,7 +60,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
     {
         using Base = GridInterpolator<Interpolator<Pose>, Node<Pose>, WNOAQuasiStatic::InterpolatedKeys<Pose>, AxisPlan>;
         using WNOAInterpolator = WNOA::Interpolator<Pose>;
-        using WNOAValues = WNOA::Values<Pose>;
+        using WNOAValues = WNOA::NodeValues<Pose>;
 
         GTSAM_CONCEPT_ASSERT(gtsam::IsTestable<Pose>);
         GTSAM_CONCEPT_ASSERT(gtsam::IsLieGroup<Pose>);
@@ -70,14 +80,30 @@ namespace Spacetime::Priors::WNOAQuasiStatic
 
         /// @param Q2 Arclength-axis (pose, strain) WNOA process PSD (the prior's Q2).
         explicit Interpolator(const MatrixN &Q2)
-            : m_wnoa(MatrixN::Identity(), Q2, MatrixN::Identity(), MatrixN::Identity()) {}
+            : Interpolator(std::make_shared<const CovarianceProfiles<Pose>>(Q2)) {}
+
+        /**
+         * @param profiles The prior's Q2 resolved over its segments (see
+         *        WNOAQuasiStatic::CovarianceOverrides): a query in the cell [s_n, s_{n+1}]
+         *        uses segment n's Q2.
+         * @throws std::invalid_argument for a null `profiles`.
+         */
+        explicit Interpolator(std::shared_ptr<const CovarianceProfiles<Pose>> profiles)
+            : m_profiles(requireProfiles(std::move(profiles))),
+              m_wnoa(std::make_shared<const WNOA::CovarianceProfiles<Pose>>(
+                  typename WNOA::CovarianceProfiles<Pose>::Profile(MatrixN::Identity(), CovarianceAxis::Time), m_profiles->Q2,
+                  typename WNOA::CovarianceProfiles<Pose>::Profile(MatrixN::Identity(), CovarianceAxis::Time),
+                  typename WNOA::CovarianceProfiles<Pose>::Profile(MatrixN::Identity(), CovarianceAxis::Space))) {}
+
+        /// The Q2 this interpolator uses.
+        const CovarianceProfiles<Pose> &covarianceProfiles() const { return *m_profiles; }
 
     private:
         friend Base;
         using WNOAMatrixNode = typename WNOAInterpolator::MatrixNode;
 
         /// GridInterpolator hook: arclength keeps the offsets; time picks the nearer row.
-        AxisPlan planInterpolate(bool space, double delta_i, double delta) const
+        AxisPlan planInterpolate(bool space, double delta_i, double delta, std::optional<double> cell_arclength) const
         {
             AxisPlan plan;
             plan.space = space;
@@ -85,6 +111,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
             {
                 plan.delta_i = delta_i;
                 plan.delta = delta;
+                plan.cell_arclength = cell_arclength;
             }
             else
                 plan.take_right = delta_i > 0.5 * delta;
@@ -92,13 +119,23 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         }
 
         /// GridInterpolator hook: arclength extrapolates along the strain; time holds the anchor row.
-        AxisPlan planExtrapolate(bool space, double delta_i) const
+        AxisPlan planExtrapolate(bool space, double delta_i, std::optional<double> cell_arclength) const
         {
             AxisPlan plan;
             plan.space = space;
             if (space)
+            {
                 plan.delta_i = delta_i;
+                plan.cell_arclength = cell_arclength;
+            }
             return plan;
+        }
+
+        static std::shared_ptr<const CovarianceProfiles<Pose>> requireProfiles(std::shared_ptr<const CovarianceProfiles<Pose>> profiles)
+        {
+            if (!profiles)
+                throw std::invalid_argument("WNOAQuasiStatic::Interpolator: null covariance profiles.");
+            return profiles;
         }
 
         /// GridInterpolator hook: WNOA interpolation in arclength, nearest row in time.
@@ -126,7 +163,8 @@ namespace Spacetime::Priors::WNOAQuasiStatic
             gtsam::Matrix wnoa_jac;
             WNOAMatrixNode wnoa_cov;
             const WNOAValues result = m_wnoa.interpolateSpace(
-                0.0, plan.delta, plan.delta_i, toWNOA(n0), toWNOA(n1), jac ? &wnoa_jac : nullptr, cov ? &wnoa_cov : nullptr);
+                0.0, plan.delta, plan.delta_i, toWNOA(n0), toWNOA(n1), jac ? &wnoa_jac : nullptr, cov ? &wnoa_cov : nullptr,
+                plan.cell_arclength);
             if (jac)
                 *jac << wnoa_jac.block(0, 0, node_dim, node_dim), wnoa_jac.block(0, WNOAInterpolator::node_dim, node_dim, node_dim);
             if (cov)
@@ -155,7 +193,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
             gtsam::Matrix wnoa_jac;
             WNOAMatrixNode wnoa_cov;
             const WNOAValues result = m_wnoa.extrapolateSpace(
-                0.0, plan.delta_i, toWNOA(n0), jac ? &wnoa_jac : nullptr, cov ? &wnoa_cov : nullptr);
+                0.0, plan.delta_i, toWNOA(n0), jac ? &wnoa_jac : nullptr, cov ? &wnoa_cov : nullptr, plan.cell_arclength);
             if (jac)
                 *jac << wnoa_jac.block(0, 0, node_dim, node_dim), MatrixNode::Zero();
             if (cov)
@@ -175,6 +213,7 @@ namespace Spacetime::Priors::WNOAQuasiStatic
         /// The pose and strain of a WNOA node, dropping its velocity.
         static ValuesType fromWNOA(const WNOAValues &v) { return ValuesType(v.pose(), v.epsilon()); }
 
+        std::shared_ptr<const CovarianceProfiles<Pose>> m_profiles; // shared, immutable
         WNOAInterpolator m_wnoa; // its Q1, Q3 and Q4 never enter the arclength pose/strain blocks
     };
 } // namespace Spacetime::Priors::WNOAQuasiStatic

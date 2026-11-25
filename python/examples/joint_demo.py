@@ -13,7 +13,7 @@ import gtsam
 import numpy as np
 
 import spacetime as st
-from spacetime import interface, joints, types
+from spacetime import joints, types
 from spacetime.priors import wnoa
 
 try:
@@ -24,9 +24,10 @@ except ImportError:  # built without the visualizer
 
 @dataclass
 class DemoRobot:
-    """A WNOA robot's grid state and its prior."""
+    """A WNOA robot's grid state, its prior, and its initial base pose."""
     state: wnoa.ContinuumRobotState
     prior: wnoa.Prior
+    base: gtsam.Pose3
 
 
 @dataclass
@@ -63,13 +64,13 @@ def make_robot(length, nodes, base, strain, lock_base=True, elongation=None, she
         Q3[i, i] = scale.time
 
     state = wnoa.ContinuumRobotState(length, nodes)
-    reference = wnoa.Values()
+    reference = wnoa.NodeValues()
     reference.pose(base)
     reference.epsilon(strain)
-    prior = wnoa.Prior(state, reference, Q0, np.eye(6), Q2, Q3)
+    prior = wnoa.Prior(state, reference, Q0, np.eye(6), Q2, Q3, np.eye(6))
     if lock_base:
         state.lock("pose", 0.0, base)
-    return DemoRobot(state, prior)
+    return DemoRobot(state, prior, base)
 
 
 def rotation_with_x_axis(x):
@@ -141,18 +142,31 @@ def write_output(directory, values, reports):
             joints_file.write(f"{joint_id},{_format(residual)},{_format(travel_a)},{_format(travel_b)}\n")
 
 
+def ground_plane_under(robots):
+    """The floor the robots stand on: a horizontal plane (normal +z) at z = 0, centred under the
+    robots' bases and sized to their horizontal spread, with a margin (as JointDemo::groundPlaneUnder)."""
+    plane = visualizer.GroundPlaneOptions()
+    if not robots:
+        return plane
+    bases = np.array([robot.base.translation()[:2] for robot in robots])
+    centre = bases.mean(axis=0)
+    spread = float(np.max(np.linalg.norm(bases - centre, axis=1)))
+    plane.position = np.array([centre[0], centre[1], 0.0])
+    plane.size = max(0.3, 3.0 * spread)
+    return plane
+
+
 def run(estimator, robots, robot_joints, end_effectors, start_time, end_time, period, args, summary_only=False):
     """Estimates [start_time, end_time] with a batch `estimator` already holding every robot,
     joint, end effector and sensor, then (unless headless) replays it in the visualizer, and
     prints each joint's residual at the end time -- or, if `summary_only`, just their largest and
     mean residuals and travels."""
-    options = interface.SessionOptions()
+    options = st.SessionOptions()
     options.start_time = start_time
     options.end_time = end_time
     options.period = period
     options.real_time = False
-    session = interface.Session(estimator, options)
-    session.addMeasurementQueues(estimator.getMeasurementQueues())
+    session = st.Session(options)
 
     initial_wall_time = time.perf_counter()
     window = None
@@ -168,10 +182,11 @@ def run(estimator, robots, robot_joints, end_effectors, start_time, end_time, pe
             window.addJoint(joint)
         for end_effector in end_effectors:
             window.addEndEffector(end_effector)
+        window.addGroundPlane(ground_plane_under(robots))  # toggle P
         window.start(estimator, session.requestStop)
 
     # Offline: estimate everything first, then replay it.
-    session.start()
+    session.start(estimator)
     session.join()
     print(f"Estimation complete in {time.perf_counter() - initial_wall_time} s.")
 

@@ -1,0 +1,29 @@
+// -*- C++ -*-
+/**
+ * @file objects
+ * @brief Aggregation header of spacetime/visualizer/default/objects/: the default backend's object views and overlay widgets.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_DEFAULT_OBJECTS
+#define SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_DEFAULT_OBJECTS
+
+#if defined(VISUALIZER) && defined(SPACETIME_VISUALIZER_BACKEND_DEFAULT)
+
+#include <spacetime/visualizer/default/objects/ContinuumRobot.hpp>
+#include <spacetime/visualizer/default/objects/EndEffector.hpp>
+#include <spacetime/visualizer/default/objects/GroundPlane.hpp>
+#include <spacetime/visualizer/default/objects/InfoWidget.hpp>
+#include <spacetime/visualizer/default/objects/Joint.hpp>
+#include <spacetime/visualizer/default/objects/PlotPanel.hpp>
+#include <spacetime/visualizer/default/objects/PlotWidget.hpp>
+#include <spacetime/visualizer/default/objects/PoseSensor.hpp>
+#include <spacetime/visualizer/default/objects/RuntimeWidget.hpp>
+#include <spacetime/visualizer/default/objects/SensorViews.hpp>
+#include <spacetime/visualizer/default/objects/TimelineWidget.hpp>
+
+#endif
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_VISUALIZER_DEFAULT_OBJECTS

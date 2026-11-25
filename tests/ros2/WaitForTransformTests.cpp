@@ -24,10 +24,10 @@ namespace Spacetime
         t.header.frame_id = parent;
         t.header.stamp = node->now();
         t.child_frame_id = child;
-        t.transform = Ros2::toTransformMsg(pose);
+        t.transform = Interface::Ros2::toTransformMsg(pose);
         broadcaster.sendTransform(t);
 
-        const auto found = Ros2::waitForTransform(parent, child, 3s);
+        const auto found = Interface::Ros2::waitForTransform(parent, child, 3s);
 
         ASSERT_TRUE(found);
         EXPECT_TRUE(found->equals(pose, 1e-9));
@@ -37,7 +37,7 @@ namespace Spacetime
     {
         const auto start = std::chrono::steady_clock::now();
 
-        const auto found = Ros2::waitForTransform(uniqueName("field"), uniqueName("sensor"), 200ms);
+        const auto found = Interface::Ros2::waitForTransform(uniqueName("field"), uniqueName("sensor"), 200ms);
 
         EXPECT_FALSE(found);
         EXPECT_GE(std::chrono::steady_clock::now() - start, 200ms);

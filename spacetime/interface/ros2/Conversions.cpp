@@ -2,7 +2,7 @@
 
 #include "Conversions.hpp"
 
-namespace Spacetime::Ros2
+namespace Spacetime::Interface::Ros2
 {
     namespace
     {
@@ -58,4 +58,4 @@ namespace Spacetime::Ros2
         msg.orientation.z = q.z();
         return msg;
     }
-} // namespace Spacetime::Ros2
+} // namespace Spacetime::Interface::Ros2

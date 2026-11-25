@@ -1,0 +1,26 @@
+// -*- C++ -*-
+/**
+ * @file prior_models
+ * @brief Aggregation header of spacetime/estimator/prior_models/: the Gaussian-process priors, and the prior-agnostic grid and interpolation building blocks.
+ *        It only includes this folder's headers and its subfolders' aggregation headers, so
+ *        adding a header to the folder means adding one line here. For downstream code only:
+ *        library headers include the specific headers they need.
+ */
+
+#ifndef SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS
+#define SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS
+
+#include <spacetime/estimator/prior_models/CovarianceProfile.hpp>
+#include <spacetime/estimator/prior_models/GridInterpolator.hpp>
+#include <spacetime/estimator/prior_models/GridPrior.hpp>
+#include <spacetime/estimator/prior_models/InterpolatedNode.hpp>
+#include <spacetime/estimator/prior_models/InterpolationFactor.hpp>
+#include <spacetime/estimator/prior_models/MultiInterpolationFactor.hpp>
+#include <spacetime/estimator/prior_models/StraightStrain.hpp>
+#include <spacetime/estimator/prior_models/TwoSidedInterpolationFactor.hpp>
+
+#include <spacetime/estimator/prior_models/WNOA/WNOA>
+#include <spacetime/estimator/prior_models/WNOV/WNOV>
+#include <spacetime/estimator/prior_models/WNOAQuasiStatic/WNOAQuasiStatic>
+
+#endif // SPACETIME_AGGREGATE_SPACETIME_ESTIMATOR_PRIOR_MODELS

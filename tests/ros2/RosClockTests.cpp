@@ -25,12 +25,12 @@ namespace Spacetime
 
     TEST(RosClock, RejectsNullClock)
     {
-        EXPECT_THROW(Ros2::RosClock(nullptr), std::invalid_argument);
+        EXPECT_THROW(Interface::Ros2::RosClock(nullptr), std::invalid_argument);
     }
 
     TEST(RosClock, ReadsTheStartTimeUntilStarted)
     {
-        Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), 5.0);
+        Interface::Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), 5.0);
         EXPECT_FALSE(clock.started());
         EXPECT_DOUBLE_EQ(clock.now(), 5.0);
         EXPECT_THROW(clock.toEstimatorTime(stamp(1, 0)), std::logic_error);
@@ -39,7 +39,7 @@ namespace Spacetime
 
     TEST(RosClock, CountsFromTheStartTimeOnceStarted)
     {
-        Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), 5.0);
+        Interface::Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), 5.0);
         ASSERT_TRUE(clock.tryStart());
         EXPECT_TRUE(clock.started());
         const double first = clock.now();
@@ -51,7 +51,7 @@ namespace Spacetime
 
     TEST(RosClock, TryStartKeepsTheFirstOrigin)
     {
-        Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME));
+        Interface::Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME));
         ASSERT_TRUE(clock.tryStart());
         const rclcpp::Time origin = clock.origin();
         rclcpp::sleep_for(10ms);
@@ -61,7 +61,7 @@ namespace Spacetime
 
     TEST(RosClock, StampsRoundTripThroughEstimatorTime)
     {
-        Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), 2.0);
+        Interface::Ros2::RosClock clock(std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), 2.0);
         ASSERT_TRUE(clock.tryStart());
         const rclcpp::Time origin = clock.origin();
 
@@ -87,7 +87,7 @@ namespace Spacetime
         executor.add_node(node);
         executor.add_node(clock_node);
 
-        Ros2::RosClock clock(node->get_clock());
+        Interface::Ros2::RosClock clock(node->get_clock());
         EXPECT_FALSE(clock.tryStart());
 
         rosgraph_msgs::msg::Clock message;

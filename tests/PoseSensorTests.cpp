@@ -16,13 +16,14 @@
 #include <spacetime/estimator/prior_models/WNOA.hpp>
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "TestEstimatorOptions.hpp"
 
 namespace Spacetime
 {
     using Pose = gtsam::Pose3;
     using NodeType = Priors::WNOA::Node<Pose>;
     using StateType = Types::ContinuumRobotState<NodeType>;
-    using ValueType = Priors::WNOA::Values<Pose>;
+    using ValueType = Priors::WNOA::NodeValues<Pose>;
 
     namespace
     {
@@ -201,7 +202,7 @@ namespace Spacetime
             node_reference.epsilon((Eigen::Vector<double, 6>() << 0, 0, 0, 0, 0, 1.0).finished());
             auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, node_reference);
 
-            Estimator estimator(/*smootherLag=*/1.0);
+            Estimator estimator(Testing::estimatorOptions(1.0));
             estimator.addPrior(prior);
 
             Eigen::Matrix<double, 6, 6> measurement_covariance = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
