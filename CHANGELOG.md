@@ -4,7 +4,8 @@ All notable changes to this repository will be documented here, with possible br
 
 ## Nov 26, 2026
 
-- Prebuilt Python wheels (Linux x86_64, Python 3.10–3.13, e.g. for Google Colab): `pip install spacetime -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/<tag>`. A wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings, so don't also install `gtsam` from PyPI. `.github/workflows/wheels.yml` builds them with cibuildwheel (`pyproject.toml`, `ci/cibw_before_all.sh`) and attaches them to each `v*` release.
+- Prebuilt Python wheels (Linux x86_64, e.g. for Google Colab), attached to GitHub releases: `pip install spacetime-continuum -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/<tag>`. The distribution is named `spacetime-continuum`, because `spacetime` on PyPI is an unrelated project; it is still imported as `spacetime`. A wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings, so don't also install `gtsam` from PyPI.
+- `ci/build_wheels.sh` builds the wheels in Docker with cibuildwheel (`pyproject.toml`, `ci/cibw_before_all.sh`). `ci/test_fresh.sh` tests one in a fresh Colab-like container (`ci/Dockerfile.colab`): it runs `ci/colab_test.ipynb` and `python/tests` against the installed wheel.
 - New top-level `pyproject.toml` (scikit-build-core): `pip install .` builds the bindings from source. The CMake option `BuildExamples` (default ON) turns off the demos, and the Python package has install rules (`COMPONENT python`).
 
 ## Nov 25, 2026

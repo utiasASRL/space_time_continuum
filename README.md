@@ -394,13 +394,15 @@ python -m pytest python/tests       # the Python tests
 
 #### Prebuilt wheels (e.g. Google Colab)
 
-Each release has prebuilt wheels for Linux x86_64 (Python 3.10–3.13), which is also what Google Colab runs. Nothing gets compiled when you install one:
+Releases on GitHub have prebuilt wheels for Linux x86_64, which is also what Google Colab runs. The release page lists which Python versions have a wheel. Nothing gets compiled when you install one:
 
 ```bash
-pip install spacetime -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/v1.0.0
+pip install spacetime-continuum -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/v1.0.0-alpha
 ```
 
-In a Colab cell, prefix the command with `!`. The wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings (without TBB and Boost), so **don't** also `pip install gtsam`, which would replace it. The wheels are built with `MarchNative=OFF` and without the visualizer and ROS2. `.github/workflows/wheels.yml` builds them for each `v*` tag with [cibuildwheel](https://cibuildwheel.pypa.io) (`pyproject.toml`, `ci/cibw_before_all.sh`).
+The package is named `spacetime-continuum` and imported as `spacetime`. (`spacetime` on PyPI is an unrelated project; if it is already installed, `pip uninstall spacetime` first.) In a Colab cell, prefix the command with `%` or `!`, and restart the session if `spacetime` was imported before. The wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings (without TBB and Boost), so **don't** also `pip install gtsam`, which would replace it. The wheels are built with `MarchNative=OFF` and without the visualizer and ROS2.
+
+To build the wheels (Docker is required), run `ci/build_wheels.sh [python version...]`, which uses [cibuildwheel](https://cibuildwheel.pypa.io) with the settings in `pyproject.toml` and `ci/cibw_before_all.sh`. Then test a wheel in a fresh Colab-like container with `ci/test_fresh.sh [python version]`, which runs `ci/colab_test.ipynb` and `python/tests`, and upload the wheels from `local_testing/wheelhouse/` to the release. The default Python version for both scripts is 3.13, Colab's.
 
 `pip install .` from a checkout builds the bindings from source with scikit-build-core instead. For that, GTSAM (with its Python module installed in the same environment), Eigen 3.4 and jsoncpp must be findable by CMake.
 

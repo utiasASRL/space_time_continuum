@@ -1,9 +1,13 @@
 # Python packaging of the spacetime bindings (python/), built by scikit-build-core.
 #
+# The distribution is named spacetime-continuum (`spacetime` on PyPI is an unrelated project);
+# it is imported as `spacetime`.
+#
 # Prebuilt wheels (Linux x86_64, e.g. for Google Colab) are built by cibuildwheel with the
-# [tool.cibuildwheel] settings below (.github/workflows/wheels.yml): GTSAM is built from source
-# in the manylinux container (ci/cibw_before_all.sh), and its Python module is bundled into the
-# wheel, so `gtsam` and `spacetime` share one libgtsam. Do not `pip install gtsam` next to it.
+# [tool.cibuildwheel] settings below, through ci/build_wheels.sh, and uploaded to a GitHub
+# release by hand. GTSAM is built from source in the manylinux container
+# (ci/cibw_before_all.sh), and its Python module is bundled into the wheel, so `gtsam` and
+# `spacetime` share one libgtsam. Do not `pip install gtsam` next to it.
 #
 # `pip install .` (or `pip install git+https://...`) builds from source instead. That needs
 # GTSAM (with GTSAM_BUILD_PYTHON, installed into the same environment), Eigen 3.4 and jsoncpp

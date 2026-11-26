@@ -1,0 +1,13 @@
+# A fresh, Colab-like environment for ci/test_fresh.sh: Python on a glibc Linux, run as root
+# with no venv, and no GTSAM, Eigen or spacetime installed, plus Jupyter to execute
+# ci/colab_test.ipynb headlessly. PYTHON_VERSION should match the Colab runtime (3.13 as of
+# Nov 2026).
+ARG PYTHON_VERSION=3.13
+FROM python:${PYTHON_VERSION}-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir pytest nbconvert nbclient ipykernel \
+    && python -m ipykernel install --sys-prefix
+
+ENV PYTHONDONTWRITEBYTECODE=1
+WORKDIR /work
