@@ -64,5 +64,5 @@ test-command = "pytest -q -p no:cacheprovider {project}/python/tests"
 [tool.cibuildwheel.linux]
 # $CIBW_PYTHON is the one Python version this run builds, e.g. 3.12.
 before-all = "bash {project}/ci/cibw_before_all.sh $CIBW_PYTHON {project}"
-environment-pass = ["CIBW_PYTHON", "CIBW_JOBS"]
+environment-pass = ["CIBW_PYTHON", "CIBW_JOBS", "GTSAM_WRAP_JOBS", "GTSAM_WRAP_GB"]
 environment = { LD_LIBRARY_PATH = "/usr/local/lib:$LD_LIBRARY_PATH", SKBUILD_CMAKE_DEFINE = "SPACETIME_BUNDLE_GTSAM_PY=/opt/gtsam-build/python/gtsam" }

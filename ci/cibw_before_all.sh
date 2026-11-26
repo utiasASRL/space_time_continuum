@@ -67,8 +67,14 @@ cmake -S gtsam -B "$GTSAM_BUILD" \
     -DGTSAM_PYTHON_VERSION="$PYTHON_VERSION" \
     -DPYTHON_EXECUTABLE:FILEPATH="$PYTHON"
 cmake --build "$GTSAM_BUILD" -j"$JOBS" --target install
-# The generated wrapper's translation units need a lot of memory each: fewer jobs.
-cmake --build "$GTSAM_BUILD" -j"$(( JOBS > 8 ? 8 : JOBS ))" --target gtsam_py
+# The generated wrapper's translation units need several GB each (GTSAM's own wheel build
+# uses -j1): with one job per CPU, a 16 GB GitHub runner runs out of memory and the job is
+# killed (exit 137). One job per GTSAM_WRAP_GB (default 6) of available memory, at most JOBS.
+MEM_GB=$(awk '/MemAvailable/ { print int($2 / 1048576) }' /proc/meminfo)
+WRAP_JOBS="${GTSAM_WRAP_JOBS:-$(( MEM_GB / ${GTSAM_WRAP_GB:-6} ))}"
+WRAP_JOBS=$(( WRAP_JOBS < 1 ? 1 : (WRAP_JOBS > JOBS ? JOBS : WRAP_JOBS) ))
+echo "Wrapper build: ${WRAP_JOBS} jobs (${MEM_GB} GB available)"
+cmake --build "$GTSAM_BUILD" -j"$WRAP_JOBS" --target gtsam_py
 test -f "$GTSAM_BUILD/python/gtsam/__init__.py"
 # The module's RPATH points at the build tree's libgtsam, _spacetime's at the installed one:
 # auditwheel would bundle both. Drop it, so both resolve to $PREFIX/lib (LD_LIBRARY_PATH).
