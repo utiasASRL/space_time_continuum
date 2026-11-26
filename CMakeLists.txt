@@ -28,6 +28,8 @@ option(InterfaceMujoco "Build the Mujoco interface" OFF)
 option(InterfaceROS2 "Build the ROS2 interface" OFF)
 # Python bindings (python/): the `spacetime` package, built against GTSAM's Python module.
 option(Python "Build the Python bindings" OFF)
+# The demos in examples/ (need InterfaceStandalone). Off when building Python wheels.
+option(BuildExamples "Build the demos in examples/" ON)
 
 message("BuildTests: ${BuildTests}")
 message("Profile: ${Profile}")
@@ -38,6 +40,7 @@ message("MarchNative: ${MarchNative}")
 message("InterfaceStandalone: ${InterfaceStandalone}")
 message("InterfaceMujoco: ${InterfaceMujoco}")
 message("InterfaceROS2: ${InterfaceROS2}")
+message("BuildExamples: ${BuildExamples}")
 message("Python: ${Python}")
 if(InterfaceMujoco)
     message(FATAL_ERROR "The Mujoco interface (InterfaceMujoco) is not implemented yet.")
@@ -112,7 +115,7 @@ if(Visualizer)
 endif()
 
 add_subdirectory(spacetime)
-if(InterfaceStandalone)
+if(InterfaceStandalone AND BuildExamples)
     add_subdirectory(examples) # the demo plays recorded data through the standalone interface
 endif()
 

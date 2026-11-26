@@ -23,6 +23,7 @@ pybind11_add_module(_spacetime
     src/bind_priors.cpp
     src/bind_joints.cpp
     src/bind_sensors.cpp
+    src/bind_actuators.cpp
     src/bind_estimator.cpp
     src/bind_interface.cpp
     src/bind_utilities.cpp
@@ -63,3 +64,21 @@ add_custom_target(python-install
     DEPENDS _spacetime
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Installing the spacetime Python package into ${Python_EXECUTABLE}'s environment")
+
+# Wheel builds (pyproject.toml, scikit-build-core installs only COMPONENT python): the extension
+# and the pure-Python sources, as the `spacetime` package at the wheel's root.
+install(TARGETS _spacetime LIBRARY DESTINATION spacetime COMPONENT python)
+install(DIRECTORY spacetime/ DESTINATION spacetime COMPONENT python
+        FILES_MATCHING PATTERN "*.py" PATTERN "__pycache__" EXCLUDE)
+# Prebuilt wheels also ship GTSAM's Python module, built from the same libgtsam as _spacetime
+# (see ci/cibw_before_all.sh): SPACETIME_BUNDLE_GTSAM_PY is the gtsam package directory of
+# that GTSAM build (<gtsam build>/python/gtsam). auditwheel then bundles one libgtsam for both.
+set(SPACETIME_BUNDLE_GTSAM_PY "" CACHE PATH "gtsam Python package directory to bundle into the wheel (optional)")
+if(SPACETIME_BUNDLE_GTSAM_PY)
+    if(NOT EXISTS ${SPACETIME_BUNDLE_GTSAM_PY}/__init__.py)
+        message(FATAL_ERROR "SPACETIME_BUNDLE_GTSAM_PY=${SPACETIME_BUNDLE_GTSAM_PY} is not a gtsam package directory")
+    endif()
+    message("Bundling GTSAM's Python module from ${SPACETIME_BUNDLE_GTSAM_PY}")
+    install(DIRECTORY ${SPACETIME_BUNDLE_GTSAM_PY}/ DESTINATION gtsam COMPONENT python
+            PATTERN "__pycache__" EXCLUDE PATTERN "tests" EXCLUDE)
+endif()

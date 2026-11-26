@@ -392,6 +392,18 @@ pip install -r python/requirements.txt
 python -m pytest python/tests       # the Python tests
 ```
 
+#### Prebuilt wheels (e.g. Google Colab)
+
+Each release has prebuilt wheels for Linux x86_64 (Python 3.10–3.13), which is also what Google Colab runs. Nothing gets compiled when you install one:
+
+```bash
+pip install spacetime -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/v1.0.0
+```
+
+In a Colab cell, prefix the command with `!`. The wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings (without TBB and Boost), so **don't** also `pip install gtsam`, which would replace it. The wheels are built with `MarchNative=OFF` and without the visualizer and ROS2. `.github/workflows/wheels.yml` builds them for each `v*` tag with [cibuildwheel](https://cibuildwheel.pypa.io) (`pyproject.toml`, `ci/cibw_before_all.sh`).
+
+`pip install .` from a checkout builds the bindings from source with scikit-build-core instead. For that, GTSAM (with its Python module installed in the same environment), Eigen 3.4 and jsoncpp must be findable by CMake.
+
 Every C++ base class can be subclassed in Python:
 
 - `types.Model`

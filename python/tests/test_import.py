@@ -1,5 +1,8 @@
 """The extension imports, and GTSAM objects cross into it as GTSAM's own Python types."""
 
+import os
+import re
+
 import gtsam
 import pytest
 
@@ -28,7 +31,9 @@ def test_estimator_holds_a_gtsam_fixed_lag_smoother():
 def test_one_libgtsam_is_loaded():
     """GTSAM's module and ours must share one libgtsam, or GTSAM objects would cross library copies."""
     with open("/proc/self/maps") as maps:
-        libraries = {line.split()[-1] for line in maps if "libgtsam.so" in line}
+        # In a wheel, auditwheel renames it to libgtsam-<hash>.so.<version>.
+        libraries = {path for path in (line.split()[-1] for line in maps)
+                     if re.match(r"libgtsam(-[0-9a-f]+)?\.so", os.path.basename(path))}
     if not libraries:
         pytest.skip("libgtsam is linked statically")
     assert len(libraries) == 1, libraries

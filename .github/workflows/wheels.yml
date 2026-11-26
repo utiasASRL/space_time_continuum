@@ -1,0 +1,56 @@
+# Builds the spacetime Python wheels (Linux x86_64, manylinux_2_28) with cibuildwheel and, for
+# a v* tag, attaches them to that tag's GitHub release. Install one with e.g.
+#   pip install spacetime -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/<tag>
+# local_testing/build_wheels.sh runs the same build locally.
+name: wheels
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.tag }} manylinux x86_64
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { python: "3.10", tag: cp310 }
+          - { python: "3.11", tag: cp311 }
+          - { python: "3.12", tag: cp312 }
+          - { python: "3.13", tag: cp313 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test the wheel
+        uses: pypa/cibuildwheel@v2.23.3
+        env:
+          # One Python version per run: GTSAM's Python module is built for it in before-all.
+          CIBW_BUILD: ${{ matrix.tag }}-manylinux_x86_64
+          CIBW_PYTHON: ${{ matrix.python }}
+          CIBW_JOBS: 4
+        with:
+          output-dir: wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.tag }}
+          path: wheelhouse/*.whl
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: wheelhouse
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: wheelhouse/*.whl

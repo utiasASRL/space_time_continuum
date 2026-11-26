@@ -162,7 +162,7 @@ def test_subclass_extends_the_builtin_joint():
 
 
 def test_subclass_overrides_reach_cpp():
-    from spacetime import visualizer
+    visualizer = pytest.importorskip("spacetime.visualizer", reason="built without the visualizer")
     a, b, other = make_robot("wnoa"), make_robot("wnoa", x=0.3), make_robot("wnoa", x=0.6)
 
     class Rerouted(joints.Joint):

@@ -2,6 +2,11 @@
 
 All notable changes to this repository will be documented here, with possible breaking changes highlighted. This repository is still under development, with breaking changes occurring semi-regularly. We hope to solidify the user-facing API and reduce the number of breaking changes moving forward.
 
+## Nov 26, 2026
+
+- Prebuilt Python wheels (Linux x86_64, Python 3.10–3.13, e.g. for Google Colab): `pip install spacetime -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/<tag>`. A wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings, so don't also install `gtsam` from PyPI. `.github/workflows/wheels.yml` builds them with cibuildwheel (`pyproject.toml`, `ci/cibw_before_all.sh`) and attaches them to each `v*` release.
+- New top-level `pyproject.toml` (scikit-build-core): `pip install .` builds the bindings from source. The CMake option `BuildExamples` (default ON) turns off the demos, and the Python package has install rules (`COMPONENT python`).
+
 ## Nov 25, 2026
 
 - **Breaking:** the default visualizer no longer draws a floor by itself, and `VisualizerOptions::show_floor` is removed (also in Python). A ground plane is now an object you add: `Visualization::Default::GroundPlane(GroundPlaneOptions)` or `GroundPlane(normal, position, size)`, where `position` is the centre and `size` the side length of the square [m]. Its edges follow world x projected onto the plane. P toggles it, or another key set with `setToggleKey`. A zero normal or a non-positive size throws `std::invalid_argument`. To keep the old floor, add `GroundPlane(Eigen::Vector3d::UnitZ(), Eigen::Vector3d::Zero(), 0.7071)`.
