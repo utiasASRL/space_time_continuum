@@ -15,7 +15,7 @@ requires = ["scikit-build-core>=0.10", "pybind11==3.0.4"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "spacetime"
+name = "spacetime-continuum"
 dynamic = ["version"]
 description = "Continuum robot state estimation in space and time, on GTSAM"
 readme = "README.md"

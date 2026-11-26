@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(spacetime VERSION 1.0.0 LANGUAGES CXX)
+project(spacetime VERSION 1.0.0-alpha LANGUAGES CXX)
 
 #Important CMAKE stuff
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
