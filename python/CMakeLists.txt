@@ -43,6 +43,14 @@ if(InterfaceROS2)
     target_compile_definitions(_spacetime PRIVATE SPACETIME_PYTHON_ROS2=1)
 endif()
 target_compile_options(_spacetime PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wno-psabi>)
+if(APPLE)
+    # GTSAM values cross between gtsam's module and this one (e.g. a Vector in gtsam.Values), found
+    # with dynamic_cast<GenericValue<T>>. pybind11's hidden visibility gives each module its own
+    # typeinfo for GenericValue<Eigen type>, and macOS's libc++ compares typeinfo by address, so the
+    # cast fails. Default visibility (as GTSAM's module is built, see ci/build_deps.py) lets dyld
+    # merge them; pybind11's own namespace stays hidden. (Linux's and Windows' runtimes compare names.)
+    set_target_properties(_spacetime PROPERTIES CXX_VISIBILITY_PRESET default)
+endif()
 # $<1:...> stops multi-config generators (Visual Studio, Xcode) from adding a per-config subfolder.
 set_target_properties(_spacetime PROPERTIES LIBRARY_OUTPUT_DIRECTORY $<1:${SPACETIME_PYTHON_PACKAGE}>)
 

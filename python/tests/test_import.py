@@ -44,7 +44,14 @@ def loaded_libraries():
     if sys.platform == "win32":
         from ctypes import wintypes
         psapi, kernel32 = ctypes.WinDLL("psapi"), ctypes.WinDLL("kernel32")
+        # Declared, so the process pseudo-handle (-1 as a 64-bit pointer) is passed as a HANDLE, not a C int.
         kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.GetCurrentProcess.argtypes = []
+        psapi.EnumProcessModules.restype = wintypes.BOOL
+        psapi.EnumProcessModules.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.HMODULE), wintypes.DWORD,
+                                             ctypes.POINTER(wintypes.DWORD)]
+        psapi.GetModuleFileNameExW.restype = wintypes.DWORD
+        psapi.GetModuleFileNameExW.argtypes = [wintypes.HANDLE, wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
         process = kernel32.GetCurrentProcess()
         modules = (wintypes.HMODULE * 4096)()
         needed = wintypes.DWORD()
@@ -53,7 +60,7 @@ def loaded_libraries():
         paths = set()
         name = ctypes.create_unicode_buffer(32768)
         for module in modules[: needed.value // ctypes.sizeof(wintypes.HMODULE)]:
-            if psapi.GetModuleFileNameExW(process, wintypes.HMODULE(module), name, len(name)):
+            if module and psapi.GetModuleFileNameExW(process, module, name, len(name)):
                 paths.add(name.value)
         return paths
     return None

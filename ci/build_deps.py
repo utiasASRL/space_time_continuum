@@ -168,10 +168,17 @@ def main():
         generator = ["-G", "Ninja"]
     common = [*generator, "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DCMAKE_INSTALL_LIBDIR=lib",
               f"-DCMAKE_PREFIX_PATH={prefix}"]
+    gtsam_extra = []
     if sys.platform == "darwin":
         # Installed libraries reference each other through @rpath (e.g. libgtsam -> libmetis-gtsam):
         # give them the prefix as an rpath, so delocate can resolve the chain when it bundles them.
         common.append(f"-DCMAKE_INSTALL_RPATH={prefix / 'lib'}")
+        # GTSAM values cross between gtsam's module and spacetime's (gtsam.Values holding a Vector,
+        # say), found with dynamic_cast<GenericValue<T>>. With pybind11's default hidden visibility,
+        # GenericValue<Eigen type> is hidden, so each module has its own typeinfo, and macOS's libc++
+        # compares typeinfo by address: the cast fails. Default visibility lets dyld merge them.
+        # (pybind11's own namespace stays hidden.) python/CMakeLists.txt does the same for _spacetime.
+        gtsam_extra.append("-DCMAKE_CXX_VISIBILITY_PRESET=default")
 
     # Eigen 3.4 (header-only; manylinux_2_28's eigen3 is 3.3).
     eigen = download(f"https://gitlab.com/libeigen/eigen/-/archive/{EIGEN_VERSION}/eigen-{EIGEN_VERSION}.tar.gz", src)
@@ -198,7 +205,7 @@ def main():
         "-DGTSAM_USE_BOOST_FEATURES=OFF", "-DGTSAM_ENABLE_BOOST_SERIALIZATION=OFF", "-DGTSAM_USE_SYSTEM_EIGEN=ON",
         "-DGTSAM_USE_QUATERNIONS=OFF", "-DGTSAM_SLOW_BUT_CORRECT_BETWEENFACTOR=ON", "-DGTSAM_SLOW_BUT_CORRECT_EXPMAP=ON",
         "-DGTSAM_BUILD_PYTHON=ON", f"-DGTSAM_PYTHON_VERSION={version}",
-        f"-DPYTHON_EXECUTABLE:FILEPATH={python}", f"-DPython_EXECUTABLE={python}")
+        f"-DPYTHON_EXECUTABLE:FILEPATH={python}", f"-DPython_EXECUTABLE={python}", *gtsam_extra)
     run("cmake", "--build", gtsam_build, "--config", "Release", "--parallel", gtsam_jobs, "--target", "install")
     run("cmake", "--build", gtsam_build, "--config", "Release", "--parallel", wrap_jobs, "--target", "gtsam_py")
 
