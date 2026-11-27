@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <Eigen/Core>
@@ -436,7 +437,21 @@ bool safeRead(const Json::Value &root, const std::string &key, T &out)
         }
         else
         {
-            out = root[key].as<T>();
+            // Json::Value::as<T>() only exists for jsoncpp's own integer types (Int, UInt, Int64,
+            // UInt64). Others that are distinct types on some platforms (e.g. size_t, which is
+            // unsigned long on macOS but UInt64 is unsigned long long there) go through the
+            // 64-bit getters, which also reject negative or out-of-range values.
+            constexpr bool jsoncpp_integer = std::is_same_v<T, Json::Int> || std::is_same_v<T, Json::UInt> ||
+                                             std::is_same_v<T, Json::Int64> || std::is_same_v<T, Json::UInt64>;
+            if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> && !jsoncpp_integer)
+            {
+                if constexpr (std::is_signed_v<T>)
+                    out = static_cast<T>(root[key].asLargestInt());
+                else
+                    out = static_cast<T>(root[key].asLargestUInt());
+            }
+            else
+                out = root[key].as<T>();
             info() << "Loaded values from key: " << key << " with value: " << out;
             return true;
         }

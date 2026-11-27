@@ -175,7 +175,10 @@ def main():
 
     # Eigen 3.4 (header-only; manylinux_2_28's eigen3 is 3.3).
     eigen = download(f"https://gitlab.com/libeigen/eigen/-/archive/{EIGEN_VERSION}/eigen-{EIGEN_VERSION}.tar.gz", src)
-    run("cmake", "-S", eigen, "-B", src / "eigen-build", *common, "-DBUILD_TESTING=OFF", "-DEIGEN_BUILD_DOC=OFF")
+    # Eigen looks for a Fortran compiler for its optional BLAS: on Windows it finds MinGW's gfortran,
+    # which does not work with MSVC, and the configure fails. Only the headers are needed.
+    run("cmake", "-S", eigen, "-B", src / "eigen-build", *common, "-DBUILD_TESTING=OFF", "-DEIGEN_BUILD_DOC=OFF",
+        "-DCMAKE_Fortran_COMPILER=NOTFOUND")
     run("cmake", "--build", src / "eigen-build", "--config", "Release", "--target", "install")
 
     # jsoncpp, as a shared library (the static one is often built without -fPIC).

@@ -745,7 +745,7 @@ namespace Spacetime::Utilities
 
     private:
         /**
-         * @brief The "<data_dir>/<name>.csv" files (as glob("<data_dir>/*.csv") would list them: in
+         * @brief The "<data_dir>/<name>.csv" files (as a glob of "<data_dir>" for ".csv" files would list them: in
          *        byte order of their names, without hidden files), into `files`. A leading `~` in
          *        `data_dir` is the home directory ($HOME, or %USERPROFILE% on Windows).
          * @return false, with a message, if `data_dir` cannot be listed or holds no CSV file.
