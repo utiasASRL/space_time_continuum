@@ -19,7 +19,8 @@ PYBIND11_MODULE(_spacetime, m)
     auto joints = m.def_submodule("joints", "Joints between robots, and end effectors.");
     auto sensors = m.def_submodule("sensors", "Built-in sensors and their factors.");
     auto actuators = m.def_submodule("actuators", "Built-in actuators (e.g. the kinematic tendon) and their factors.");
-    auto interface = m.def_submodule("interface", "Running the estimator: the standalone session, its options, and the snapshot history.");
+    // Not named `interface`, which Windows' <objbase.h> defines as a macro.
+    auto interface_module = m.def_submodule("interface", "Running the estimator: the standalone session, its options, and the snapshot history.");
     auto utilities = m.def_submodule("utilities", "Configuration loading and result export.");
 
     SpacetimePython::bindTypes(types);
@@ -28,10 +29,10 @@ PYBIND11_MODULE(_spacetime, m)
     SpacetimePython::bindSensors(sensors);
     SpacetimePython::bindActuators(actuators);
     SpacetimePython::bindEstimator(m);
-    SpacetimePython::bindInterface(interface);
+    SpacetimePython::bindInterface(interface_module);
     SpacetimePython::bindUtilities(utilities);
 #ifdef SPACETIME_PYTHON_ROS2
-    auto ros2 = interface.def_submodule("ros2", "Live (or rosbag) estimation on ROS2 nodes.");
+    auto ros2 = interface_module.def_submodule("ros2", "Live (or rosbag) estimation on ROS2 nodes.");
     SpacetimePython::bindRos2(ros2);
 #endif
 #if defined(SPACETIME_PYTHON_VISUALIZER) || defined(SPACETIME_PYTHON_ROS2)

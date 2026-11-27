@@ -19,6 +19,8 @@
 #include <spacetime/interface/InterfaceConcept.hpp>
 #include <spacetime/interface/Interfaces.hpp>
 #include <spacetime/interface/SnapshotHistory.hpp>
+#include <spacetime/interface/Viewer.hpp>
+#include <spacetime/interface/ViewerSession.hpp>
 
 #include <spacetime/interface/standalone/standalone>
 #include <spacetime/interface/ros2/ros2>

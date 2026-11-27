@@ -8,7 +8,8 @@
  *        @code
  *        Spacetime::Session session(options);                                    // the default (standalone) interface
  *        Spacetime::Session<Spacetime::INTERFACE_ROS2> ros(options, ros_options); // the ROS2 interface
- *        session.start(estimator);
+ *        session.start(estimator);           // or session.start(estimator, viewer), see ViewerSession.hpp
+ *        session.join();
  *        @endcode
  * @author Spencer Teetaert
  */
@@ -20,6 +21,7 @@
 
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/interface/InterfaceConcept.hpp>
+#include <spacetime/interface/ViewerSession.hpp>
 
 #if defined(SPACETIME_INTERFACE_STANDALONE) && SPACETIME_INTERFACE_STANDALONE
 #include <spacetime/interface/standalone/Interface.hpp>
@@ -56,12 +58,13 @@ namespace Spacetime::Interface
 
     /**
      * @brief The session of interface `I`: that interface's own Session (e.g. Ros2::Session, with
-     *        its extra constructor arguments and methods), selected at compile time. See
-     *        InterfaceConcept.hpp for the hooks every session provides.
+     *        its extra constructor arguments and methods), selected at compile time, which can
+     *        also run a viewer (see ViewerSession). See InterfaceConcept.hpp for the hooks every
+     *        session provides.
      * @tparam I One of the INTERFACE_* constants; the standalone ("default") interface if omitted.
      */
     template <int I = INTERFACE_STANDALONE>
-    class Session : public Detail::SessionBase<I>::Type
+    class Session : public ViewerSession<typename Detail::SessionBase<I>::Type>
     {
         static_assert(I != INTERFACE_MUJOCO, "Spacetime::Session: the MuJoCo interface is not implemented yet.");
         static_assert(I == INTERFACE_STANDALONE || I == INTERFACE_ROS2 || I == INTERFACE_MUJOCO,
@@ -70,7 +73,7 @@ namespace Spacetime::Interface
                                   "(see the InterfaceStandalone and InterfaceROS2 CMake options).");
 
     public:
-        using Detail::SessionBase<I>::Type::Type;
+        using ViewerSession<typename Detail::SessionBase<I>::Type>::ViewerSession;
 
         /// The interface's name, e.g. "default" or "ros2".
         static constexpr std::string_view name = Detail::SessionBase<I>::name;

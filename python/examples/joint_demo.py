@@ -183,11 +183,11 @@ def run(estimator, robots, robot_joints, end_effectors, start_time, end_time, pe
         for end_effector in end_effectors:
             window.addEndEffector(end_effector)
         window.addGroundPlane(ground_plane_under(robots))  # toggle P
-        window.start(estimator, session.requestStop)
 
-    # Offline: estimate everything first, then replay it.
-    session.start(estimator)
-    session.join()
+    # Offline: estimate everything first (reported below), then replay it in the window, if
+    # any (session.join()). Closing the window stops the session.
+    session.start(estimator, window)
+    session.joinEstimation()
     print(f"Estimation complete in {time.perf_counter() - initial_wall_time} s.")
 
     last_time = session.endTime()
@@ -216,7 +216,5 @@ def run(estimator, robots, robot_joints, end_effectors, start_time, end_time, pe
     if args.output:
         write_output(args.output, values, reports)
 
-    if window is not None:
-        window.beginPlayback(start_time, last_time)
-        return window.join()
-    return 0
+    session.join()  # shows the window, if any, until it is closed
+    return session.viewerExitCode()

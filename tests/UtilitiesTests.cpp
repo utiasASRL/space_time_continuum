@@ -63,7 +63,7 @@ TEST(LoggerCapture, DestroyingACaptureRestoresStdCout)
 {
     CoutCapture console;
     {
-        RedirectLogger capture(LogLevel::INFO);
+        RedirectLogger capture(LogLevel::Info);
         std::cout << "captured";
     } // no logReset()
     std::cout << "after";

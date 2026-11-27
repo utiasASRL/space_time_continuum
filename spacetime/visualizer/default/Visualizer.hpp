@@ -79,7 +79,7 @@ namespace Spacetime::Visualization::Default
      *        clicking the timeline seeks. Views add their own keys (see bindShortcut).
      *
      *        A Qt widget: construct, use and destroy it on the thread that owns the
-     *        QApplication (see VisualizerThread); no method is thread-safe. Data sources
+     *        QApplication (see VisualizerHost); no method is thread-safe. Data sources
      *        bound to its views (snapshot sources, live time source) are called on that
      *        thread every frame, so they must be safe to call concurrently with the
      *        estimator.

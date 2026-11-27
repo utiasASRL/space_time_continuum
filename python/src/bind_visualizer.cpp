@@ -1,18 +1,23 @@
 /**
  * @file bind_visualizer.cpp
- * @brief spacetime.visualizer: the Qt/VTK visualizer, on its own thread. Python registers the
- *        robots' priors, joints and end effectors to draw; their views are built in C++ (as in
- *        examples/JointDemo.hpp) once the window exists.
+ * @brief spacetime.visualizer: the Qt/VTK visualizer, a Viewer a session runs
+ *        (session.start(estimator, visualizer); session.join()). Python registers the robots'
+ *        priors, joints and end effectors to draw; their views are built in C++ (as in
+ *        examples/JointDemo.hpp) once the window exists, on its GUI thread (see VisualizerHost).
  */
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <map>
 #include <optional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include <QObject>
+#include <QTimer>
 #include <vtkActor.h>
 #include <vtkAutoInit.h>
 #include <vtkProperty.h>
@@ -21,7 +26,8 @@ VTK_MODULE_INIT(vtkRenderingFreeType);
 
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/visualizer/default/Visualizer.hpp>
-#include <spacetime/visualizer/default/VisualizerThread.hpp>
+#include <spacetime/interface/Viewer.hpp>
+#include <spacetime/visualizer/default/VisualizerHost.hpp>
 #include <spacetime/visualizer/default/objects/ContinuumRobot.hpp>
 #include <spacetime/visualizer/default/objects/EndEffector.hpp>
 #include <spacetime/visualizer/default/objects/GroundPlane.hpp>
@@ -41,27 +47,74 @@ namespace SpacetimePython
         /**
          * The visualizer of a set of robots, given by their priors (B toggles their backbones,
          * S the estimator's pose sensors on them), joints (N) and end effectors (E), replaying the
-         * estimator's snapshots, and optional ground planes (P).
+         * estimator's snapshots, and optional ground planes (P). A Viewer: a session opens it
+         * (start(estimator, visualizer)) and runs it (join()), through a VisualizerHost.
          */
-        class Visualizer
+        class Visualizer : public Spacetime::Interface::Viewer
         {
         public:
-            Visualizer(Vis::VisualizerOptions options, std::string output_path) : m_options(std::move(options)), m_output_path(std::move(output_path))
+            Visualizer(Vis::VisualizerOptions options, std::string output_path, Vis::Default::HostMode mode)
+                : m_options(std::move(options)), m_output_path(std::move(output_path)), m_mode(mode)
             {
                 constexpr unsigned int max_points = Vis::Default::ContinuumRobot<WnoaNode>::kMaxSpatialInterpolationPoints;
                 if (m_options.robot.spatial_interpolation_points > max_points)
                     throw py::value_error("Visualizer: options.robot.spatial_interpolation_points must be at most " + std::to_string(max_points) + ".");
             }
 
-            ~Visualizer()
+            ~Visualizer() override
             {
-                if (!m_thread)
+                if (!m_host)
                     return;
                 py::gil_scoped_release release;
-                m_thread->requestQuit();
-                m_thread->join();
-                m_thread.reset();
+                m_host.reset(); // closes the window and, in WorkerThread mode, joins its thread
             }
+
+            /// Viewer: builds the window on its GUI thread (see VisualizerHost::open). Called by Session.start, without the GIL.
+            void open(Spacetime::Estimator &estimator, ClosedCallback on_closed) override
+            {
+                requireNotStarted();
+                if (m_options.estimator_window == -1.0 && !estimator.isBatch())
+                    m_options.estimator_window = estimator.smootherLag();
+                auto build = [this, &estimator](Vis::Default::Visualizer &vis)
+                {
+                    buildViews(vis, estimator);
+                    if (m_mode == Vis::Default::HostMode::CallingThread)
+                        watchForInterrupts(vis);
+                };
+                m_host = std::make_unique<Vis::Default::VisualizerHost>(m_argc, m_argv, m_options, m_output_path, build, m_mode);
+                m_host->open(std::move(on_closed));
+            }
+
+            bool isOnline() const override { return m_options.online; }
+
+            void beginPlayback(double start_time, double end_time, LiveTimeSource live_time_source) override
+            {
+                requireStarted();
+                if (m_options.online && !live_time_source)
+                    throw py::value_error("Visualizer.beginPlayback: online mode needs a live_time_source (e.g. a session's now).");
+                m_host->beginPlayback(start_time, end_time, std::move(live_time_source));
+            }
+
+            /// Viewer: shows the window until it is closed (see VisualizerHost::run). Called by Session.join, without the GIL.
+            int run() override
+            {
+                requireStarted();
+                const int code = m_host->run();
+                if (m_interrupt)
+                {
+                    py::gil_scoped_acquire gil; // the KeyboardInterrupt holds Python objects
+                    std::rethrow_exception(std::exchange(m_interrupt, nullptr));
+                }
+                return code;
+            }
+
+            void requestClose() override
+            {
+                if (m_host)
+                    m_host->requestClose();
+            }
+
+            Vis::Default::HostMode mode() const { return m_mode; }
 
             /// The robot of `prior` (any of RobotPriors).
             void addPrior(const pStateful &prior)
@@ -109,7 +162,7 @@ namespace SpacetimePython
                                           std::to_string(length) + "].");
                 if (!(scale > 0.0 && std::isfinite(scale)))
                     throw py::value_error("Visualizer.addSTL: the scale must be positive and finite.");
-                // Read once here to reject a missing or unreadable file now: a view that fails to build fails start().
+                // Read once here to reject a missing or unreadable file now: a view that fails to build fails Session.start.
                 try
                 {
                     Vis::Default::Utilities::loadSTLMesh(stl_path);
@@ -138,40 +191,10 @@ namespace SpacetimePython
 
             std::size_t robotCount() const { return m_robot_order.size(); }
 
-            /// Opens the window, drawing `estimator`'s snapshots; `on_closed` (e.g. a session's requestStop) runs when it is closed.
-            void start(Spacetime::Estimator &estimator, std::function<void()> on_closed)
-            {
-                requireNotStarted();
-                if (m_options.estimator_window == -1.0 && !estimator.isBatch())
-                    m_options.estimator_window = estimator.smootherLag();
-                auto build = [this, &estimator](Vis::Default::Visualizer &vis) { buildViews(vis, estimator); };
-                py::gil_scoped_release release;
-                m_thread = std::make_unique<Vis::Default::VisualizerThread>(m_argc, m_argv, m_options, m_output_path, build, std::move(on_closed));
-                m_thread->waitReady();
-            }
-
-            /// `live_time_source` (online mode): the current estimation time, called (with the GIL) on the visualizer thread every frame.
-            void beginPlayback(double start_time, double end_time, std::function<double()> live_time_source)
-            {
-                requireStarted();
-                if (m_options.online && !live_time_source)
-                    throw py::value_error("Visualizer.beginPlayback: online mode needs a live_time_source (e.g. a session's now).");
-                m_thread->beginPlayback(start_time, end_time, std::move(live_time_source));
-            }
-
-            /// Waits for the window to be closed; returns the Qt exit code.
-            int join()
-            {
-                requireStarted();
-                py::gil_scoped_release release;
-                const int code = m_thread->join();
-                m_thread.reset();
-                return code;
-            }
-
         private:
             Vis::VisualizerOptions m_options;
             std::string m_output_path;
+            Vis::Default::HostMode m_mode;
             int m_argc = 1;
             char m_arg0[10] = "spacetime";
             char *m_argv[2] = {m_arg0, nullptr};
@@ -184,7 +207,9 @@ namespace SpacetimePython
             std::vector<Vis::GroundPlaneOptions> m_ground_planes;
             /// Per robot (built on the visualizer thread): the source of its drawn pose at an arclength, for its joints' views.
             std::map<const State *, std::function<Vis::Default::Joint::PointPoseFn(double)>> m_point_sources;
-            std::unique_ptr<Vis::Default::VisualizerThread> m_thread;
+            std::unique_ptr<Vis::Default::VisualizerHost> m_host;
+            /// The KeyboardInterrupt (Ctrl-C) that closed the window, rethrown by run().
+            std::exception_ptr m_interrupt;
 
             struct Mesh
             {
@@ -256,6 +281,22 @@ namespace SpacetimePython
                 }
             }
 
+            /// CallingThread mode: the event loop runs on Python's main thread, whose signals (Ctrl-C) are only
+            /// handled by Python code; so check for them now and then, and close the window on one.
+            void watchForInterrupts(Vis::Default::Visualizer &vis)
+            {
+                auto *timer = new QTimer(&vis);
+                QObject::connect(timer, &QTimer::timeout, &vis, [this, timer]()
+                                 {
+                    py::gil_scoped_acquire gil;
+                    if (PyErr_CheckSignals() == 0)
+                        return;
+                    m_interrupt = std::make_exception_ptr(py::error_already_set());
+                    timer->stop();
+                    m_host->requestClose(); });
+                timer->start(100);
+            }
+
             void requireRobot(const State *state) const
             {
                 if (std::find(m_robot_order.begin(), m_robot_order.end(), state) == m_robot_order.end())
@@ -264,14 +305,14 @@ namespace SpacetimePython
 
             void requireNotStarted() const
             {
-                if (m_thread)
-                    throw std::runtime_error("Visualizer: already started; add everything before start().");
+                if (m_host)
+                    throw std::runtime_error("Visualizer: already opened (by Session.start); add everything before.");
             }
 
             void requireStarted() const
             {
-                if (!m_thread)
-                    throw std::runtime_error("Visualizer: not started.");
+                if (!m_host)
+                    throw std::runtime_error("Visualizer: not opened; give it to Session.start(estimator, visualizer).");
             }
         };
     } // namespace
@@ -322,16 +363,27 @@ namespace SpacetimePython
                            "Online: playback follows wall-clock time and views read the live estimate. Offline (default): replays the run.")
             .def_readwrite("estimator_window", &VisualizerOptions::estimator_window,
                            "The estimator's fixed-lag window [s], bounding the display delay; <= 0 means unknown. "
-                           "Visualizer.start() fills it in from a sliding-window estimator when left at -1.")
+                           "Session.start(estimator, visualizer) fills it in from a sliding-window estimator when left at -1.")
             .def_readwrite("estimation_period", &VisualizerOptions::estimation_period,
                            "The estimator's tick period [s]: offline, the arrow keys step between ticks and V exports one video frame per tick. "
                            "<= 0 (the default) means unknown.");
 
-        py::class_<Visualizer>(m, "Visualizer",
-                               "The Qt/VTK visualizer window, on its own thread: add what to draw, then start(), beginPlayback() and join(). "
-                               "Keys B, S, N and E toggle the robots, pose sensors, joints and end effectors. Dropping it closes the window.")
-            .def(py::init<VisualizerOptions, std::string>(), py::arg("options"), py::arg("output_path") = "",
-                 "Screenshots and videos go to <output_path>/screenshots and <output_path>/videos (empty: the working directory).")
+        py::enum_<Vis::Default::HostMode>(m, "HostMode", "Where the visualizer runs Qt (see Visualizer).")
+            .value("WorkerThread", Vis::Default::HostMode::WorkerThread, "A thread of its own, lowered in priority (Linux's default).")
+            .value("CallingThread", Vis::Default::HostMode::CallingThread,
+                   "The thread calling Session.start and join (macOS and Windows' default; on macOS the main thread).");
+        m.def("defaultHostMode", &Vis::Default::defaultHostMode, "This platform's default HostMode.");
+
+        py::classh<Visualizer, Spacetime::Interface::Viewer>(m, "Visualizer",
+                               "The Qt/VTK visualizer window, a Viewer: add what to draw, then session.start(estimator, visualizer) and "
+                               "session.join(), which shows it until it is closed (closing it stops the session). Keys B, S, N and E toggle "
+                               "the robots, pose sensors, joints and end effectors. On macOS, start and join the session from the main thread. "
+                               "Dropping it closes the window.")
+            .def(py::init<VisualizerOptions, std::string, Vis::Default::HostMode>(), py::arg("options"), py::arg("output_path") = "",
+                 py::arg("host_mode") = Vis::Default::defaultHostMode(),
+                 "Screenshots and videos go to <output_path>/screenshots and <output_path>/videos (empty: the working directory). "
+                 "`host_mode`: where Qt runs (see HostMode); the platform's default unless testing.")
+            .def("hostMode", &Visualizer::mode, "Where Qt runs (see HostMode).")
             .def("addPrior", &Visualizer::addPrior, py::arg("prior"), py::keep_alive<1, 2>(),
                  "Draws the robot of `prior` (wnoa, wnov or wnoa_quasi_static; else TypeError), and its pose sensors.")
             .def("addJoint", &Visualizer::addJoint, py::arg("joint"), py::keep_alive<1, 2>(),
@@ -345,17 +397,9 @@ namespace SpacetimePython
                  "in millimetres), then placed by `offset` (gtsam.Pose3, point_T_mesh) relative to the robot's frame there. `color` is an "
                  "optional RGB triple in [0, 1]. It is shown with the robot's backbone (B). ValueError if the robot was not added, "
                  "`arclength` is outside [0, length], `scale` is not positive and finite, or the file is missing or holds no STL geometry. "
-                 "Add meshes before start().")
+                 "Add meshes before Session.start.")
             .def("addGroundPlane", &Visualizer::addGroundPlane, py::arg("options") = GroundPlaneOptions(),
                  "Draws a square ground plane (P toggles it). Raises ValueError for a zero normal or a non-positive size.")
-            .def("robotCount", &Visualizer::robotCount, "The number of robots added.")
-            .def("start", &Visualizer::start, py::arg("estimator"), py::arg("on_closed") = nullptr, py::keep_alive<1, 2>(),
-                 "Opens the window, drawing `estimator`'s snapshots, and returns once the views are built. `on_closed` (e.g. a session's "
-                 "requestStop) runs on the visualizer thread when the window closes. Add everything before: adding after raises RuntimeError.")
-            .def("beginPlayback", &Visualizer::beginPlayback, py::arg("start_time"), py::arg("end_time"), py::arg("live_time_source") = nullptr,
-                 "Shows the window and starts its event loop, playing over [start_time, end_time] [s]. Online "
-                 "(VisualizerOptions.online), `live_time_source` is required: a callable returning the current estimation time "
-                 "[s] (e.g. a session's now), which the displayed time follows; ValueError without it.")
-            .def("join", &Visualizer::join, "Waits for the window to be closed; returns the Qt exit code.");
+            .def("robotCount", &Visualizer::robotCount, "The number of robots added.");
     }
 } // namespace SpacetimePython

@@ -367,7 +367,6 @@ namespace Spacetime
         {
             std::cout << s << std::endl;
             std::cout << "Number of models: " << mp_models.size() << std::endl;
-            std::cout << "Current Values: " << std::endl;
             m_current_values.print("Current Values:");
         }
 

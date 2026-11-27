@@ -3,11 +3,11 @@
 # The distribution is named spacetime-continuum (`spacetime` on PyPI is an unrelated project);
 # it is imported as `spacetime`.
 #
-# Prebuilt wheels (Linux x86_64, e.g. for Google Colab) are built by cibuildwheel with the
-# [tool.cibuildwheel] settings below, through ci/build_wheels.sh, and uploaded to a GitHub
-# release by hand. GTSAM is built from source in the manylinux container
-# (ci/cibw_before_all.sh), and its Python module is bundled into the wheel, so `gtsam` and
-# `spacetime` share one libgtsam. Do not `pip install gtsam` next to it.
+# Prebuilt wheels (Linux x86_64, macOS arm64 and x86_64, Windows AMD64) are built by cibuildwheel
+# with the cibuildwheel settings below: on GitHub by .github/workflows/wheels.yml when a release
+# is published, which attaches them to it, or locally (Linux) with ci/build_wheels.sh. GTSAM is
+# built from source first (ci/build_deps.py), and its Python module is bundled into the wheel,
+# so `gtsam` and `spacetime` share one libgtsam. Do not `pip install gtsam` next to it.
 #
 # `pip install .` (or `pip install git+https://...`) builds from source instead. That needs
 # GTSAM (with GTSAM_BUILD_PYTHON, installed into the same environment), Eigen 3.4 and jsoncpp
@@ -56,17 +56,37 @@ regex = 'project\(spacetime VERSION (?P<value>[0-9.]+)'
 
 [tool.cibuildwheel]
 # One Python version per cibuildwheel run (CIBW_BUILD=cp312-*, ...): GTSAM's Python module is
-# built for that version in before-all, which runs once per container.
-build = "cp310-* cp311-* cp312-* cp313-*"
+# built for that version in before-all, which runs once per run. ci/build_deps.py builds the
+# dependencies under /opt/spacetime-deps (Linux, in the container), /tmp/spacetime-deps (macOS)
+# or C:/spacetime-deps (Windows); the paths below must match it.
+build = "cp310-* cp311-* cp312-* cp313-* cp314-* cp315-*"
 skip = "*-musllinux_* *-manylinux_i686"
-archs = ["x86_64"]
 manylinux-x86_64-image = "manylinux_2_28"
 build-verbosity = 1
 test-requires = ["pytest"]
 test-command = "pytest -q -p no:cacheprovider {project}/python/tests"
 
 [tool.cibuildwheel.linux]
+archs = ["x86_64"]
 # $CIBW_PYTHON is the one Python version this run builds, e.g. 3.12.
-before-all = "bash {project}/ci/cibw_before_all.sh $CIBW_PYTHON {project}"
-environment-pass = ["CIBW_PYTHON", "CIBW_JOBS", "GTSAM_WRAP_JOBS", "GTSAM_WRAP_GB"]
-environment = { LD_LIBRARY_PATH = "/usr/local/lib:$LD_LIBRARY_PATH", SKBUILD_CMAKE_DEFINE = "SPACETIME_BUNDLE_GTSAM_PY=/opt/gtsam-build/python/gtsam" }
+before-all = "python$CIBW_PYTHON {project}/ci/build_deps.py {project}"
+# Parallelism and memory budgets (see ci/build_deps.py); CMAKE_BUILD_PARALLEL_LEVEL bounds the extension's compiles.
+environment-pass = ["CIBW_PYTHON", "CIBW_JOBS", "GTSAM_JOBS", "GTSAM_GB", "GTSAM_WRAP_JOBS", "GTSAM_WRAP_GB", "CMAKE_BUILD_PARALLEL_LEVEL"]
+# auditwheel finds libgtsam and libjsoncpp through LD_LIBRARY_PATH, and bundles one copy of each.
+environment = { LD_LIBRARY_PATH = "/opt/spacetime-deps/install/lib:$LD_LIBRARY_PATH", CMAKE_PREFIX_PATH = "/opt/spacetime-deps/install", SKBUILD_CMAKE_DEFINE = "SPACETIME_BUNDLE_GTSAM_PY=/opt/spacetime-deps/gtsam-build/python/gtsam" }
+
+[tool.cibuildwheel.macos]
+# The runner's own architecture (arm64 or x86_64). before-all runs on the host, with the Python
+# the workflow set up (the version being built).
+archs = ["native"]
+before-all = "python {project}/ci/build_deps.py {project}"
+# The extension finds libgtsam through its install RPATH, from which delocate bundles it.
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0", CMAKE_PREFIX_PATH = "/tmp/spacetime-deps/install", SKBUILD_CMAKE_DEFINE = "SPACETIME_BUNDLE_GTSAM_PY=/tmp/spacetime-deps/gtsam-build/python/gtsam;CMAKE_INSTALL_RPATH=/tmp/spacetime-deps/install/lib" }
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
+before-all = "python {project}/ci/build_deps.py {project}"
+before-build = "pip install delvewheel"
+environment = { CMAKE_PREFIX_PATH = "C:/spacetime-deps/install", SKBUILD_CMAKE_DEFINE = "SPACETIME_BUNDLE_GTSAM_PY=C:/spacetime-deps/gtsam-build/python/gtsam" }
+# Bundles gtsam.dll and jsoncpp.dll (one copy, shared by gtsam's module and _spacetime).
+repair-wheel-command = "delvewheel repair --add-path C:/spacetime-deps/install/bin -w {dest_dir} {wheel}"

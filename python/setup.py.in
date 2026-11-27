@@ -16,7 +16,7 @@ setup(
     version="${PROJECT_VERSION}",
     description="Continuum robot state estimation in space and time, on GTSAM",
     packages=["spacetime"],
-    package_data={"spacetime": ["_spacetime*.so"]},
+    package_data={"spacetime": ["_spacetime*.so", "_spacetime*.pyd"]},
     python_requires=">=3.10",
     install_requires=["gtsam", "numpy"],
     distclass=BinaryDistribution,

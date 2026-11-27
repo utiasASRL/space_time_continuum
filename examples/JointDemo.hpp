@@ -266,7 +266,7 @@ namespace JointDemo
 
         const auto initial_wall_time = std::chrono::steady_clock::now();
 #ifdef VISUALIZER
-        std::unique_ptr<Spacetime::Visualization::Default::VisualizerThread> visualizer;
+        std::unique_ptr<Spacetime::Visualization::Default::VisualizerHost> visualizer;
         if (!headless)
         {
             Spacetime::Visualization::VisualizerOptions vis_options;
@@ -323,10 +323,7 @@ namespace JointDemo
                 vis.addVisualizable(std::make_shared<Spacetime::Visualization::Default::RuntimeWidget>([&estimator]()
                                                                                                         { return estimator.getSnapshot(); }));
             };
-            visualizer = std::make_unique<Spacetime::Visualization::Default::VisualizerThread>(
-                argc, argv, vis_options, "", build, [&session]()
-                { session.requestStop(); });
-            visualizer->waitReady();
+            visualizer = std::make_unique<Spacetime::Visualization::Default::VisualizerHost>(argc, argv, vis_options, "", build);
         }
 #else
         (void)headless;
@@ -335,9 +332,15 @@ namespace JointDemo
         (void)argv;
 #endif
 
-        // Offline: estimate everything first, then replay it.
-        session.start(estimator);
-        session.join();
+        // Offline: estimate everything first (reported below), then replay it in the window, if
+        // any (session.join()). Closing the window stops the session.
+#ifdef VISUALIZER
+        if (visualizer)
+            session.start(estimator, *visualizer);
+        else
+#endif
+            session.start(estimator);
+        session.joinEstimation();
         const double total_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - initial_wall_time).count();
         std::cout << "Estimation complete in " << total_time << " s." << std::endl;
 
@@ -380,14 +383,8 @@ namespace JointDemo
         if (const std::string output_path = outputRequested(argc, argv); !output_path.empty())
             writeOutput(output_path, values, reports);
 
-#ifdef VISUALIZER
-        if (visualizer)
-        {
-            visualizer->beginPlayback(start_time, last_time);
-            return visualizer->join();
-        }
-#endif
-        return 0;
+        session.join(); // runs the window, if any, until it is closed
+        return session.viewerExitCode();
     }
 
     /// Whether `--headless` is among the arguments.

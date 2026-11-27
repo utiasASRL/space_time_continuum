@@ -9,6 +9,12 @@ Running the estimator:
     session.start(estimator)
     session.join()
 
+    window = spacetime.visualizer.Visualizer(spacetime.visualizer.VisualizerOptions())
+    window.addPrior(prior)
+    session.start(estimator, window)  # with a window (any interface.Viewer)
+    session.join()                    # estimates, and shows the window until it is closed
+                                      # (on macOS, start and join from the main thread)
+
     spacetime.setInterface("ros2")  # "default", "ros2" or "mujoco" (not implemented yet)
     session = spacetime.Session(options, ros_options)       # now the ROS2 session
 
@@ -45,9 +51,30 @@ Conventions (as in the C++ library): poses are T_ib (the body frame in the inert
 and tangent vectors (strain, velocity) are in GTSAM's [rotational, translational] order.
 """
 
+import os
 import sys
 
-import gtsam  # noqa: F401  -- registers the GTSAM types the extension takes and returns
+
+def _add_dll_directories():
+    """Windows: lets the extension and GTSAM's module find their DLLs (gtsam.dll, jsoncpp.dll, ...).
+
+    Python does not search PATH for an extension's DLLs, only the directories registered with
+    os.add_dll_directory: this package's, the bundled gtsam package's, and any `*.libs` folder a
+    wheel repair tool (e.g. delvewheel) put next to them.
+    """
+    package = os.path.dirname(os.path.abspath(__file__))
+    site = os.path.dirname(package)
+    candidates = [package, os.path.join(site, "gtsam")]
+    candidates += [os.path.join(site, name) for name in os.listdir(site) if name.endswith(".libs")]
+    for directory in candidates:
+        if os.path.isdir(directory):
+            os.add_dll_directory(directory)
+
+
+if os.name == "nt":
+    _add_dll_directories()
+
+import gtsam  # noqa: E402,F401  -- registers the GTSAM types the extension takes and returns
 
 from . import _spacetime
 from ._spacetime import (  # noqa: F401

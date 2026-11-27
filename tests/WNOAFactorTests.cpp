@@ -1,7 +1,6 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
-#include <unistd.h>
 
 #include <Eigen/Dense>
 #include <gtsam/geometry/Pose3.h>
@@ -15,6 +14,7 @@
 #include <spacetime/estimator/Estimator.hpp>
 #include <spacetime/estimator/utilities/ConfigLoader.hpp>
 #include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include "ProcessId.hpp"
 
 namespace Spacetime::Priors::WNOA
 {
@@ -52,7 +52,7 @@ namespace Spacetime::Priors::WNOA
         std::string writeTempConfig(const std::string &name, const std::string &contents)
         {
             // Per-test (and per-process) name: ctest runs tests concurrently.
-            const std::string path = testing::TempDir() + testing::UnitTest::GetInstance()->current_test_info()->name() + "_" + std::to_string(::getpid()) + "_" + name;
+            const std::string path = testing::TempDir() + testing::UnitTest::GetInstance()->current_test_info()->name() + "_" + std::to_string(Testing::processId()) + "_" + name;
             std::ofstream(path) << contents;
             return path;
         }

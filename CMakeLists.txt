@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(spacetime VERSION 1.0.0-alpha LANGUAGES CXX)
+# macOS: the standalone interface's std::jthread/std::stop_token need libc++'s synchronization
+# library, available from macOS 11. Set before project(), which reads it; an explicit
+# -DCMAKE_OSX_DEPLOYMENT_TARGET (or $MACOSX_DEPLOYMENT_TARGET, e.g. from cibuildwheel) wins.
+if(CMAKE_HOST_APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+endif()
+
+project(spacetime VERSION 1.0.0 LANGUAGES CXX)
 
 #Important CMAKE stuff
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -17,8 +24,13 @@ option(Visualizer "Visualizer" ON)
 # Which visualizer backend (spacetime/visualizer/<backend>/) to build when Visualizer is ON.
 set(VisualizerBackend "default" CACHE STRING "Visualizer backend to build (default)")
 set_property(CACHE VisualizerBackend PROPERTY STRINGS default)
-# -march=native changes Eigen's alignment, so it must match how GTSAM was built.
-option(MarchNative "Compile Release builds with -march=native" ON)
+# -march=native changes Eigen's alignment, so it must match how GTSAM was built. MSVC has no
+# equivalent flag, so it defaults to OFF there.
+if(MSVC)
+    option(MarchNative "Compile Release builds with -march=native" OFF)
+else()
+    option(MarchNative "Compile Release builds with -march=native" ON)
+endif()
 # Interfaces built on the interface layer (spacetime/interface/), one subfolder each
 # (e.g. spacetime/interface/standalone/). Standalone replays recorded data; ROS2 runs live
 # (or rosbag) estimation on ROS2 nodes (source a ROS2 distribution first); Mujoco is not
@@ -59,22 +71,54 @@ if(Python)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
+if(BUILD_SHARED_LIBS AND WIN32)
+    # The libraries export no symbols (no __declspec(dllexport)): they are only built static.
+    message(FATAL_ERROR "spacetime's libraries are static on Windows: configure without BUILD_SHARED_LIBS.")
+endif()
+
+# Build type: the Debug option selects it on single-config generators (Makefiles, Ninja);
+# multi-config generators (Visual Studio, Xcode) pick it at build time (--config).
+if(NOT CMAKE_CONFIGURATION_TYPES)
+    if(Debug)
+        set(CMAKE_BUILD_TYPE Debug)
+    else()
+        set(CMAKE_BUILD_TYPE Release)
+    endif()
+endif()
 if(Debug)
-    set(CMAKE_BUILD_TYPE Debug)
-    set(CMAKE_CXX_FLAGS "-Wall -Wextra -Og -g3")
     set(SPACETIME_DEBUG_LOG 1) # see spacetime/estimator/utilities/logger.hpp; exported with the estimator target
 else()
-    set(CMAKE_BUILD_TYPE Release)
-    if(MarchNative)
-        set(CMAKE_CXX_FLAGS "-march=native -O3 -g0")
-    else()
-        set(CMAKE_CXX_FLAGS "-O3 -g0")
-    endif()
     set(SPACETIME_DEBUG_LOG 0)
 endif()
 
-if(Profile)
-    string(APPEND CMAKE_CXX_FLAGS " -pg")
+# Compiler flags, for every target built here (tests and dependencies fetched here included).
+# They are added to CMake's own per-compiler defaults (e.g. MSVC's /EHsc) rather than replacing them.
+if(MSVC)
+    if(MarchNative)
+        message(FATAL_ERROR "MarchNative has no MSVC equivalent: configure with -DMarchNative=OFF.")
+    endif()
+    if(Profile)
+        message(FATAL_ERROR "Profile (gprof, -pg) is not available with MSVC.")
+    endif()
+    # The MSVC options spacetime's headers need (also downstream) are set on the estimator target
+    # (see spacetime/CMakeLists.txt).
+else()
+    if(Debug)
+        add_compile_options(-Wall -Wextra -Og -g3)
+    else()
+        add_compile_options(-O3 -g0)
+        if(MarchNative)
+            if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+                add_compile_options(-mcpu=native) # Apple Clang on arm64 has no -march=native
+            else()
+                add_compile_options(-march=native)
+            endif()
+        endif()
+    endif()
+    if(Profile)
+        add_compile_options(-pg)
+        add_link_options(-pg)
+    endif()
 endif()
 
 # Core project setup 
@@ -88,6 +132,37 @@ endif()
 find_package(GTSAM REQUIRED) # GTSAM
 if(InterfaceStandalone)
     find_package(Threads REQUIRED) # the standalone interface's estimator/dataloader threads
+
+    # The standalone and ROS2 interfaces use std::jthread and std::stop_token. Some libc++
+    # versions (e.g. Apple's) only provide them with -fexperimental-library.
+    include(CheckCXXSourceCompiles)
+    set(SPACETIME_JTHREAD_PROBE "
+        #include <condition_variable>
+        #include <mutex>
+        #include <stop_token>
+        #include <thread>
+        int main() {
+            std::mutex m; std::condition_variable_any cv; std::stop_source s;
+            std::jthread t([&](std::stop_token token) { std::unique_lock l(m); cv.wait(l, token, [] { return false; }); });
+            t.request_stop();
+            return s.stop_requested() ? 1 : 0;
+        }")
+    set(CMAKE_REQUIRED_LIBRARIES Threads::Threads)
+    check_cxx_source_compiles("${SPACETIME_JTHREAD_PROBE}" SPACETIME_HAS_JTHREAD)
+    set(SPACETIME_JTHREAD_FLAGS "")
+    if(NOT SPACETIME_HAS_JTHREAD)
+        set(CMAKE_REQUIRED_FLAGS -fexperimental-library)
+        check_cxx_source_compiles("${SPACETIME_JTHREAD_PROBE}" SPACETIME_HAS_EXPERIMENTAL_JTHREAD)
+        unset(CMAKE_REQUIRED_FLAGS)
+        if(SPACETIME_HAS_EXPERIMENTAL_JTHREAD)
+            set(SPACETIME_JTHREAD_FLAGS -fexperimental-library)
+        else()
+            message(FATAL_ERROR "The standalone interface needs std::jthread and std::stop_token (C++20), which this "
+                                "C++ standard library does not provide. Use a newer compiler (e.g. a recent Xcode on "
+                                "macOS, GCC 11 or later on Linux, Visual Studio 2022 on Windows).")
+        endif()
+    endif()
+    unset(CMAKE_REQUIRED_LIBRARIES)
 endif()
 if(InterfaceROS2)
     # The ROS2 interface's nodes (spacetime/interface/ros2/): needs a sourced ROS2 distribution.

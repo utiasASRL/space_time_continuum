@@ -6,9 +6,9 @@
 #include <functional>
 #include <string>
 
-#include <unistd.h>
-
 #include <rclcpp/rclcpp.hpp>
+
+#include "../ProcessId.hpp"
 
 /// Helpers shared by the ROS2 interface tests (see main.cpp for the rclcpp context).
 namespace Spacetime::Ros2Tests
@@ -41,7 +41,7 @@ namespace Spacetime::Ros2Tests
     inline std::string uniqueName(const std::string &prefix)
     {
         static std::atomic<int> counter{0};
-        return prefix + "_" + std::to_string(::getpid()) + "_" + std::to_string(counter++);
+        return prefix + "_" + std::to_string(Spacetime::Testing::processId()) + "_" + std::to_string(counter++);
     }
 } // namespace Spacetime::Ros2Tests
 

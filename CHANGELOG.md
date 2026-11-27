@@ -2,6 +2,29 @@
 
 All notable changes to this repository will be documented here, with possible breaking changes highlighted. This repository is still under development, with breaking changes occurring semi-regularly. We hope to solidify the user-facing API and reduce the number of breaking changes moving forward.
 
+## Nov 27, 2026
+
+- `.github/workflows/wheels.yml` builds and tests the wheels for Linux x86_64, macOS arm64 and x86_64, and Windows AMD64 (Python 3.15 for now) when a release is published, and attaches them to the release. It can also be run by hand. To avoid running out of memory, each job builds one Python version on one platform. `ci/build_deps.py` sets how many files compile at once from the runner's available memory, and the Linux and Windows runners get extra swap or page file.
+- `ci/build_deps.py` replaces `ci/cibw_before_all.sh`. It builds Eigen, jsoncpp and GTSAM (with its Python module) on Linux, macOS and Windows. The dependencies now go under `/opt/spacetime-deps` in the manylinux container, instead of `/usr/local` and `/opt/gtsam-build`.
+
+- The code and CMake files support macOS and Windows (MSVC) as well as Linux. Neither has been tested yet, so no wheels are built for them.
+  - CMake no longer overwrites `CMAKE_CXX_FLAGS`. Flags are added per compiler, MSVC's defaults (e.g. `/EHsc`) are kept, and `MarchNative` defaults to `OFF` with MSVC.
+  - On MSVC, `estimator` publicly adds `_USE_MATH_DEFINES`, `NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `/bigobj`, `/utf-8` and `/Zc:__cplusplus`.
+  - On macOS, the deployment target defaults to 11.0, and CMake checks that `std::jthread` is available, falling back to `-fexperimental-library` if needed.
+  - Executables and the Python extension are no longer put in per-configuration subfolders on multi-config generators.
+  - `ConfigLoader` lists a data folder's CSV files with `std::filesystem` instead of `glob.h`, in the same order.
+- Thread priority is per thread on every OS (`Interface::Standalone::ThreadPriority.hpp`):
+  - `lowerCurrentThreadPriority` now returns whether it took effect.
+  - New: `currentThreadPriority`, `ScopedLowerThreadPriority`, `prioritizeEstimatorThread`, `raiseCurrentThreadToRealTime` and `ScopedTimerResolution` (1 ms timers on Windows while a real-time run is going).
+  - The standalone and ROS2 estimator threads raise themselves where the OS allows that without privileges (macOS, Windows), so the estimator stays the highest-priority thread.
+- New `Interface::Viewer` and `Interface::ViewerSession`. Every `Spacetime::Session` can run a viewer: `session.start(estimator, viewer); session.join();` shows it until it is closed, and closing it stops the session. An online viewer plays while estimating; an offline one replays the run afterwards. `joinEstimation()` waits for estimation only, e.g. to report results before the replay. Python has the same API: `session.start(estimator, visualizer)`. `interface.Viewer` can be subclassed in Python.
+- **Breaking:** `Visualization::Default::VisualizerThread` is now `VisualizerHost` (an `Interface::Viewer`), with the lifecycle `VisualizerHost(argc, argv, options, output_path, build[, mode])`, `open(on_closed)`, `beginPlayback(...)`, `run()`, `requestClose()`. These replace the constructor's `on_closed`, `waitReady()`, `join()` and `requestQuit()`. Its `HostMode` sets where Qt runs:
+  - `WorkerThread` (the default on Linux) is today's behaviour.
+  - `CallingThread` (the default on macOS, where it must be the main thread, and on Windows) runs the event loop in `run()`. The calling thread is lowered only while the window is shown.
+- **Breaking (Python):** `visualizer.Visualizer.start/beginPlayback/join` are removed. Pass the visualizer to the session instead (`session.start(estimator, window); session.join()`). `Visualizer(options, output_path, host_mode=visualizer.defaultHostMode())`. In `CallingThread` mode, Ctrl-C closes the window and `join()` raises `KeyboardInterrupt`.
+- Every session has `startTime()` (part of the `InterfaceType` concept), and in Python `joinEstimation()`, `viewerExitCode()` and `startTime()`.
+- **Breaking:** the `LogLevel` values are now `Error`, `Warning`, `Debug` and `Info`, because `<windows.h>` defines `ERROR` as a macro.
+
 ## Nov 26, 2026
 
 - Prebuilt Python wheels (Linux x86_64, e.g. for Google Colab), attached to GitHub releases: `pip install spacetime-continuum -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/<tag>`. The distribution is named `spacetime-continuum`, because `spacetime` on PyPI is an unrelated project; it is still imported as `spacetime`. A wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings, so don't also install `gtsam` from PyPI.

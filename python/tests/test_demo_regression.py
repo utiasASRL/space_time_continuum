@@ -44,7 +44,7 @@ def run_demo(command, output):
 
 @pytest.mark.parametrize("demo", DEMOS)
 def test_python_demo_matches_cpp(demo, tmp_path):
-    binary = BUILD_EXAMPLES / demo
+    binary = BUILD_EXAMPLES / (demo + (".exe" if sys.platform == "win32" else ""))
     if not binary.exists():
         pytest.skip(f"{binary} is not built")
     run_demo([str(binary)], tmp_path / "cpp")

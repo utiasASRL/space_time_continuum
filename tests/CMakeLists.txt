@@ -61,13 +61,17 @@ if (Visualizer)
         visualizer
     )
 endif()
+# $<1:...> stops multi-config generators (Visual Studio, Xcode) from adding a per-config subfolder.
+set_target_properties(tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
 gtest_discover_tests(tests)
 
 # A process holds one QApplication at a time, and the widget tests above keep one alive
-# on the main thread, whereas these create theirs on the visualizer's own thread.
+# on the main thread, whereas these create (and destroy) one per test, on the visualizer
+# host's GUI thread (see VisualizerHost's HostMode).
 if (Visualizer)
-    add_executable(visualizer_thread_tests ${CMAKE_CURRENT_SOURCE_DIR}/visualizer_thread/VisualizerThreadTests.cpp)
+    add_executable(visualizer_thread_tests ${CMAKE_CURRENT_SOURCE_DIR}/visualizer_thread/VisualizerHostTests.cpp)
     target_link_libraries(visualizer_thread_tests PRIVATE visualizer GTest::gtest_main)
+    set_target_properties(visualizer_thread_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
     gtest_discover_tests(visualizer_thread_tests)
 endif()
 # The ROS2 interface's and rviz visualization's tests, run by their own main (tests/ros2/main.cpp)
@@ -81,5 +85,6 @@ if (InterfaceROS2)
     )
     add_executable(ros2_tests ${ROS2_TEST_FILES})
     target_link_libraries(ros2_tests PRIVATE ros2 rviz ${rosgraph_msgs_TARGETS} GTest::gtest)
+    set_target_properties(ros2_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
     gtest_discover_tests(ros2_tests)
 endif()

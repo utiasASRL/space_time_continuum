@@ -3,10 +3,10 @@
  * @brief The ROS2 interface, selected by Spacetime::Session<INTERFACE_ROS2>: live (or
  *        rosbag) estimation on ROS2 nodes in one process. The session runs two
  *        single-threaded executors, each on its own thread: one runs only the estimator node
- *        (at normal priority, or SCHED_FIFO with SessionRosOptions::realtime_estimator), and
- *        the other, at a lowered priority (nice + SessionRosOptions::nice_delta), runs the
- *        sensor nodes and any other node added (e.g. an rviz snapshot publisher, see
- *        spacetime/visualizer/rviz/).
+ *        (raised where the OS allows, see Standalone::prioritizeEstimatorThread, or real-time
+ *        with SessionRosOptions::realtime_estimator), and the other, at a lowered priority
+ *        (SessionRosOptions::nice_delta), runs the sensor nodes and any other node added (e.g.
+ *        an rviz snapshot publisher, see spacetime/visualizer/rviz/).
  * @author Spencer Teetaert
  */
 
@@ -42,10 +42,12 @@ namespace Spacetime::Interface::Ros2
         rclcpp::NodeOptions node_options;
         /// The estimator node is named `<node_prefix>_estimator`.
         std::string node_prefix = "spacetime";
-        /// Added to the nice value of the thread running every node but the estimator's.
+        /// How much to lower the thread running every node but the estimator's (see
+        /// Standalone::lowerCurrentThreadPriority: a nice-value increment on Linux).
         int nice_delta = 10;
-        /// Also request real-time (SCHED_FIFO) scheduling for the estimator's thread; needs the
-        /// privilege (e.g. an rtprio limit), and only warns without it.
+        /// Also request real-time scheduling for the estimator's thread (see
+        /// Standalone::raiseCurrentThreadToRealTime: SCHED_FIFO on Linux, which needs the
+        /// privilege, e.g. an rtprio limit); only warns if refused.
         bool realtime_estimator = false;
     };
 
@@ -141,6 +143,8 @@ namespace Spacetime::Interface::Ros2
         bool finished() const { return m_finished.load(); }
         /// The end time, in seconds; +infinity if SessionOptions::end_time was negative.
         double endTime() const { return mp_estimator_node->endTime(); }
+        /// The time of the first estimate (SessionOptions::start_time), in seconds.
+        double startTime() const { return mp_estimator_node->startTime(); }
         /// The current estimation time (see RosClock::now). Safe from any thread.
         double now() const { return mp_estimator_node->clock()->now(); }
         /// Always true: estimation follows the ROS clock.

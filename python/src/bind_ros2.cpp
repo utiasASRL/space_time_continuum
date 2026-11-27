@@ -17,6 +17,7 @@
 #include <spacetime/interface/ros2/WaitForTransform.hpp>
 
 #include "common.hpp"
+#include "session.hpp"
 
 namespace SpacetimePython
 {
@@ -24,34 +25,7 @@ namespace SpacetimePython
     {
         namespace Ros2 = Spacetime::Interface::Ros2;
 
-        /// A ROS2 session, stopped and joined without the GIL when Python drops it: its threads may be waiting for the GIL.
-        class Session
-        {
-        public:
-            Session(const Spacetime::Interface::SessionOptions &options, const Ros2::SessionRosOptions &ros_options)
-                : m_session(std::make_unique<Ros2::Session>(options, ros_options)) {}
-
-            ~Session()
-            {
-                py::gil_scoped_release release;
-                m_session->requestStop();
-                try
-                {
-                    m_session->join();
-                }
-                catch (...)
-                {
-                    // Already reported by join(), or abandoned with the session.
-                }
-                m_session.reset();
-            }
-
-            Ros2::Session &operator*() { return *m_session; }
-            Ros2::Session *operator->() { return m_session.get(); }
-
-        private:
-            std::unique_ptr<Ros2::Session> m_session;
-        };
+        using Session = PySession<Spacetime::Interface::INTERFACE_ROS2>;
 
         bool useSimTime(const Ros2::SessionRosOptions &options)
         {
@@ -157,15 +131,15 @@ namespace SpacetimePython
         py::class_<Ros2::SessionRosOptions>(m, "SessionRosOptions", "ROS-specific options of a Session.")
             .def(py::init<>())
             .def_readwrite("node_prefix", &Ros2::SessionRosOptions::node_prefix, "The estimator node is <node_prefix>_estimator.")
-            .def_readwrite("nice_delta", &Ros2::SessionRosOptions::nice_delta, "Added to the nice value of every node's thread but the estimator's.")
-            .def_readwrite("realtime_estimator", &Ros2::SessionRosOptions::realtime_estimator, "Request SCHED_FIFO for the estimator's thread.")
+            .def_readwrite("nice_delta", &Ros2::SessionRosOptions::nice_delta, "How much to lower the thread of every node but the estimator's (a nice-value increment on Linux).")
+            .def_readwrite("realtime_estimator", &Ros2::SessionRosOptions::realtime_estimator, "Request real-time scheduling for the estimator's thread (SCHED_FIFO on Linux, which needs the privilege); only warns if refused.")
             .def_property("use_sim_time", &useSimTime, &setUseSimTime, "Every node the session creates follows /clock (e.g. a rosbag played with --clock).");
 
-        py::class_<Session>(m, "Session",
+        py::class_<Session> session(m, "Session",
                             "Runs an estimator, given to start(), on ROS2 nodes: the estimator's node on a high-priority thread, the "
                             "sensor nodes and any other node (e.g. an rviz SnapshotPublisher) on another. Always real time: estimation follows "
-                            "the ROS clock (live, or a replayed /clock with use_sim_time). Needs init(). Dropping the session stops and joins it.")
-            .def(py::init<const Spacetime::Interface::SessionOptions &, const Ros2::SessionRosOptions &>(),
+                            "the ROS clock (live, or a replayed /clock with use_sim_time). Needs init(). Dropping the session stops and joins it. Optionally shows it in a viewer: session.start(estimator, visualizer); session.join().");
+        session.def(py::init<const Spacetime::Interface::SessionOptions &, const Ros2::SessionRosOptions &>(),
                  py::arg("options") = Spacetime::Interface::SessionOptions(), py::arg("ros_options") = Ros2::SessionRosOptions())
             .def(
                 "addPoseSensor", [](Session &self, Spacetime::Types::pMeasurementQueueType queue, const Ros2::PoseSensorOptions &options)
@@ -211,24 +185,11 @@ namespace SpacetimePython
             .def(
                 "setTickCallback", [](Session &self, std::function<void(double)> callback)
                 { self->setTickCallback(std::move(callback)); },
-                py::arg("callback"), "Calls `callback(time)` on the estimator thread after every estimate.")
-            .def("start", [](Session &self, Spacetime::Estimator &estimator)
-                 { self->start(estimator); }, py::arg("estimator"), py::call_guard<py::gil_scoped_release>(), py::keep_alive<1, 2>(),
-                 "Starts estimating with `estimator` (kept alive by the session) on the node threads. Raises ValueError for a "
-                 "non-positive period or a batch-mode estimator, RuntimeError if already started.")
-            .def("requestStop", [](Session &self)
-                 { self->requestStop(); }, "Asks the run to end as soon as possible; safe from any thread.")
-            .def("join", [](Session &self)
-                 { self->join(); }, py::call_guard<py::gil_scoped_release>(),
-                 "Waits for the run to end (end time, requestStop, or rclcpp shutdown, e.g. Ctrl-C); raises the first error raised while estimating.")
-            .def("finished", [](Session &self)
-                 { return self->finished(); }, "Whether the run has ended.")
-            .def("endTime", [](Session &self)
-                 { return self->endTime(); }, "The end time [s]: inf if SessionOptions.end_time is negative.")
-            .def("now", [](Session &self)
-                 { return self->now(); }, "The current estimation time [s] (see RosClock); safe from any thread.")
-            .def("isRealTime", [](Session &self)
-                 { return self->isRealTime(); }, "Always True.");
+                py::arg("callback"), "Calls `callback(time)` on the estimator thread after every estimate.");
+        bindSessionRun(session,
+                       "Starts estimating with `estimator` (kept alive by the session) on the node threads. Raises ValueError for a "
+                       "non-positive period or a batch-mode estimator, RuntimeError if already started. The run ends at the end time, "
+                       "on requestStop, or on rclcpp shutdown (e.g. Ctrl-C).");
 
         m.def(
             "waitForTransform", [](const std::string &parent, const std::string &child, double timeout)

@@ -1,15 +1,18 @@
 #!/bin/bash
 # Builds the spacetime-continuum wheel(s) in Docker with cibuildwheel, using the
-# [tool.cibuildwheel] settings of pyproject.toml (which runs ci/cibw_before_all.sh in the
+# [tool.cibuildwheel] settings of pyproject.toml (which runs ci/build_deps.py in the
 # manylinux container to build Eigen, jsoncpp and GTSAM). One Python version per cibuildwheel
 # run, because GTSAM's Python module is built for that version in before-all.
 #
 # Usage: ci/build_wheels.sh [python version...]   (default: 3.13, Google Colab's)
-#   e.g. ci/build_wheels.sh 3.10 3.11 3.12 3.13
+#   e.g. ci/build_wheels.sh 3.10 3.11 3.12 3.13 3.14 3.15
 # Needs: Docker, git, python3 (with venv).
 # Environment: WORK_DIR (default: <repo>/local_testing, gitignored) holds the outputs;
-#   CIBW_JOBS (default: nproc) build parallelism; GTSAM_WRAP_JOBS overrides the number of
-#   parallel GTSAM wrapper compiles (several GB of memory each, see ci/cibw_before_all.sh).
+#   CIBW_JOBS (default: nproc) build parallelism; GTSAM_JOBS / GTSAM_WRAP_JOBS override the number
+#   of parallel libgtsam / GTSAM wrapper compiles (otherwise picked from the available memory, see
+#   ci/build_deps.py), and CMAKE_BUILD_PARALLEL_LEVEL bounds the extension's.
+# The same build runs on GitHub (Linux, macOS, Windows) when a release is published: see
+# .github/workflows/wheels.yml.
 # Output: $WORK_DIR/wheelhouse/spacetime_continuum-*.whl, logs in $WORK_DIR/logs.
 #
 # The build runs on a clean copy of the repository (tracked + untracked-but-not-ignored files,
@@ -26,11 +29,13 @@ mkdir -p "$WORK_DIR"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
 
 # cibuildwheel in its own venv.
-if [ ! -x "$WORK_DIR/.venv/bin/cibuildwheel" ]; then
+# Upgraded on every run, so an existing venv does not keep an older cibuildwheel (each release
+# only knows the Python versions and manylinux images of its time).
+if [ ! -x "$WORK_DIR/.venv/bin/python" ]; then
     python3 -m venv "$WORK_DIR/.venv"
     "$WORK_DIR/.venv/bin/pip" install -q --upgrade pip
-    "$WORK_DIR/.venv/bin/pip" install -q "cibuildwheel>=2.21,<3"
 fi
+"$WORK_DIR/.venv/bin/pip" install -q --upgrade "cibuildwheel>=4.3,<5"
 
 # Clean source snapshot.
 rm -rf "$WORK_DIR/src"

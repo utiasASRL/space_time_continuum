@@ -33,10 +33,15 @@
  *        - `void join()`: blocks until the run has ended (reached the end time, or stopped),
  *          and rethrows the first error raised while running.
  *        - `bool finished() const`: true once the run has ended.
+ *        - `double startTime() const`: the time of the first estimate (SessionOptions::start_time).
  *        - `double endTime() const`: the end time actually used (see SessionOptions::end_time). Valid after start().
  *        - `double now() const`: the current estimation time, e.g. a visualizer's live time
  *          source. Safe to call from any thread.
  *        - `bool isRealTime() const`: whether estimation follows a real-time clock.
+ *
+ *        Interface::Session (Interfaces.hpp) adds, for every interface, `start(Estimator &,
+ *        Viewer &)`, `joinEstimation()` and a `join()` that also runs that viewer (see
+ *        ViewerSession.hpp), built on the hooks above.
  * @author Spencer Teetaert
  */
 
@@ -90,6 +95,7 @@ namespace Spacetime::Interface
             { session.requestStop() } -> std::same_as<void>;
             { session.join() } -> std::same_as<void>;
             { const_session.finished() } -> std::convertible_to<bool>;
+            { const_session.startTime() } -> std::convertible_to<double>;
             { const_session.endTime() } -> std::convertible_to<double>;
             { const_session.now() } -> std::convertible_to<double>;
             { const_session.isRealTime() } -> std::convertible_to<bool>;

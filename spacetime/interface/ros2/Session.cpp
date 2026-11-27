@@ -3,9 +3,6 @@
 #include <cstring>
 #include <stdexcept>
 
-#include <pthread.h>
-#include <sched.h>
-
 #include <spacetime/interface/standalone/ThreadPriority.hpp>
 
 #include "Interface.hpp"
@@ -16,15 +13,6 @@ namespace Spacetime::Interface::Ros2
     {
         /// How long an executor thread waits for work before checking for a stop.
         constexpr auto kSpinTimeout = std::chrono::milliseconds(50);
-
-        /// Asks for real-time (SCHED_FIFO) scheduling of the calling thread; returns an error message, empty on success.
-        std::string raiseToRealTime()
-        {
-            sched_param param{};
-            param.sched_priority = std::max(1, sched_get_priority_min(SCHED_FIFO) + 10);
-            const int result = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
-            return result == 0 ? std::string() : std::string(std::strerror(result));
-        }
     } // namespace
 
     Session::Session(const Interface::SessionOptions &options, const SessionRosOptions &ros_options)
@@ -113,9 +101,14 @@ namespace Spacetime::Interface::Ros2
 
         m_estimator_thread = std::jthread([this]()
                                           {
-            if (m_ros_options.realtime_estimator)
-                if (const std::string error = raiseToRealTime(); !error.empty())
-                    RCLCPP_WARN(mp_estimator_node->get_logger(), "Could not schedule the estimator thread in real time (SCHED_FIFO): %s.", error.c_str());
+            // The highest-priority thread of the session (see ThreadPriority.hpp).
+            if (!m_ros_options.realtime_estimator)
+                Standalone::prioritizeEstimatorThread();
+            else if (const std::string error = Standalone::raiseCurrentThreadToRealTime(); !error.empty())
+            {
+                Standalone::prioritizeEstimatorThread();
+                RCLCPP_WARN(mp_estimator_node->get_logger(), "Could not schedule the estimator thread in real time: %s.", error.c_str());
+            }
             while (!m_stop.load() && rclcpp::ok())
                 m_estimator_executor.spin_once(kSpinTimeout);
             // Also ends the other nodes' thread, e.g. once the end time is reached or on shutdown.

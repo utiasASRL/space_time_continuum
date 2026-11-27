@@ -36,6 +36,7 @@
 #include <spacetime/interface/EstimationSchedule.hpp>
 #include <spacetime/interface/EstimatorDriver.hpp>
 #include <spacetime/interface/standalone/Clock.hpp>
+#include <spacetime/interface/standalone/ThreadPriority.hpp>
 #include <spacetime/interface/standalone/ThreadedDataloader.hpp>
 
 namespace Spacetime::Interface::Standalone
@@ -188,6 +189,13 @@ namespace Spacetime::Interface::Standalone
         /// Body of the estimator thread: the estimate loop, finalize, then stops and joins the dataloader threads.
         void estimatorThread(Interface::EstimationSchedule &schedule, Interface::EstimatorDriver &driver, bool synchronize)
         {
+            // The highest-priority spacetime thread (see ThreadPriority.hpp), and in real time,
+            // woken on time by the clock (Windows' default timer resolution is ~15.6 ms).
+            prioritizeEstimatorThread();
+            std::optional<ScopedTimerResolution> timer_resolution;
+            if (schedule.isRealTime())
+                timer_resolution.emplace();
+
             guarded([&]()
                     {
                 estimateLoop(schedule, driver, synchronize, m_stop.get_token());

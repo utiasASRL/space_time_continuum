@@ -9,10 +9,11 @@
 #define CONFIGLOADER_HPP
 
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
 #include <initializer_list>
 #include <utility>
 #include <vector>
-#include <glob.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -743,6 +744,53 @@ namespace Spacetime::Utilities
         }
 
     private:
+        /**
+         * @brief The "<data_dir>/<name>.csv" files (as glob("<data_dir>/*.csv") would list them: in
+         *        byte order of their names, without hidden files), into `files`. A leading `~` in
+         *        `data_dir` is the home directory ($HOME, or %USERPROFILE% on Windows).
+         * @return false, with a message, if `data_dir` cannot be listed or holds no CSV file.
+         */
+        static bool listCsvFiles(std::string data_dir, std::vector<std::string> &files)
+        {
+            if (!data_dir.empty() && data_dir[0] == '~' && (data_dir.size() == 1 || data_dir[1] == '/' || data_dir[1] == '\\'))
+            {
+                const char *home = std::getenv("HOME");
+#ifdef _WIN32
+                if (!home)
+                    home = std::getenv("USERPROFILE");
+#endif
+                if (home)
+                    data_dir = std::string(home) + data_dir.substr(1);
+            }
+
+            std::vector<std::string> names;
+            std::error_code list_error;
+            for (std::filesystem::directory_iterator it(data_dir, list_error), end; !list_error && it != end; it.increment(list_error))
+            {
+                const std::filesystem::path &path = it->path();
+                const std::string name = path.filename().string();
+                std::error_code type_error;
+                if (name.empty() || name[0] == '.' || path.extension() != ".csv" || it->is_directory(type_error))
+                    continue;
+                names.push_back(name);
+            }
+            if (list_error)
+            {
+                error() << "Listing the CSV files in " << data_dir << " failed: " << list_error.message() << ".";
+                return false;
+            }
+            if (names.empty())
+            {
+                warning() << "No CSV files found in: " << data_dir;
+                return false;
+            }
+            std::sort(names.begin(), names.end());
+            files.clear();
+            for (const std::string &name : names)
+                files.push_back(data_dir + "/" + name);
+            return true;
+        }
+
         /// The "prior.<type>" subsection, if present.
         bool readPriorSubsection(const std::string &type, Json::Value &out) const
         {
@@ -958,7 +1006,7 @@ namespace Spacetime::Utilities
          * @param R_aurora,R_gyro,R_strain,R_accelerometer Measurement covariance given to
          *        every row of that sensor type, in GTSAM [rotational, translational] order.
          * @param accelerometer_options Options of every accelerometer built.
-         * @return false if globbing `data_dir` fails, including when it holds no CSV file.
+         * @return false if `data_dir` (a leading `~` is the home directory) cannot be listed or holds no CSV file.
          *         Files without a "<label>,<type>" first line, and rows with the wrong number of
          *         values for their sensor type, are skipped with a warning.
          */
@@ -981,27 +1029,14 @@ namespace Spacetime::Utilities
             const Spacetime::Sensors::AccelerometerOptions &accelerometer_options = Spacetime::Sensors::AccelerometerOptions()) const
         {
             using ValuesT = typename PriorT::ValuesType;
-            std::string glob_path = data_dir + "/*.csv";
-            info() << "Loading data from: " << glob_path;
+            info() << "Loading data from: " << data_dir << "/*.csv";
 
-            glob_t glob_result;
-            memset(&glob_result, 0, sizeof(glob_result));
-
-            int return_value = glob(glob_path.c_str(), GLOB_TILDE, NULL, &glob_result);
-
-            if (return_value != 0)
-            {
-                if (return_value == GLOB_NOMATCH)
-                    warning() << "No CSV files found in: " << data_dir;
-                else
-                    error() << "Listing the CSV files in " << data_dir << " failed (glob error " << return_value << ").";
-                globfree(&glob_result);
+            std::vector<std::string> csv_files;
+            if (!listCsvFiles(data_dir, csv_files))
                 return false;
-            }
 
-            for (size_t i = 0; i < glob_result.gl_pathc; ++i)
+            for (const std::string &file_path : csv_files)
             {
-                std::string file_path = std::string(glob_result.gl_pathv[i]);
 
                 CSVReader reader(file_path);
                 info() << "Opening: " << file_path;
@@ -1186,8 +1221,6 @@ namespace Spacetime::Utilities
 
                 info() << "Loaded " << sensor->size() << " measurements for sensor type: " << sensor_type;
             }
-
-            globfree(&glob_result);
 
             // Enforce measurements are in chronological order
             // std::sort(measurements.begin(), measurements.end(), [](const std::shared_ptr<Spacetime::Factors::MeasurementFactor> &a, const std::shared_ptr<Spacetime::Factors::MeasurementFactor> &b)

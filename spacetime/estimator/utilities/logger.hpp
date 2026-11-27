@@ -33,20 +33,20 @@
 #define SPACETIME_ENABLE_DEBUG_LOG 0
 #endif
 
-/// Severity of a log message.
+/// Severity of a log message. (Not ERROR, ..., which <windows.h> defines as macros.)
 enum class LogLevel
 {
-    ERROR,   ///< Printed in red as "[ERROR]".
-    WARNING, ///< Printed in orange as "[WARNING]".
-    DEBUG,   ///< Printed in yellow as "[DEBUG]"; dropped unless SPACETIME_ENABLE_DEBUG_LOG.
-    INFO     ///< Printed in white as "[INFO]".
+    Error,   ///< Printed in red as "[ERROR]".
+    Warning, ///< Printed in orange as "[WARNING]".
+    Debug,   ///< Printed in yellow as "[DEBUG]"; dropped unless SPACETIME_ENABLE_DEBUG_LOG.
+    Info     ///< Printed in white as "[INFO]".
 };
 
 /// ANSI color code for `level` ("" for DEBUG when debug logging is compiled out).
 inline std::string levelColor(LogLevel level)
 {
 #if !SPACETIME_ENABLE_DEBUG_LOG
-    if (level == LogLevel::DEBUG)
+    if (level == LogLevel::Debug)
     {
         return "";
     }
@@ -54,13 +54,13 @@ inline std::string levelColor(LogLevel level)
 
     switch (level)
     {
-    case LogLevel::ERROR:
+    case LogLevel::Error:
         return COLOR_RED;
-    case LogLevel::WARNING:
+    case LogLevel::Warning:
         return COLOR_ORANGE;
-    case LogLevel::DEBUG:
+    case LogLevel::Debug:
         return COLOR_YELLOW;
-    case LogLevel::INFO:
+    case LogLevel::Info:
         return COLOR_WHITE;
     }
     return COLOR_RESET;
@@ -70,7 +70,7 @@ inline std::string levelColor(LogLevel level)
 inline std::string levelLabel(LogLevel level)
 {
 #if !SPACETIME_ENABLE_DEBUG_LOG
-    if (level == LogLevel::DEBUG)
+    if (level == LogLevel::Debug)
     {
         return "";
     }
@@ -78,13 +78,13 @@ inline std::string levelLabel(LogLevel level)
 
     switch (level)
     {
-    case LogLevel::ERROR:
+    case LogLevel::Error:
         return "[ERROR]";
-    case LogLevel::WARNING:
+    case LogLevel::Warning:
         return "[WARNING]";
-    case LogLevel::DEBUG:
+    case LogLevel::Debug:
         return "[DEBUG]";
-    case LogLevel::INFO:
+    case LogLevel::Info:
         return "[INFO]";
     }
     return "[LOG]";
@@ -97,7 +97,7 @@ class Logger
 public:
     /// Print the level's color and label now (unless it is a disabled DEBUG logger).
     Logger(LogLevel level)
-        : level_(level), enabled_(!(level == LogLevel::DEBUG && !SPACETIME_ENABLE_DEBUG_LOG))
+        : level_(level), enabled_(!(level == LogLevel::Debug && !SPACETIME_ENABLE_DEBUG_LOG))
     {
         if (enabled_)
         {
@@ -142,7 +142,7 @@ private:
 inline void logMessage(LogLevel level, const std::string &msg)
 {
 #if !SPACETIME_ENABLE_DEBUG_LOG
-    if (level == LogLevel::DEBUG)
+    if (level == LogLevel::Debug)
     {
         return;
     }
@@ -154,23 +154,23 @@ inline void logMessage(LogLevel level, const std::string &msg)
 
 // --- Stream-style factories ---
 /// An ERROR Logger; stream into it, e.g. `error() << "x = " << x;`.
-inline Logger error() { return Logger(LogLevel::ERROR); }
+inline Logger error() { return Logger(LogLevel::Error); }
 /// A WARNING Logger.
-inline Logger warning() { return Logger(LogLevel::WARNING); }
+inline Logger warning() { return Logger(LogLevel::Warning); }
 /// A DEBUG Logger (silent unless SPACETIME_ENABLE_DEBUG_LOG).
-inline Logger debug() { return Logger(LogLevel::DEBUG); }
+inline Logger debug() { return Logger(LogLevel::Debug); }
 /// An INFO Logger.
-inline Logger info() { return Logger(LogLevel::INFO); }
+inline Logger info() { return Logger(LogLevel::Info); }
 
 // --- Function-style helpers ---
 /// logMessage at ERROR level.
-inline void error(const std::string &msg) { logMessage(LogLevel::ERROR, msg); }
+inline void error(const std::string &msg) { logMessage(LogLevel::Error, msg); }
 /// logMessage at WARNING level.
-inline void warning(const std::string &msg) { logMessage(LogLevel::WARNING, msg); }
+inline void warning(const std::string &msg) { logMessage(LogLevel::Warning, msg); }
 /// logMessage at DEBUG level.
-inline void debug(const std::string &msg) { logMessage(LogLevel::DEBUG, msg); }
+inline void debug(const std::string &msg) { logMessage(LogLevel::Debug, msg); }
 /// logMessage at INFO level.
-inline void info(const std::string &msg) { logMessage(LogLevel::INFO, msg); }
+inline void info(const std::string &msg) { logMessage(LogLevel::Info, msg); }
 
 // --- Redirected stream mode ---
 /**
@@ -231,16 +231,16 @@ inline void startCapture(LogLevel level)
 }
 
 /// Start capturing std::cout at ERROR level (see RedirectLogger) until logReset(). An active capture is ended first.
-inline void errorStart() { startCapture(LogLevel::ERROR); }
+inline void errorStart() { startCapture(LogLevel::Error); }
 /// As errorStart, at WARNING level.
-inline void warningStart() { startCapture(LogLevel::WARNING); }
+inline void warningStart() { startCapture(LogLevel::Warning); }
 /// As errorStart, at DEBUG level (no-op unless SPACETIME_ENABLE_DEBUG_LOG).
 inline void debugStart()
 {
 #if SPACETIME_ENABLE_DEBUG_LOG
-    startCapture(LogLevel::DEBUG);
+    startCapture(LogLevel::Debug);
 #endif
 }
 /// As errorStart, at INFO level.
-inline void infoStart() { startCapture(LogLevel::INFO); }
+inline void infoStart() { startCapture(LogLevel::Info); }
 #endif // LOGGER_H

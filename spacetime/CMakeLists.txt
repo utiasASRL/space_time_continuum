@@ -27,6 +27,19 @@ target_link_libraries(estimator
     JsonCpp::JsonCpp
 )
 target_compile_definitions(estimator PUBLIC SPACETIME_ENABLE_DEBUG_LOG=${SPACETIME_DEBUG_LOG})
+# MSVC, also for everything built against spacetime: M_PI (used in headers), no min/max macros
+# from <windows.h> (std::min/std::max), large objects (GTSAM/Eigen templates), UTF-8 sources,
+# and a __cplusplus that reports the language version.
+target_compile_definitions(estimator PUBLIC
+    $<$<CXX_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
+    $<$<CXX_COMPILER_ID:MSVC>:NOMINMAX>
+    $<$<CXX_COMPILER_ID:MSVC>:WIN32_LEAN_AND_MEAN>
+)
+target_compile_options(estimator PUBLIC
+    $<$<CXX_COMPILER_ID:MSVC>:/bigobj>
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
+    $<$<CXX_COMPILER_ID:MSVC>:/Zc:__cplusplus>
+)
 add_library(spacetime::estimator ALIAS estimator)
 
 # The interface layer (header-only, the files directly in spacetime/interface/): the
@@ -61,6 +74,12 @@ if(InterfaceStandalone)
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
     target_link_libraries(standalone PUBLIC interface Threads::Threads)
+    if(WIN32)
+        # timeBeginPeriod (see ThreadPriority.hpp's ScopedTimerResolution).
+        target_link_libraries(standalone PRIVATE winmm)
+    endif()
+    # Its headers use std::jthread/std::stop_token (see the probe in the top-level CMakeLists.txt).
+    target_compile_options(standalone PUBLIC ${SPACETIME_JTHREAD_FLAGS})
     target_compile_definitions(standalone PUBLIC SPACETIME_INTERFACE_STANDALONE=1)
     add_library(spacetime::standalone ALIAS standalone)
 endif()
@@ -184,7 +203,7 @@ if(Visualizer)
         Qt6::OpenGLWidgets
         # The object views are header-only templates over the estimator/sensor types.
         estimator
-        # Thread priority, for the visualizer's own thread (see default/VisualizerThread).
+        # Thread priority, for the visualizer's GUI thread (see default/VisualizerHost).
         standalone
         PRIVATE
         gtsam

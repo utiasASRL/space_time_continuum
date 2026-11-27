@@ -1,0 +1,129 @@
+# Builds the spacetime-continuum wheels for Linux (x86_64), macOS (arm64 and x86_64) and Windows
+# (AMD64) with cibuildwheel (pyproject.toml), tests each with python/tests, and attaches them to
+# the release that triggered the run. Run it by hand (Actions > wheels > Run workflow) to build
+# without a release: the wheels are then only uploaded as workflow artifacts.
+#
+# Memory: GTSAM is built from source in every job (ci/build_deps.py), and its Python wrapper's
+# translation units need several GB each, so one compile per CPU runs a runner out of memory
+# (the job is killed with exit code 137 / "The runner has received a shutdown signal"). Each job
+# therefore builds one Python version on one platform; ci/build_deps.py picks how many compiles
+# run at once from the memory the runner has (one libgtsam compile per GTSAM_GB, one wrapper
+# compile per GTSAM_WRAP_GB); CMAKE_BUILD_PARALLEL_LEVEL bounds the extension's own compiles; and
+# the Linux and Windows runners get extra swap / page file to absorb peaks.
+#
+# Install a wheel with e.g.
+#   pip install spacetime-continuum -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/<tag>
+name: wheels
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: cp${{ matrix.python }} ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add the other versions here (and keep each in its own job: see the memory note above).
+        python: ["3.15"]
+        platform:
+          # GitHub-hosted runner sizes: Linux and Windows 4 CPUs / 16 GB; macos-15 (arm64) 3 CPUs / 7 GB;
+          # macos-15-intel 4 CPUs / 14 GB. *_gb: memory per compile (MSVC needs more than GCC/Clang).
+          - { name: Linux x86_64, os: ubuntu-24.04, build: manylinux_x86_64, gtsam_gb: 2, wrap_gb: 6, extension_jobs: 2 }
+          - { name: macOS arm64, os: macos-15, build: macosx_arm64, gtsam_gb: 2, wrap_gb: 5, extension_jobs: 1 }
+          - { name: macOS x86_64, os: macos-15-intel, build: macosx_x86_64, gtsam_gb: 2, wrap_gb: 6, extension_jobs: 2 }
+          - { name: Windows AMD64, os: windows-2025, build: win_amd64, gtsam_gb: 3, wrap_gb: 8, extension_jobs: 2 }
+    env:
+      CIBW_PYTHON: ${{ matrix.python }}
+      GTSAM_GB: ${{ matrix.platform.gtsam_gb }}
+      GTSAM_WRAP_GB: ${{ matrix.platform.wrap_gb }}
+      CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.platform.extension_jobs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the wheel to build
+        run: |
+          tag="cp${CIBW_PYTHON//./}"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "CIBW_BUILD=$tag-${{ matrix.platform.build }}" >> "$GITHUB_ENV"
+
+      - name: Add swap (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo fallocate -l 12G /swapfile-wheels
+          sudo chmod 600 /swapfile-wheels
+          sudo mkswap /swapfile-wheels
+          sudo swapon /swapfile-wheels
+          free -h
+
+      - name: Enlarge the page file (Windows)
+        if: runner.os == 'Windows'
+        uses: al-cheb/configure-pagefile-action@v1.4
+        with:
+          minimum-size: 16GB
+          maximum-size: 24GB
+          disk-root: "C:"
+
+      - name: Visual Studio developer environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: macOS deployment target
+        if: runner.os == 'macOS'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+
+      # On macOS and Windows, cibuildwheel's before-all (ci/build_deps.py) runs on the runner itself
+      # and builds GTSAM's Python module for this interpreter, so it must be the version being built.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+
+      - name: Install cibuildwheel
+        run: python -m pip install "cibuildwheel==4.3.5"
+
+      - name: Build and test the wheel
+        run: python -m cibuildwheel --output-dir wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ env.TAG }}-${{ matrix.platform.build }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  release:
+    name: Attach the wheels to the release
+    needs: build
+    # Every wheel that was built, even if another platform failed.
+    if: ${{ !cancelled() && github.event_name == 'release' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: wheelhouse
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          wheels=(wheelhouse/*.whl)
+          if [ ${#wheels[@]} -eq 0 ]; then echo "No wheel was built."; exit 1; fi
+          ls -la wheelhouse
+          gh release upload "${{ github.event.release.tag_name }}" "${wheels[@]}" --clobber --repo "${{ github.repository }}"

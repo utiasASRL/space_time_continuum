@@ -8,6 +8,9 @@ endif()
 
 function(add_demo target source)
     add_executable(${target} ${source})
+    # build/examples/<demo> on every generator: $<1:...> stops multi-config generators (Visual
+    # Studio, Xcode) from adding a per-config subfolder (python/tests/test_demo_regression.py looks here).
+    set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
 
     target_include_directories(${target} PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>

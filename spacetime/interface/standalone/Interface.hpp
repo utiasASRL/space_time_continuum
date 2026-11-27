@@ -87,6 +87,8 @@ namespace Spacetime::Interface::Standalone
             std::lock_guard<std::mutex> lock(m_runner_mutex);
             return mp_runner && mp_runner->finished();
         }
+        /// The time of the first estimate (SessionOptions::start_time), in seconds.
+        double startTime() const { return m_options.start_time; }
         /// The resolved end time, in seconds. Valid after start().
         double endTime() const
         {

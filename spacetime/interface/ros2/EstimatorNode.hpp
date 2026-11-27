@@ -57,6 +57,8 @@ namespace Spacetime::Interface::Ros2
          */
         void start(Estimator &estimator);
 
+        /// The time of the first estimate (SessionOptions::start_time), in seconds.
+        double startTime() const { return m_options.start_time; }
         /// The end time, in seconds: +inf if negative in the options.
         double endTime() const;
 

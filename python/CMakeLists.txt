@@ -42,8 +42,9 @@ if(InterfaceROS2)
     target_link_libraries(_spacetime PRIVATE rviz)
     target_compile_definitions(_spacetime PRIVATE SPACETIME_PYTHON_ROS2=1)
 endif()
-target_compile_options(_spacetime PRIVATE -Wno-psabi)
-set_target_properties(_spacetime PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${SPACETIME_PYTHON_PACKAGE})
+target_compile_options(_spacetime PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wno-psabi>)
+# $<1:...> stops multi-config generators (Visual Studio, Xcode) from adding a per-config subfolder.
+set_target_properties(_spacetime PROPERTIES LIBRARY_OUTPUT_DIRECTORY $<1:${SPACETIME_PYTHON_PACKAGE}>)
 
 # Copy the pure-Python sources next to the extension (re-copied whenever one changes).
 file(GLOB_RECURSE SPACETIME_PYTHON_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/spacetime/*.py)
@@ -71,7 +72,7 @@ install(TARGETS _spacetime LIBRARY DESTINATION spacetime COMPONENT python)
 install(DIRECTORY spacetime/ DESTINATION spacetime COMPONENT python
         FILES_MATCHING PATTERN "*.py" PATTERN "__pycache__" EXCLUDE)
 # Prebuilt wheels also ship GTSAM's Python module, built from the same libgtsam as _spacetime
-# (see ci/cibw_before_all.sh): SPACETIME_BUNDLE_GTSAM_PY is the gtsam package directory of
+# (see ci/build_deps.py): SPACETIME_BUNDLE_GTSAM_PY is the gtsam package directory of
 # that GTSAM build (<gtsam build>/python/gtsam). auditwheel then bundles one libgtsam for both.
 set(SPACETIME_BUNDLE_GTSAM_PY "" CACHE PATH "gtsam Python package directory to bundle into the wheel (optional)")
 if(SPACETIME_BUNDLE_GTSAM_PY)

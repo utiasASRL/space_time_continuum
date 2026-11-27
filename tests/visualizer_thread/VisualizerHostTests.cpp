@@ -1,17 +1,18 @@
 /**
  * Built as its own executable (see tests/CMakeLists.txt): a process can only have one
- * QApplication at a time, and the main test executable already keeps one alive on its
- * main thread for the widget tests, whereas these tests create theirs on a worker thread.
+ * QApplication at a time, and the main test executable already keeps one alive for the
+ * widget tests, whereas these create (and destroy) one per test, on the host's GUI thread:
+ * its own thread (HostMode::WorkerThread) or the test's (HostMode::CallingThread). Every
+ * test runs in each mode this platform supports.
  */
 #include <atomic>
 #include <iterator>
 #include <filesystem>
 #include <fstream>
 #include <chrono>
+#include <climits>
 #include <stdexcept>
 #include <thread>
-
-#include <sys/resource.h>
 
 #include <QApplication>
 #include <QLabel>
@@ -21,14 +22,22 @@
 #include <QSlider>
 #include <QTimer>
 #include <gtest/gtest.h>
+#include <gtsam/geometry/Pose3.h>
 #include <vtkLight.h>
 #include <vtkLightCollection.h>
 #include <vtkRenderer.h>
 
-#include <spacetime/visualizer/default/VisualizerThread.hpp>
+#include <spacetime/estimator/Estimator.hpp>
+#include <spacetime/estimator/prior_models/WNOA.hpp>
+#include <spacetime/estimator/sensor_models/PoseSensor.hpp>
+#include <spacetime/interface/Interfaces.hpp>
+#include <spacetime/interface/standalone/ThreadPriority.hpp>
+#include <spacetime/visualizer/default/VisualizerHost.hpp>
 #include <spacetime/visualizer/default/objects/InfoWidget.hpp>
 #include <spacetime/visualizer/default/objects/RuntimeWidget.hpp>
 
+#include "../ProcessId.hpp"
+#include "../TestEstimatorOptions.hpp"
 #include "../visualizer/VideoProbe.hpp"
 
 namespace Spacetime::Visualization::Default
@@ -39,10 +48,70 @@ namespace Spacetime::Visualization::Default
         char name[] = "visualizer_thread_tests";
         char *argv[] = {name, nullptr};
 
-        class VisualizerThreadTest : public ::testing::Test
+        using Interface::Standalone::currentThreadPriority;
+
+        /// The mode the running test hosts the visualizer in (its parameter).
+        HostMode current_mode = HostMode::WorkerThread;
+
+        /// A VisualizerHost in the running test's mode.
+        struct Host : VisualizerHost
         {
+            Host(VisualizerOptions options, std::string output_path, BuildFn build)
+                : VisualizerHost(argc, argv, std::move(options), std::move(output_path), std::move(build), current_mode) {}
+        };
+
+        class VisualizerHostTest : public ::testing::TestWithParam<HostMode>
+        {
+        public:
+            bool callingThread() const { return GetParam() == HostMode::CallingThread; }
+
         protected:
-            void SetUp() override { qputenv("QT_QPA_PLATFORM", "offscreen"); }
+            void SetUp() override
+            {
+                qputenv("QT_QPA_PLATFORM", "offscreen");
+                current_mode = GetParam();
+            }
+        };
+
+        /**
+         * Runs a test's body as the control thread. On Linux in CallingThread mode, that is a
+         * fresh thread: run() lowers its calling thread, which an unprivileged thread cannot raise
+         * back, and threads inherit their creator's priority; so lowering the test's own thread
+         * would leave every later test's threads lowered too. Elsewhere, the test's own thread
+         * (on macOS it must be: the GUI runs on the main thread).
+         */
+        template <typename Fn>
+        void asControlThread(const VisualizerHostTest &test, Fn fn)
+        {
+#if !defined(__APPLE__) && !defined(_WIN32)
+            if (test.callingThread())
+            {
+                std::thread control(fn);
+                control.join();
+                return;
+            }
+#endif
+            (void)test;
+            fn();
+        }
+
+/// A test run in each host mode, its body as the control thread (see asControlThread); `test` is the fixture.
+#define HOST_TEST(name)                                                       \
+    void name##Body(const VisualizerHostTest &test);                          \
+    TEST_P(VisualizerHostTest, name)                                          \
+    {                                                                         \
+        asControlThread(*this, [this]() { name##Body(*this); });              \
+    }                                                                         \
+    void name##Body([[maybe_unused]] const VisualizerHostTest &test)
+
+        /// Calls `fn` from another thread after `delay`, e.g. to quit a host whose run() blocks this one; joined on destruction.
+        struct Later
+        {
+            template <typename Fn>
+            Later(std::chrono::milliseconds delay, Fn fn) : thread([delay, fn]()
+                                                                   { std::this_thread::sleep_for(delay); fn(); }) {}
+            ~Later() { thread.join(); }
+            std::thread thread;
         };
 
         /// Runs `key`'s action, as a key press would (offscreen, a QShortcut never sees real key events).
@@ -72,10 +141,12 @@ namespace Spacetime::Visualization::Default
                 QApplication::quit(); });
         }
 
-        /// A scratch folder, emptied now and removed when destroyed.
+        /// A scratch folder, emptied now and removed when destroyed; named apart per host mode and process, as ctest runs tests concurrently.
         struct ScratchFolder
         {
-            explicit ScratchFolder(const std::string &name) : path(std::filesystem::temp_directory_path() / name)
+            explicit ScratchFolder(const std::string &name)
+                : path(std::filesystem::temp_directory_path() /
+                       (name + (current_mode == HostMode::WorkerThread ? "_worker_" : "_calling_") + std::to_string(Testing::processId())))
             {
                 std::filesystem::remove_all(path);
                 std::filesystem::create_directories(path);
@@ -90,124 +161,179 @@ namespace Spacetime::Visualization::Default
         }
     } // namespace
 
-    TEST_F(VisualizerThreadTest, BuildsOnItsOwnLowerPriorityThread)
+    // WorkerThread: built on the host's own thread, lowered for good; CallingThread: built on the
+    // calling thread, which is not lowered until run() shows the window.
+    HOST_TEST(BuildsOnTheGuiThreadAndOnlyLowersIt)
     {
         std::thread::id build_thread;
-        int build_nice = 0;
-        const int control_nice = getpriority(PRIO_PROCESS, 0);
+        int build_priority = 0;
+        const int control_priority = currentThreadPriority();
 
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [&](Visualizer &)
-                             {
+        Host vis(VisualizerOptions(), "", [&](Visualizer &)
+                 {
             build_thread = std::this_thread::get_id();
-            build_nice = getpriority(PRIO_PROCESS, 0); });
-        vis.waitReady();
+            build_priority = currentThreadPriority(); });
+        vis.open();
 
-        EXPECT_NE(build_thread, std::this_thread::get_id());
-        EXPECT_GT(build_nice, control_nice);
-        EXPECT_EQ(getpriority(PRIO_PROCESS, 0), control_nice); // the control thread is untouched
+        if (test.callingThread())
+        {
+            EXPECT_EQ(build_thread, std::this_thread::get_id());
+            EXPECT_EQ(build_priority, control_priority);
+        }
+        else
+        {
+            EXPECT_NE(build_thread, std::this_thread::get_id());
+            EXPECT_LT(build_priority, control_priority);
+        }
+        EXPECT_EQ(currentThreadPriority(), control_priority);
 
-        vis.requestQuit();
-        vis.join();
+        vis.requestClose();
+        vis.run();
     }
 
-    TEST_F(VisualizerThreadTest, QuitBeforePlaybackEndsTheThreadAndReportsClosed)
+    // CallingThread: the calling thread is lowered while the window runs, and restored after where the
+    // OS allows (not on Linux, where an unprivileged thread cannot raise its priority again).
+    HOST_TEST(CallingThreadIsLoweredOnlyWhileTheWindowRuns)
+    {
+        if (!test.callingThread())
+            GTEST_SKIP() << "CallingThread mode only";
+        const int control_priority = currentThreadPriority();
+        std::atomic<bool> measured{false};
+        int running_priority = control_priority;
+        Host vis(VisualizerOptions(), "", [&](Visualizer &visualizer)
+                 { QTimer::singleShot(50, &visualizer, [&]()
+                                      {
+                running_priority = currentThreadPriority();
+                measured = true;
+                QApplication::quit(); }); });
+        vis.open();
+        vis.beginPlayback(0.0, 1.0);
+        vis.run();
+
+        ASSERT_TRUE(measured.load());
+        EXPECT_LT(running_priority, control_priority);
+#if defined(__APPLE__) || defined(_WIN32)
+        EXPECT_EQ(currentThreadPriority(), control_priority);
+#endif
+    }
+
+    HOST_TEST(QuitBeforePlaybackEndsTheHostAndReportsClosed)
     {
         std::atomic<int> closed{0};
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [](Visualizer &) {}, [&]()
-                             { closed++; });
-        vis.waitReady();
+        Host vis(VisualizerOptions(), "", [](Visualizer &) {});
+        vis.open([&]()
+                 { closed++; });
         const auto start = std::chrono::steady_clock::now();
-        vis.requestQuit();
-        vis.join();
+        vis.requestClose();
+        EXPECT_EQ(vis.run(), 0);
         EXPECT_LT(secondsSince(start), 2.0);
         EXPECT_EQ(closed.load(), 1);
     }
 
-    TEST_F(VisualizerThreadTest, QuitDuringPlaybackEndsTheEventLoop)
+    HOST_TEST(QuitDuringPlaybackEndsTheEventLoop)
     {
         std::atomic<int> closed{0};
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [](Visualizer &) {}, [&]()
-                             { closed++; });
-        vis.waitReady();
+        Host vis(VisualizerOptions(), "", [](Visualizer &) {});
+        vis.open([&]()
+                 { closed++; });
         vis.beginPlayback(0.0, 1.0);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         const auto start = std::chrono::steady_clock::now();
-        vis.requestQuit();
-        EXPECT_EQ(vis.join(), 0);
+        {
+            Later quit(std::chrono::milliseconds(100), [&]()
+                       { vis.requestClose(); });
+            EXPECT_EQ(vis.run(), 0);
+        }
         EXPECT_LT(secondsSince(start), 2.0);
         EXPECT_EQ(closed.load(), 1);
     }
 
     // Quitting from the GUI itself (e.g. the q shortcut, or closing the window) tells control.
-    TEST_F(VisualizerThreadTest, QuitFromTheGuiReportsClosed)
+    HOST_TEST(QuitFromTheGuiReportsClosed)
     {
         std::atomic<int> closed{0};
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [](Visualizer &)
-                             { QTimer::singleShot(50, []()
-                                                  { QApplication::quit(); }); },
-                             [&]()
-                             { closed++; });
-        vis.waitReady();
+        Host vis(VisualizerOptions(), "", [](Visualizer &)
+                 { QTimer::singleShot(50, []()
+                                      { QApplication::quit(); }); });
+        vis.open([&]()
+                 { closed++; });
         vis.beginPlayback(0.0, 1.0);
-
-        const auto start = std::chrono::steady_clock::now();
-        while (closed.load() == 0 && secondsSince(start) < 5.0)
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        vis.run();
         EXPECT_EQ(closed.load(), 1);
-        vis.join();
     }
 
-    TEST_F(VisualizerThreadTest, BuildExceptionIsRethrownByWaitReady)
+    HOST_TEST(BuildExceptionIsRethrownByOpen)
     {
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [](Visualizer &)
-                             { throw std::runtime_error("build failure"); });
-        EXPECT_THROW(vis.waitReady(), std::runtime_error);
-        vis.join();
+        std::atomic<int> closed{0};
+        Host vis(VisualizerOptions(), "", [](Visualizer &)
+                 { throw std::runtime_error("build failure"); });
+        EXPECT_THROW(vis.open([&]()
+                              { closed++; }),
+                     std::runtime_error);
+        EXPECT_EQ(vis.run(), 0);
+        EXPECT_EQ(closed.load(), 1);
     }
 
-    TEST_F(VisualizerThreadTest, LiveTimeSourceIsReadFromTheVisualizerThread)
+    HOST_TEST(RunWithoutPlaybackIsAnErrorOnTheCallingThread)
+    {
+        if (!test.callingThread())
+            GTEST_SKIP() << "CallingThread mode only (a worker waits for playback)";
+        Host vis(VisualizerOptions(), "", [](Visualizer &) {});
+        vis.open();
+        EXPECT_THROW(vis.run(), std::logic_error);
+        vis.requestClose();
+        vis.run();
+    }
+
+    HOST_TEST(LiveTimeSourceIsReadFromTheGuiThread)
     {
         VisualizerOptions options;
         options.online = true;
         std::atomic<bool> read{false};
         std::thread::id reader;
-        VisualizerThread vis(argc, argv, options, "", [](Visualizer &) {});
-        vis.waitReady();
+        Host vis(options, "", [](Visualizer &) {});
+        vis.open();
         vis.beginPlayback(0.0, 1.0, [&]()
                           {
             reader = std::this_thread::get_id();
             read = true;
             return 0.0; });
 
-        const auto start = std::chrono::steady_clock::now();
-        while (!read && secondsSince(start) < 5.0)
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        vis.requestQuit();
-        vis.join();
+        {
+            Later quit(std::chrono::milliseconds(0), [&]()
+                       {
+                const auto start = std::chrono::steady_clock::now();
+                while (!read && secondsSince(start) < 5.0)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                vis.requestClose(); });
+            vis.run();
+        }
         ASSERT_TRUE(read.load());
-        EXPECT_NE(reader, std::this_thread::get_id());
+        if (test.callingThread())
+            EXPECT_EQ(reader, std::this_thread::get_id());
+        else
+            EXPECT_NE(reader, std::this_thread::get_id());
     }
 
-    TEST_F(VisualizerThreadTest, DestructorQuitsAndJoins)
+    HOST_TEST(DestructorQuitsAndJoins)
     {
         const auto start = std::chrono::steady_clock::now();
         {
-            VisualizerThread vis(argc, argv, VisualizerOptions(), "", [](Visualizer &) {});
-            vis.waitReady();
+            Host vis(VisualizerOptions(), "", [](Visualizer &) {});
+            vis.open();
             vis.beginPlayback(0.0, 1.0);
         }
         EXPECT_LT(secondsSince(start), 5.0);
     }
 
     // The runtime bar is flush with the bottom of the window, with the timeline directly above it.
-    TEST_F(VisualizerThreadTest, RuntimeBarIsAtTheBottomBelowTheTimeline)
+    HOST_TEST(RuntimeBarIsAtTheBottomBelowTheTimeline)
     {
         VisualizerOptions options;
         options.show_timeline_widget = true;
         std::atomic<bool> measured{false};
         QRect bar, timeline;
-        VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+        Host vis(options, "", [&](Visualizer &visualizer)
                              {
             visualizer.addVisualizable(std::make_shared<RuntimeWidget>([]()
                                                                        { return std::shared_ptr<const EstimatorSnapshot>(); }));
@@ -219,9 +345,9 @@ namespace Spacetime::Visualization::Default
                 timeline = visualizer.findChild<TimelineWidget *>()->geometry();
                 measured = true;
                 QApplication::quit(); }); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 1.0);
-        vis.join();
+        vis.run();
 
         ASSERT_TRUE(measured.load());
         EXPECT_EQ(bar.y() + bar.height(), 600);
@@ -230,7 +356,7 @@ namespace Spacetime::Visualization::Default
     }
 
     // The runtime bar starts in sync with the (hidden by default) diagnostics panel, and H toggles both.
-    TEST_F(VisualizerThreadTest, RuntimeBarStartsHiddenAndTogglesLikeTheDiagnosticsPanel)
+    HOST_TEST(RuntimeBarStartsHiddenAndTogglesLikeTheDiagnosticsPanel)
     {
         for (const bool diagnostics : {false, true})
         {
@@ -238,7 +364,7 @@ namespace Spacetime::Visualization::Default
             options.show_diagnostics_label = diagnostics;
             std::atomic<bool> measured{false};
             bool initially = !diagnostics, toggled = diagnostics, restored = !diagnostics;
-            VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+            Host vis(options, "", [&](Visualizer &visualizer)
                                  {
                 auto widget = std::make_shared<RuntimeWidget>([]()
                                                               { return std::shared_ptr<const EstimatorSnapshot>(); });
@@ -253,9 +379,9 @@ namespace Spacetime::Visualization::Default
                     restored = bar->isVisible();
                     measured = true;
                     QApplication::quit(); }); });
-            vis.waitReady();
+            vis.open();
             vis.beginPlayback(0.0, 1.0);
-            vis.join();
+            vis.run();
 
             ASSERT_TRUE(measured.load());
             EXPECT_EQ(initially, diagnostics);
@@ -265,11 +391,11 @@ namespace Spacetime::Visualization::Default
     }
 
     // X saves exactly one screenshot per press, under <output_path>/screenshots/sample_<index>/, however many frames render in between.
-    TEST_F(VisualizerThreadTest, ScreenshotKeyWritesOneFramePerPress)
+    HOST_TEST(ScreenshotKeyWritesOneFramePerPress)
     {
         ScratchFolder output("spacetime_screenshot_test");
         std::atomic<bool> pressed{false};
-        VisualizerThread vis(argc, argv, VisualizerOptions(), output.path.string(), [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), output.path.string(), [&](Visualizer &visualizer)
                              { QTimer::singleShot(50, &visualizer, [&]()
                                                   {
                 press(visualizer, Qt::Key_X);
@@ -278,9 +404,9 @@ namespace Spacetime::Visualization::Default
                     press(visualizer, Qt::Key_X);
                     QTimer::singleShot(300, &visualizer, [&]()
                                        { pressed = true; QApplication::quit(); }); }); }); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 1.0);
-        vis.join();
+        vis.run();
 
         ASSERT_TRUE(pressed.load());
         const std::filesystem::path frames = output.path / "screenshots" / "sample_0";
@@ -290,18 +416,18 @@ namespace Spacetime::Visualization::Default
     }
 
     // With no output path (the demos' default), screenshots go under the working directory instead of the filesystem root.
-    TEST_F(VisualizerThreadTest, ScreenshotWithoutAnOutputPathWritesUnderTheWorkingDirectory)
+    HOST_TEST(ScreenshotWithoutAnOutputPathWritesUnderTheWorkingDirectory)
     {
         ScratchFolder working("spacetime_screenshot_cwd_test");
         const std::filesystem::path previous = std::filesystem::current_path();
         std::filesystem::current_path(working.path);
 
         std::atomic<bool> pressed{false};
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), "", [&](Visualizer &visualizer)
                              { screenshotOnce(visualizer, pressed); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 1.0);
-        vis.join();
+        vis.run();
         std::filesystem::current_path(previous);
 
         ASSERT_TRUE(pressed.load());
@@ -309,7 +435,7 @@ namespace Spacetime::Visualization::Default
     }
 
     // A screenshot that cannot be written is reported instead of crashing the visualizer.
-    TEST_F(VisualizerThreadTest, UnwritableOutputPathDoesNotCrash)
+    HOST_TEST(UnwritableOutputPathDoesNotCrash)
     {
         // A regular file where the output folder should be: its screenshots/ subfolder cannot be created.
         ScratchFolder scratch("spacetime_screenshot_blocker_test");
@@ -317,22 +443,22 @@ namespace Spacetime::Visualization::Default
         std::ofstream(blocker) << "not a folder";
 
         std::atomic<bool> pressed{false};
-        VisualizerThread vis(argc, argv, VisualizerOptions(), blocker.string(), [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), blocker.string(), [&](Visualizer &visualizer)
                              { screenshotOnce(visualizer, pressed); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 1.0);
-        vis.join();
+        vis.run();
 
         EXPECT_TRUE(pressed.load());
         EXPECT_TRUE(std::filesystem::is_regular_file(blocker));
     }
 
     // Info messages ("Recording video...", "Screenshot saved", ...) are left out of exported frames, but stay on screen.
-    TEST_F(VisualizerThreadTest, ExportedFramesLeaveOutTheInfoMessage)
+    HOST_TEST(ExportedFramesLeaveOutTheInfoMessage)
     {
         std::atomic<bool> measured{false};
         bool identical = false, still_shown = false;
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), "", [&](Visualizer &visualizer)
                              { QTimer::singleShot(50, &visualizer, [&]()
                                                   {
                 visualizer.playback().pause(); // a still scene, so frames only differ by the message
@@ -344,9 +470,9 @@ namespace Spacetime::Visualization::Default
                 still_shown = visualizer.findChild<QLabel *>("info_label") && visualizer.findChild<QLabel *>("info_label")->isVisible();
                 measured = true;
                 QApplication::quit(); }); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 1.0);
-        vis.join();
+        vis.run();
 
         ASSERT_TRUE(measured.load());
         EXPECT_TRUE(identical);
@@ -354,7 +480,7 @@ namespace Spacetime::Visualization::Default
     }
 
     // V (offline) steps through every estimation tick of the range and encodes one frame per tick, at 1 / period fps.
-    TEST_F(VisualizerThreadTest, VideoKeyExportsOneFramePerEstimationTick)
+    HOST_TEST(VideoKeyExportsOneFramePerEstimationTick)
     {
         if (!Spacetime::Tests::onPath("ffmpeg") || !Spacetime::Tests::onPath("ffprobe"))
             GTEST_SKIP() << "ffmpeg/ffprobe not on PATH";
@@ -362,7 +488,7 @@ namespace Spacetime::Visualization::Default
         VisualizerOptions options;
         options.estimation_period = 0.1;
         std::atomic<bool> started{false}, finished{false};
-        VisualizerThread vis(argc, argv, options, output.path.string(), [&](Visualizer &visualizer)
+        Host vis(options, output.path.string(), [&](Visualizer &visualizer)
                              {
             QTimer::singleShot(50, &visualizer, [&]()
                                {
@@ -380,9 +506,9 @@ namespace Spacetime::Visualization::Default
                 poll->start(20); });
             QTimer::singleShot(30000, &visualizer, []()
                                { QApplication::quit(); }); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 1.0);
-        vis.join();
+        vis.run();
 
         ASSERT_TRUE(started.load());
         ASSERT_TRUE(finished.load());
@@ -395,7 +521,7 @@ namespace Spacetime::Visualization::Default
     }
 
     // A live stream has no end to step to, so V is offline only.
-    TEST_F(VisualizerThreadTest, VideoKeyIsOfflineOnly)
+    HOST_TEST(VideoKeyIsOfflineOnly)
     {
         for (const bool online : {false, true})
         {
@@ -404,13 +530,13 @@ namespace Spacetime::Visualization::Default
             options.estimation_period = 0.1;
             bool bound = online;
             QString text;
-            VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+            Host vis(options, "", [&](Visualizer &visualizer)
                                  {
                 bound = isBound(visualizer, Qt::Key_V);
                 text = qobject_cast<QLabel *>(visualizer.findChild<InfoWidget *>()->widget())->text(); });
-            vis.waitReady();
-            vis.requestQuit();
-            vis.join();
+            vis.open();
+            vis.requestClose();
+            vis.run();
 
             EXPECT_EQ(bound, !online);
             EXPECT_EQ(text.contains("Record video [V]: 0"), !online) << text.toStdString();
@@ -419,7 +545,7 @@ namespace Spacetime::Visualization::Default
     }
 
     // Offline, the arrow keys step between estimation ticks; a live stream has nothing to step through, so they are unbound online.
-    TEST_F(VisualizerThreadTest, ArrowKeysStepBetweenEstimationTicksOfflineOnly)
+    HOST_TEST(ArrowKeysStepBetweenEstimationTicksOfflineOnly)
     {
         for (const bool online : {false, true})
         {
@@ -429,7 +555,7 @@ namespace Spacetime::Visualization::Default
             std::atomic<bool> measured{false};
             bool left = online, right = online;
             double after_right = -1.0, after_left = -1.0;
-            VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+            Host vis(options, "", [&](Visualizer &visualizer)
                                  { QTimer::singleShot(50, &visualizer, [&]()
                                                       {
                 left = isBound(visualizer, Qt::Key_Left);
@@ -446,9 +572,9 @@ namespace Spacetime::Visualization::Default
                 }
                 measured = true;
                 QApplication::quit(); }); });
-            vis.waitReady();
+            vis.open();
             vis.beginPlayback(0.0, 1.0);
-            vis.join();
+            vis.run();
 
             ASSERT_TRUE(measured.load());
             EXPECT_EQ(left, !online);
@@ -463,7 +589,7 @@ namespace Spacetime::Visualization::Default
 
     // Without the estimation period, the arrow keys keep stepping 1% of the range.
     // Offline, moving the timeline slider seeks playback; online, the slider is display only.
-    TEST_F(VisualizerThreadTest, TimelineSeeksOfflineOnly)
+    HOST_TEST(TimelineSeeksOfflineOnly)
     {
         for (const bool online : {false, true})
         {
@@ -473,7 +599,7 @@ namespace Spacetime::Visualization::Default
             std::atomic<bool> measured{false};
             bool ignores_mouse = !online;
             double before = -1.0, after = -1.0;
-            VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+            Host vis(options, "", [&](Visualizer &visualizer)
                                  { QTimer::singleShot(50, &visualizer, [&]()
                                                       {
                 visualizer.playback().pause();
@@ -485,9 +611,9 @@ namespace Spacetime::Visualization::Default
                 after = visualizer.playback().displayedTime();
                 measured = true;
                 QApplication::quit(); }); });
-            vis.waitReady();
+            vis.open();
             vis.beginPlayback(0.0, 2.0);
-            vis.join();
+            vis.run();
 
             ASSERT_TRUE(measured.load());
             EXPECT_EQ(ignores_mouse, online);
@@ -499,14 +625,14 @@ namespace Spacetime::Visualization::Default
     }
 
     // With a sliding window, the timeline highlights [t - window, t] behind the current time t.
-    TEST_F(VisualizerThreadTest, TimelineHighlightsTheWindowBehindTheCurrentTime)
+    HOST_TEST(TimelineHighlightsTheWindowBehindTheCurrentTime)
     {
         VisualizerOptions options;
         options.show_timeline_widget = true;
         options.estimator_window = 2.0;
         std::atomic<bool> measured{false};
         QColor in_window, before_window, after_time;
-        VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+        Host vis(options, "", [&](Visualizer &visualizer)
                              { QTimer::singleShot(50, &visualizer, [&]()
                                                   {
                 visualizer.resize(1000, 600);
@@ -523,9 +649,9 @@ namespace Spacetime::Visualization::Default
                 after_time = image.pixelColor(x(8.0), y);
                 measured = true;
                 QApplication::quit(); }); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 10.0);
-        vis.join();
+        vis.run();
 
         ASSERT_TRUE(measured.load());
         EXPECT_EQ(in_window, QColor(255, 120, 120));
@@ -534,11 +660,11 @@ namespace Spacetime::Visualization::Default
         EXPECT_NE(after_time, QColor(255, 201, 201));
     }
 
-    TEST_F(VisualizerThreadTest, ArrowKeysStepAPercentOfTheRangeWithoutAPeriod)
+    HOST_TEST(ArrowKeysStepAPercentOfTheRangeWithoutAPeriod)
     {
         std::atomic<bool> measured{false};
         double after_right = -1.0;
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), "", [&](Visualizer &visualizer)
                              { QTimer::singleShot(50, &visualizer, [&]()
                                                   {
                 visualizer.playback().pause();
@@ -547,30 +673,30 @@ namespace Spacetime::Visualization::Default
                 after_right = visualizer.playback().displayedTime();
                 measured = true;
                 QApplication::quit(); }); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 10.0);
-        vis.join();
+        vis.run();
 
         ASSERT_TRUE(measured.load());
         EXPECT_NEAR(after_right, 2.1, 1e-9);
     }
 
     // Without the estimation period the ticks are unknown: V writes nothing (and does not crash).
-    TEST_F(VisualizerThreadTest, VideoWithoutAPeriodWritesNothing)
+    HOST_TEST(VideoWithoutAPeriodWritesNothing)
     {
         ScratchFolder output("spacetime_video_no_period_test");
         std::atomic<bool> pressed{false};
         bool exporting = true;
-        VisualizerThread vis(argc, argv, VisualizerOptions(), output.path.string(), [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), output.path.string(), [&](Visualizer &visualizer)
                              { QTimer::singleShot(50, &visualizer, [&]()
                                                   {
                 press(visualizer, Qt::Key_V);
                 exporting = visualizer.exportingVideo();
                 pressed = true;
                 QApplication::quit(); }); });
-        vis.waitReady();
+        vis.open();
         vis.beginPlayback(0.0, 1.0);
-        vis.join();
+        vis.run();
 
         ASSERT_TRUE(pressed.load());
         EXPECT_FALSE(exporting);
@@ -578,18 +704,18 @@ namespace Spacetime::Visualization::Default
     }
 
     // Many instances of one view (e.g. one robot view per robot) describe their shared controls once.
-    TEST_F(VisualizerThreadTest, RepeatedControlInfoIsListedOnce)
+    HOST_TEST(RepeatedControlInfoIsListedOnce)
     {
         QString text;
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), "", [&](Visualizer &visualizer)
                              {
             for (int i = 0; i < 3; i++)
                 visualizer.addControlInfo("Adjust things [[, ]]");
             visualizer.addControlInfo("Other control [o]");
             text = qobject_cast<QLabel *>(visualizer.findChild<InfoWidget *>()->widget())->text(); });
-        vis.waitReady();
-        vis.requestQuit();
-        vis.join();
+        vis.open();
+        vis.requestClose();
+        vis.run();
 
         EXPECT_EQ(text.count("Adjust things [[, ]]"), 1);
         EXPECT_EQ(text.count("Other control [o]"), 1);
@@ -597,10 +723,10 @@ namespace Spacetime::Visualization::Default
 
     // A light kit: every light moves with the camera, one of them a headlight, so whichever side
     // of the scene the camera looks at is lit.
-    TEST_F(VisualizerThreadTest, SceneIsLitFromTheCamera)
+    HOST_TEST(SceneIsLitFromTheCamera)
     {
         int lights = 0, headlights = 0, camera_lights = 0;
-        VisualizerThread vis(argc, argv, VisualizerOptions(), "", [&](Visualizer &visualizer)
+        Host vis(VisualizerOptions(), "", [&](Visualizer &visualizer)
                              {
             vtkLightCollection *collection = visualizer.getRenderer()->GetLights();
             collection->InitTraversal();
@@ -610,9 +736,9 @@ namespace Spacetime::Visualization::Default
                 headlights += light->LightTypeIsHeadlight() ? 1 : 0;
                 camera_lights += (light->LightTypeIsHeadlight() || light->LightTypeIsCameraLight()) ? 1 : 0;
             } });
-        vis.waitReady();
-        vis.requestQuit();
-        vis.join();
+        vis.open();
+        vis.requestClose();
+        vis.run();
 
         EXPECT_GT(lights, 1);
         EXPECT_EQ(headlights, 1);
@@ -620,18 +746,18 @@ namespace Spacetime::Visualization::Default
     }
 
     // L loops an offline replay (off by default); a live stream has nothing to loop.
-    TEST_F(VisualizerThreadTest, ReplayLoopIsOfflineOnlyAndStartsOff)
+    HOST_TEST(ReplayLoopIsOfflineOnlyAndStartsOff)
     {
         for (bool online : {false, true})
         {
             VisualizerOptions options;
             options.online = online;
             QString text;
-            VisualizerThread vis(argc, argv, options, "", [&](Visualizer &visualizer)
+            Host vis(options, "", [&](Visualizer &visualizer)
                                  { text = qobject_cast<QLabel *>(visualizer.findChild<InfoWidget *>()->widget())->text(); });
-            vis.waitReady();
-            vis.requestQuit();
-            vis.join();
+            vis.open();
+            vis.requestClose();
+            vis.run();
 
             if (online)
                 EXPECT_FALSE(text.contains("Loop replay")) << text.toStdString();
@@ -639,4 +765,64 @@ namespace Spacetime::Visualization::Default
                 EXPECT_TRUE(text.contains("Loop replay [L]: 0")) << text.toStdString();
         }
     }
+    // A session running the window (online, so both run at once) keeps its estimator thread
+    // above the GUI thread, in either mode.
+    HOST_TEST(EstimatorThreadStaysAboveTheGuiThread)
+    {
+        using Pose = gtsam::Pose3;
+        using ValueType = Priors::WNOA::NodeValues<Pose>;
+        auto state = std::make_shared<Types::ContinuumRobotState<Priors::WNOA::Node<Pose>>>(1.0, 2);
+        auto prior = std::make_shared<Priors::WNOA::Prior<Pose>>(state, ValueType());
+        Estimator estimator(Testing::estimatorOptions(0.35));
+        estimator.addPrior(prior);
+        auto sensor = std::make_shared<Sensors::PoseSensor<ValueType>>(prior);
+        estimator.addSensor(sensor);
+        for (int i = 0; i <= 20; i++)
+            sensor->addMeasurement(std::make_shared<Types::MeasurementBase>(0.0, 0.05 * i, Eigen::Matrix4d::Identity().eval(),
+                                                                            (Eigen::Matrix<double, 6, 6>::Identity() * 0.01).eval(),
+                                                                            Eigen::MatrixXi::Ones(6, 1).eval()));
+
+        Interface::SessionOptions session_options;
+        session_options.start_time = 0.0;
+        session_options.end_time = 0.6;
+        session_options.period = 0.05;
+        session_options.real_time = true;
+        Interface::Session<> session(session_options);
+        std::atomic<int> estimator_priority{INT_MIN}, gui_priority{INT_MAX};
+        session.setTickCallback([&](double)
+                                { estimator_priority = currentThreadPriority(); });
+
+        VisualizerOptions options;
+        options.online = true;
+        Host vis(options, "", [&](Visualizer &visualizer)
+                 {
+            auto *poll = new QTimer(&visualizer);
+            QObject::connect(poll, &QTimer::timeout, &visualizer, [&]()
+                             {
+                gui_priority = currentThreadPriority();
+                if (session.finished())
+                    QApplication::quit(); });
+            poll->start(20);
+            QTimer::singleShot(10000, &visualizer, []()
+                               { QApplication::quit(); }); });
+        session.start(estimator, vis);
+        session.join();
+
+        ASSERT_NE(estimator_priority.load(), INT_MIN) << "no estimate";
+        ASSERT_NE(gui_priority.load(), INT_MAX) << "the window never ran";
+        EXPECT_GT(estimator_priority.load(), gui_priority.load());
+        EXPECT_TRUE(session.finished());
+    }
+
+    std::string modeName(const ::testing::TestParamInfo<HostMode> &info)
+    {
+        return info.param == HostMode::WorkerThread ? "WorkerThread" : "CallingThread";
+    }
+
+#if defined(__APPLE__)
+    // AppKit only runs on the main thread: no worker-thread GUI.
+    INSTANTIATE_TEST_SUITE_P(Modes, VisualizerHostTest, ::testing::Values(HostMode::CallingThread), modeName);
+#else
+    INSTANTIATE_TEST_SUITE_P(Modes, VisualizerHostTest, ::testing::Values(HostMode::WorkerThread, HostMode::CallingThread), modeName);
+#endif
 } // namespace Spacetime::Visualization::Default

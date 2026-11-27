@@ -1,7 +1,9 @@
 """The extension imports, and GTSAM objects cross into it as GTSAM's own Python types."""
 
+import ctypes
 import os
 import re
+import sys
 
 import gtsam
 import pytest
@@ -28,15 +30,49 @@ def test_estimator_holds_a_gtsam_fixed_lag_smoother():
     assert isinstance(estimator.getCurrentValues(), gtsam.Values)
 
 
+def loaded_libraries():
+    """The paths of the shared libraries loaded into this process, or None where unsupported."""
+    if sys.platform.startswith("linux"):
+        with open("/proc/self/maps") as maps:
+            return {line.split()[-1] for line in maps if "/" in line}
+    if sys.platform == "darwin":
+        dyld = ctypes.CDLL(None)
+        dyld._dyld_image_count.restype = ctypes.c_uint32
+        dyld._dyld_get_image_name.restype = ctypes.c_char_p
+        dyld._dyld_get_image_name.argtypes = [ctypes.c_uint32]
+        return {dyld._dyld_get_image_name(i).decode() for i in range(dyld._dyld_image_count())}
+    if sys.platform == "win32":
+        from ctypes import wintypes
+        psapi, kernel32 = ctypes.WinDLL("psapi"), ctypes.WinDLL("kernel32")
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        process = kernel32.GetCurrentProcess()
+        modules = (wintypes.HMODULE * 4096)()
+        needed = wintypes.DWORD()
+        if not psapi.EnumProcessModules(process, modules, ctypes.sizeof(modules), ctypes.byref(needed)):
+            return None
+        paths = set()
+        name = ctypes.create_unicode_buffer(32768)
+        for module in modules[: needed.value // ctypes.sizeof(wintypes.HMODULE)]:
+            if psapi.GetModuleFileNameExW(process, wintypes.HMODULE(module), name, len(name)):
+                paths.add(name.value)
+        return paths
+    return None
+
+
+# libgtsam's file name on each platform, as built or as a wheel repair tool renames it
+# (auditwheel: libgtsam-<hash>.so.<version>; delvewheel: gtsam-<hash>.dll).
+LIBGTSAM = re.compile(r"^(libgtsam(-[0-9a-f]+)?\.so|libgtsam[\w.-]*\.dylib$|gtsam(-[0-9a-f]+)?\.dll$)", re.IGNORECASE)
+
+
 def test_one_libgtsam_is_loaded():
     """GTSAM's module and ours must share one libgtsam, or GTSAM objects would cross library copies."""
-    with open("/proc/self/maps") as maps:
-        # In a wheel, auditwheel renames it to libgtsam-<hash>.so.<version>.
-        libraries = {path for path in (line.split()[-1] for line in maps)
-                     if re.match(r"libgtsam(-[0-9a-f]+)?\.so", os.path.basename(path))}
-    if not libraries:
+    libraries = loaded_libraries()
+    if libraries is None:
+        pytest.skip(f"listing the loaded libraries is not supported on {sys.platform}")
+    libgtsam = {path for path in libraries if LIBGTSAM.match(os.path.basename(path))}
+    if not libgtsam:
         pytest.skip("libgtsam is linked statically")
-    assert len(libraries) == 1, libraries
+    assert len(libgtsam) == 1, libgtsam
 
 
 @pytest.fixture

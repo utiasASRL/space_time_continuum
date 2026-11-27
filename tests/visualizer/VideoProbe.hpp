@@ -1,20 +1,21 @@
 #ifndef TESTS_VIDEOPROBE_HPP
 #define TESTS_VIDEOPROBE_HPP
 
-#include <array>
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <sstream>
 #include <string>
+
+#include <QProcess>
+#include <QStandardPaths>
+#include <QStringList>
 
 namespace Spacetime::Tests
 {
     /// Whether `program` (e.g. "ffmpeg") can be run from PATH.
     inline bool onPath(const std::string &program)
     {
-        return std::system(("command -v " + program + " > /dev/null 2>&1").c_str()) == 0;
+        return !QStandardPaths::findExecutable(QString::fromStdString(program)).isEmpty();
     }
 
     /// What ffprobe reports for a video's first stream.
@@ -29,19 +30,13 @@ namespace Spacetime::Tests
     /// Decodes `path` with ffprobe (counting every frame); nullopt if it cannot be read.
     inline std::optional<VideoInfo> probeVideo(const std::filesystem::path &path)
     {
-        const std::string command = "ffprobe -v error -select_streams v:0 -count_frames "
-                                    "-show_entries stream=nb_read_frames,width,height,r_frame_rate "
-                                    "-of default=noprint_wrappers=1 '" +
-                                    path.string() + "' 2>/dev/null";
-        FILE *pipe = popen(command.c_str(), "r");
-        if (!pipe)
+        QProcess ffprobe;
+        ffprobe.start("ffprobe", QStringList{"-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries",
+                                             "stream=nb_read_frames,width,height,r_frame_rate", "-of", "default=noprint_wrappers=1",
+                                             QString::fromStdString(path.string())});
+        if (!ffprobe.waitForFinished(-1) || ffprobe.exitStatus() != QProcess::NormalExit || ffprobe.exitCode() != 0)
             return std::nullopt;
-        std::string output;
-        std::array<char, 256> buffer{};
-        while (std::fgets(buffer.data(), buffer.size(), pipe))
-            output += buffer.data();
-        if (pclose(pipe) != 0)
-            return std::nullopt;
+        const std::string output = ffprobe.readAllStandardOutput().toStdString();
 
         VideoInfo info;
         std::istringstream lines(output);

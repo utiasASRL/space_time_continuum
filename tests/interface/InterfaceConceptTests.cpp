@@ -25,6 +25,7 @@ namespace Spacetime::Interface
             void requestStop() { stop_requested = true; }
             void join() { joined = true; }
             bool finished() const { return joined; }
+            double startTime() const { return options.start_time; }
             double endTime() const { return options.end_time; }
             double now() const { return options.start_time; }
             bool isRealTime() const { return options.real_time; }

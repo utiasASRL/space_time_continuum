@@ -113,7 +113,11 @@ The `WNOA` prior can build three kinds of factors, selected with `WNOA::PriorOpt
 
 ## Getting Started
 
-This project has been developed and tested on Ubuntu 24.04 LTS. Other Linux distributions are expected to work too. Windows and macOS are not supported: the visualizer runs Qt on a worker thread, which Qt only supports on Linux.
+This project has been developed and tested on Ubuntu 24.04 LTS. Other Linux distributions are expected to work too. The code and CMake files also support macOS (11 or later, x86_64 and arm64, with a recent Xcode) and Windows (Visual Studio 2022), but neither has been tested yet. The compiler's standard library must provide C++20's `std::jthread`, and CMake checks for it. OS-specific behaviour is kept in a few places:
+
+- **Thread priority** (`spacetime/interface/standalone/ThreadPriority.hpp`): nice values on Linux, QoS classes on macOS and thread priorities on Windows.
+- **The visualizer's GUI thread** (`Visualization::Default::HostMode`, see [Threading and interfaces](#threading-and-interfaces)): on macOS it must be the main thread.
+- **Compiler flags** (top-level `CMakeLists.txt`): `MarchNative` and `Profile` are not available with MSVC, so configure with `-DMarchNative=OFF` there. On a multi-config generator (Visual Studio, Xcode), build with `--config Release`.
 
 ### Prerequisites
 
@@ -148,20 +152,20 @@ cd space_time_continuum
 
 ```bash
 cmake -B build -DVisualizer=ON -DBuildTests=ON
-cmake --build build -j$(nproc)
+cmake --build build --config Release -j 8     # --config: Visual Studio and Xcode only
 ```
 
 | Option | Default | Effect |
 |---|---|---|
-| `Debug` | `OFF` | Debug build (`-Og -g3 -Wall -Wextra`) with debug logging. Otherwise Release (`-O3`). |
-| `MarchNative` | `ON` | Compile Release builds with `-march=native`. **Must match how GTSAM was built** (see below). |
+| `Debug` | `OFF` | Debug build (`-Og -g3 -Wall -Wextra`) with debug logging. Otherwise Release (`-O3`). On Visual Studio and Xcode, pick the configuration with `--config` instead. |
+| `MarchNative` | `ON` (`OFF` with MSVC) | Compile Release builds with `-march=native` (`-mcpu=native` on Apple Silicon). Not available with MSVC. **Must match how GTSAM was built** (see below). |
 | `Visualizer` | `ON` | Build the Qt/VTK visualizer. Requires `InterfaceStandalone`. |
 | `BuildTests` | `ON` | Build the unit tests. |
 | `InterfaceStandalone` | `ON` | Build the standalone (file playback) interface. Used by the demos. |
 | `InterfaceROS2` | `OFF` | Build the ROS2 interface and the rviz2 publisher. Requires `InterfaceStandalone`. |
 | `InterfaceMujoco` | `OFF` | Reserved; not implemented yet. |
 | `Python` | `OFF` | Build the Python bindings. Requires `InterfaceStandalone`. |
-| `Profile` | `OFF` | Add `-pg` for gprof. |
+| `Profile` | `OFF` | Add `-pg` for gprof. Not available with MSVC. |
 
 `-march=native` changes Eigen's memory alignment, so GTSAM, spacetime and any downstream project must all agree on it. A mismatch compiles fine but crashes at runtime.
 
@@ -194,8 +198,8 @@ spacetime installs as a CMake package, so other projects (e.g. the paper reprodu
 
 ```bash
 cmake -B build -DMarchNative=OFF -DVisualizer=ON
-cmake --build build -j$(nproc)
-cmake --install build --prefix <install-prefix>
+cmake --build build --config Release -j 8
+cmake --install build --config Release --prefix <install-prefix>
 ```
 
 This installs the headers to `<install-prefix>/include/spacetime`, the libraries to `<install-prefix>/lib`, and the package files to `<install-prefix>/lib/cmake/spacetime`. A downstream project then uses:
@@ -293,10 +297,17 @@ The interface layer (`spacetime/interface/`) defines what every interface builds
 | Thread | Priority | Role |
 |---|---|---|
 | Control (`main()`) | default | Owns the lifecycle: builds the models, starts, stops and joins the other threads. |
-| Estimator | default (highest) | `Standalone::EstimatorRunner`: steps the estimator once per period, paced by a `Standalone::PacingClock`. |
+| Estimator | highest: raised on macOS and Windows, default on Linux | `Standalone::EstimatorRunner`: steps the estimator once per period, paced by a `Standalone::PacingClock`. |
 | Dataloader(s) | default | One `Standalone::ThreadedDataloader` each (e.g. `Standalone::FileDataloader`), filling the models' measurement queues. |
-| Visualizer (optional, not with `--headless`) | lowered | `Visualization::Default::VisualizerThread`: owns every Qt/VTK object and reads the estimator's published snapshots. |
+| Visualizer GUI (optional, not with `--headless`) | lowered | `Visualization::Default::VisualizerHost`: owns every Qt/VTK object and reads the estimator's published snapshots. It runs on its own thread on Linux, and on the control thread on macOS and Windows (see below). |
 | Queries (optional) | lowered | Read results through `Estimator::getSnapshot()` / `waitForSnapshotNewerThan()`, or an `Interface::SnapshotHistory`. |
+
+The estimator is always the highest-priority spacetime thread. It raises itself where the OS allows that without privileges (`prioritizeEstimatorThread`, on macOS and Windows), and every other spacetime thread lowers itself (`lowerCurrentThreadPriority`).
+
+**Running a visualizer.** A session runs a viewer (any `Interface::Viewer`, e.g. the default visualizer's `VisualizerHost`) with `session.start(estimator, viewer)` and `session.join()`. `join()` shows the viewer until it is closed, and closing it stops the session. An online viewer runs while the estimator does. An offline one replays the run once estimation has ended. Call `session.joinEstimation()` first to report results before the replay. The viewer is opened before estimation starts and runs on the thread that calls `start()` and `join()`. Where its GUI thread runs depends on `Visualization::Default::HostMode`:
+
+- `WorkerThread` (the default on Linux): a thread of the host's own, lowered for good.
+- `CallingThread` (the default on macOS and Windows): the control thread. It is lowered only while the window is shown, when the estimator thread already exists, and restored afterwards. macOS only allows a GUI on the process's main thread, so there `start()` and `join()` must be called from the main thread. On Linux an unprivileged thread cannot raise its priority back, which is why Linux uses `WorkerThread`.
 
 Offline (`Standalone::SteppedClock`), the estimator steps as fast as possible and waits at each step until every dataloader has delivered its data up to that step, so results are deterministic. In real time (`Standalone::WallClock`, `SessionOptions::real_time = true`), it never waits for data.
 
@@ -315,7 +326,7 @@ Interfaces are build-time options, each implementing the layer under `spacetime/
 
 Spacetime::SessionOptions options; // start_time, end_time, period, real_time
 Spacetime::Session session(options); // the default interface; Spacetime::Session<Spacetime::INTERFACE_ROS2> for ROS2
-session.start(estimator);
+session.start(estimator);            // or session.start(estimator, viewer): see "Running a visualizer" above
 session.join();
 ```
 
@@ -388,13 +399,13 @@ The `spacetime` Python package exposes the library: the priors (`priors.wnoa`, `
 
 ```bash
 pip install -r python/requirements.txt
-./build_release.sh --python         # builds the bindings and pip-installs `spacetime` (into .venv if present, else $PYTHON or python3)
+./build_release.sh --python         # builds the bindings and pip-installs `spacetime` (into the current Python environment: python3 on PATH, or $PYTHON)
 python -m pytest python/tests       # the Python tests
 ```
 
 #### Prebuilt wheels (e.g. Google Colab)
 
-Releases on GitHub have prebuilt wheels for Linux x86_64, which is also what Google Colab runs. The release page lists which Python versions have a wheel. Nothing gets compiled when you install one:
+Releases on GitHub have prebuilt wheels for Linux x86_64 (what Google Colab runs), macOS (arm64 and x86_64) and Windows (AMD64). The release page lists which Python versions have a wheel. Nothing gets compiled when you install one:
 
 ```bash
 pip install spacetime-continuum -f https://github.com/utiasASRL/space_time_continuum/releases/expanded_assets/v1.0.0-alpha
@@ -402,7 +413,7 @@ pip install spacetime-continuum -f https://github.com/utiasASRL/space_time_conti
 
 The package is named `spacetime-continuum` and imported as `spacetime`. (`spacetime` on PyPI is an unrelated project; if it is already installed, `pip uninstall spacetime` first.) In a Colab cell, prefix the command with `%` or `!`, and restart the session if `spacetime` was imported before. The wheel bundles a `gtsam` module built from the same GTSAM 4.3.0 as the bindings (without TBB and Boost), so **don't** also `pip install gtsam`, which would replace it. The wheels are built with `MarchNative=OFF` and without the visualizer and ROS2.
 
-To build the wheels (Docker is required), run `ci/build_wheels.sh [python version...]`, which uses [cibuildwheel](https://cibuildwheel.pypa.io) with the settings in `pyproject.toml` and `ci/cibw_before_all.sh`. Then test a wheel in a fresh Colab-like container with `ci/test_fresh.sh [python version]`, which runs `ci/colab_test.ipynb` and `python/tests`, and upload the wheels from `local_testing/wheelhouse/` to the release. The default Python version for both scripts is 3.13, Colab's.
+Publishing a release on GitHub builds the wheels for every platform and attaches them to the release (`.github/workflows/wheels.yml`, which can also be run by hand from the Actions tab). To build the Linux wheels locally (Docker is required), run `ci/build_wheels.sh [python version...]`. It uses [cibuildwheel](https://cibuildwheel.pypa.io) with the settings in `pyproject.toml`, which builds the dependencies with `ci/build_deps.py`. Then test a wheel in a fresh Colab-like container with `ci/test_fresh.sh [python version]`, which runs `ci/colab_test.ipynb` and `python/tests`, and upload the wheels from `local_testing/wheelhouse/` to the release. The default Python version for both scripts is 3.13, Colab's.
 
 `pip install .` from a checkout builds the bindings from source with scikit-build-core instead. For that, GTSAM (with its Python module installed in the same environment), Eigen 3.4 and jsoncpp must be findable by CMake.
 
@@ -447,6 +458,13 @@ estimator.addActuator(tendon)
 session = Session()
 session.start(estimator)
 session.join()
+
+# To watch it, give the session a window (on macOS, from the main thread):
+window = visualizer.Visualizer(visualizer.VisualizerOptions())
+window.addPrior(prior)
+session = Session()
+session.start(estimator, window)
+session.join()  # shows the window until it is closed; Ctrl-C closes it too
 ```
 
 <br>

@@ -1,4 +1,4 @@
-"""Visualizer options and registration (the window itself is not opened here)."""
+"""Visualizer options and registration, and a session running the window (offscreen)."""
 
 import numpy as np
 import pytest
@@ -164,3 +164,59 @@ def test_joints_and_end_effectors_of_any_robot_prior_register():
         vis.addJoint(ee.joints()[0])
     with pytest.raises(TypeError):
         vis.addPrior(ee.endEffectorPrior())
+
+
+WINDOW_SCRIPT = """
+import sys, threading
+sys.path.insert(0, sys.argv[2])
+import spacetime as st
+from spacetime import visualizer
+from conftest import batch_estimator, make_wnoa_robot
+
+_, prior = make_wnoa_robot()
+estimator = batch_estimator()
+estimator.addModel(prior)
+options = st.SessionOptions()
+options.end_time = 0.5
+options.period = 0.25
+session = st.Session(options)
+window = visualizer.Visualizer(visualizer.VisualizerOptions(), host_mode=getattr(visualizer.HostMode, sys.argv[1]))
+window.addPrior(prior)
+assert isinstance(window, st.interface.Viewer)
+session.start(estimator, window)
+try:
+    window.addPrior(prior)
+    raise AssertionError("adding after Session.start must raise")
+except RuntimeError:
+    pass
+session.joinEstimation()
+assert session.finished()
+closer = threading.Timer(0.5, window.requestClose)  # as the user closing the window, from another thread
+closer.start()
+session.join()
+closer.cancel()
+assert session.viewerExitCode() == 0
+print("WINDOW-OK", flush=True)
+"""
+
+
+@pytest.mark.parametrize("host_mode", ["WorkerThread", "CallingThread"])
+def test_session_runs_the_window_until_it_is_closed(host_mode, tmp_path):
+    """In its own process: one QApplication per process, on the GUI thread the host mode picks (the main thread in CallingThread mode)."""
+    import os
+    import subprocess
+    import sys
+
+    if sys.platform == "darwin" and host_mode == "WorkerThread":
+        pytest.skip("macOS only allows a GUI on the main thread")
+    script = tmp_path / "window.py"
+    script.write_text(WINDOW_SCRIPT)
+    tests = os.path.dirname(os.path.abspath(__file__))
+    result = subprocess.run([sys.executable, str(script), host_mode, tests], capture_output=True, text=True, timeout=120,
+                            env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
+    assert "WINDOW-OK" in result.stdout, result.stdout[-2000:] + result.stderr[-2000:]
+    if result.returncode != 0 and host_mode == "WorkerThread":
+        # Known, and older than HostMode: Qt destroys its platform plugins (QObjects created on the GUI
+        # thread) at process exit, after that worker thread has ended, and reads its freed thread data.
+        pytest.xfail(f"Qt's exit-time plugin cleanup after a worker-thread GUI (exit code {result.returncode})")
+    assert result.returncode == 0, result.stderr[-2000:]
